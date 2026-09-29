@@ -1,0 +1,45 @@
+# Dependencies
+node_modules/
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Build output
+dist/
+build/
+
+# Testing/coverage
+coverage/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor/IDE
+.vscode/
+.idea/
+*.swp
+
+# Optional npm cache
+.npm
+.eslintcache
+# Playwright
+test-results/
+playwright-report/
+playwright/.cache/
+
+# Copyrighted ROM images and user disc images (supply locally, never commit)
+roms/
+discs/
+
+# Downloaded CPU test suites (scripts/fetch-test-fixtures.sh)
+test-fixtures/
