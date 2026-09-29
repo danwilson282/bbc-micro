@@ -43,3 +43,4 @@ discs/
 
 # Downloaded CPU test suites (scripts/fetch-test-fixtures.sh)
 test-fixtures/
+.playwright-mcp/
