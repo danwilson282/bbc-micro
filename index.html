@@ -4,10 +4,130 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>BBC Micro</title>
+    <!-- No favicon yet: an empty data: URL stops the browser requesting /favicon.ico (a 404). -->
+    <link rel="icon" href="data:," />
+    <style>
+      :root {
+        --bg: #f6f6f4;
+        --fg: #1d1d1b;
+        --muted: #6b6b66;
+        --panel: #ffffff;
+        --border: #d6d6d0;
+        --accent: #b3261e;
+        --changed: #ffe08a;
+        --error: #b3261e;
+        color-scheme: light;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #161614;
+          --fg: #e8e8e3;
+          --muted: #9a9a92;
+          --panel: #20201d;
+          --border: #3a3a35;
+          --accent: #ff8a80;
+          --changed: #6b5413;
+          --error: #ff8a80;
+          color-scheme: dark;
+        }
+      }
+      body {
+        margin: 0;
+        padding: 16px;
+        background: var(--bg);
+        color: var(--fg);
+        font-family: system-ui, sans-serif;
+      }
+      h1 {
+        margin: 0 0 16px;
+        font-size: 1.4rem;
+      }
+      .layout {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 16px;
+        align-items: flex-start;
+      }
+      #screen {
+        background: #000;
+        max-width: 100%;
+      }
+      #workbench {
+        flex: 1 1 560px;
+        min-width: 0;
+      }
+      .workbench-target {
+        margin: 0 0 8px;
+        color: var(--muted);
+        font-size: 0.85rem;
+      }
+      .panel {
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        padding: 8px 12px 12px;
+        margin-bottom: 16px;
+        overflow-x: auto;
+      }
+      .panel h2 {
+        margin: 0 0 8px;
+        font-size: 0.95rem;
+      }
+      .memory-nav {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        align-items: center;
+        margin-bottom: 8px;
+      }
+      .memory-message {
+        font-size: 0.85rem;
+        color: var(--muted);
+      }
+      .memory-message.error {
+        color: var(--error);
+      }
+      .memory-table {
+        border-collapse: collapse;
+        font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+        font-size: 0.85rem;
+      }
+      .memory-table th {
+        color: var(--muted);
+        font-weight: normal;
+        padding: 1px 6px 1px 2px;
+        text-align: left;
+      }
+      .memory-table td {
+        padding: 1px 3px;
+      }
+      .memory-table td.byte {
+        cursor: pointer;
+        border-radius: 3px;
+      }
+      .memory-table td.byte:hover {
+        outline: 1px solid var(--accent);
+      }
+      .memory-table td.byte.changed {
+        background: var(--changed);
+      }
+      .memory-table td.ascii {
+        padding-left: 10px;
+        white-space: pre;
+      }
+      .byte-edit {
+        width: 2.5ch;
+        font: inherit;
+        padding: 0;
+      }
+    </style>
   </head>
   <body>
     <h1>BBC Micro Model B</h1>
-    <canvas id="screen" width="640" height="512"></canvas>
+    <div class="layout">
+      <canvas id="screen" width="640" height="512"></canvas>
+      <aside id="workbench" aria-label="Workbench"></aside>
+    </div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

@@ -18,7 +18,8 @@ const GROUP = 8; // extra space after this many bytes
 // "XX " per byte, minus the trailing space, plus one for the mid-row gap: 48.
 const HEX_COLUMN_WIDTH = BYTES_PER_ROW * 3 - 1 + 1;
 
-function toAscii(byte: number): string {
+/** Printable ASCII (&20-&7E) as the character, anything else as ".". */
+export function toAscii(byte: number): string {
   return byte >= 0x20 && byte <= 0x7e ? String.fromCharCode(byte) : '.';
 }
 

@@ -36,4 +36,20 @@ export default tseslint.config(
       '@typescript-eslint/explicit-module-boundary-types': 'error',
     },
   },
+  {
+    // "The core is DOM-free": browser globals only in src/web/ and the entry
+    // point. tsconfig includes the DOM lib for the web layer, so without this
+    // rule typecheck would happily accept `document` in the CPU.
+    files: ['src/**/*.ts', 'scripts/**/*.ts'],
+    ignores: ['src/web/**', 'src/main.ts'],
+    rules: {
+      'no-restricted-globals': [
+        'error',
+        ...['document', 'window', 'navigator', 'requestAnimationFrame', 'HTMLElement'].map((name) => ({
+          name,
+          message: 'The emulator core is DOM-free. Browser code belongs in src/web/.',
+        })),
+      ],
+    },
+  },
 );
