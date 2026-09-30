@@ -13,7 +13,8 @@
     "test:e2e": "playwright test",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
-    "demo:hello": "tsx scripts/demo-hello.ts"
+    "demo:hello": "tsx scripts/demo-hello.ts",
+    "demo:numbers": "tsx scripts/demo-numbers.ts"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
