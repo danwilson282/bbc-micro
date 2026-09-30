@@ -2,7 +2,7 @@
 
 Tracks where the build is up to. The `/start-stage` and `/finish-stage` skills keep this file up to date. For what each stage involves, see [`BUILD-PLAN.md`](./BUILD-PLAN.md).
 
-**Current stage:** 01 — Numbers the machine speaks (not started)
+**Current stage:** 02 — Memory & the bus (not started)
 
 **Status values:**
 - `not started`
@@ -18,7 +18,7 @@ Tracks where the build is up to. The `/start-stage` and `/finish-stage` skills k
 | # | Stage | Status | Seen? | Branch | Doc | Notes |
 |---|---|---|---|---|---|---|
 | 00 | Tooling & conventions | done | ✅ | `stage/00-tooling` | [doc](./stages/00-tooling.md) | ESLint 10 flat config (strictTypeChecked), tsx, demo:hello, h1 heading. `.playwright-mcp/` gitignored. |
-| 01 | Numbers the machine speaks | not started | | `stage/01-numbers` | [doc](./stages/01-numbers.md) | |
+| 01 | Numbers the machine speaks | done | ✅ | `stage/01-numbers` | [doc](./stages/01-numbers.md) | `src/util/bits.ts` (+ `isValidBcd`, not in plan), `demo:numbers`. BCD helpers throw `RangeError` on invalid input. `sanity.test.ts` removed. |
 | 02 | Memory & the bus | not started | | `stage/02-memory-bus` | [doc](./stages/02-memory-bus.md) | |
 | 03 | Workbench shell | not started | | `stage/03-workbench` | [doc](./stages/03-workbench.md) | |
 
