@@ -14,7 +14,8 @@
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "demo:hello": "tsx scripts/demo-hello.ts",
-    "demo:numbers": "tsx scripts/demo-numbers.ts"
+    "demo:numbers": "tsx scripts/demo-numbers.ts",
+    "demo:hexdump": "tsx scripts/demo-hexdump.ts"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
