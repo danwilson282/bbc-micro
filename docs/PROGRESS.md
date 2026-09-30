@@ -2,7 +2,7 @@
 
 Tracks where the build is up to. The `/start-stage` and `/finish-stage` skills keep this file up to date. For what each stage involves, see [`BUILD-PLAN.md`](./BUILD-PLAN.md).
 
-**Current stage:** 02 — Memory & the bus (not started)
+**Current stage:** 03 — Workbench shell (not started)
 
 **Status values:**
 - `not started`
@@ -19,7 +19,7 @@ Tracks where the build is up to. The `/start-stage` and `/finish-stage` skills k
 |---|---|---|---|---|---|---|
 | 00 | Tooling & conventions | done | ✅ | `stage/00-tooling` | [doc](./stages/00-tooling.md) | ESLint 10 flat config (strictTypeChecked), tsx, demo:hello, h1 heading. `.playwright-mcp/` gitignored. |
 | 01 | Numbers the machine speaks | done | ✅ | `stage/01-numbers` | [doc](./stages/01-numbers.md) | `src/util/bits.ts` (+ `isValidBcd`, not in plan), `demo:numbers`. BCD helpers throw `RangeError` on invalid input. `sanity.test.ts` removed. |
-| 02 | Memory & the bus | not started | | `stage/02-memory-bus` | [doc](./stages/02-memory-bus.md) | |
+| 02 | Memory & the bus | done | ✅ | `stage/02-memory-bus` | [doc](./stages/02-memory-bus.md) | `src/memory/{bus,ram,test-bus}.ts`, `src/util/hexdump.ts`, `demo:hexdump` (ROM steps skip if `roms/` is missing). `Ram` requires a power-of-two size and mirrors. |
 | 03 | Workbench shell | not started | | `stage/03-workbench` | [doc](./stages/03-workbench.md) | |
 
 ## Part 2: The 6502 CPU
@@ -130,3 +130,5 @@ Things to come back to: questions raised during a stage, known inaccuracies, ide
 
 - Enforce the core/web split (no `document`/`window` outside `src/web/` and `src/main.ts`) with a lint rule once `src/web/` exists (Stage 03).
 - `typescript-eslint` supports TypeScript `<6.1.0`. Watch for this if TypeScript is upgraded.
+- Side-effect-free `peek(address)` for debug views: `hexdump` goes through `read()`, which would trigger device side effects on SHEILA. Needed once the workbench shows I/O memory (Stage 21+). (Stage 02)
+- Dummy bus reads (e.g. the page-crossing read in `abs,X`) aren't modelled by the instruction-stepped core. Revisit with the cycle-exact extras in Part 12. (Stage 02)
