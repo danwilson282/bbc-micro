@@ -8,10 +8,8 @@
 // UnimplementedOpcodeError. The table fills in stage by stage until Stage 17
 // completes the 151 documented opcodes.
 
+import type { AddressingMode } from './addressing';
 import type { Cpu6502 } from './cpu6502';
-
-/** How an instruction finds its operand. Stage 05 adds the other 12 modes. */
-export type AddressingMode = 'implied';
 
 export interface Opcode {
   readonly mnemonic: string;
