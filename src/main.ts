@@ -1,11 +1,13 @@
-// Browser entry point. Builds the Part 2 "CPU playground" (a flat 64K
-// TestBus, no CPU yet) and mounts the workbench beside the screen canvas.
+// Browser entry point. Builds the Part 2 "CPU playground" (a 6502 on a flat
+// 64K TestBus) and mounts the workbench beside the screen canvas.
 
+import { Cpu6502, RESET_VECTOR } from './cpu/cpu6502';
 import { TestBus } from './memory/test-bus';
-import { hex16, hex8 } from './util/bits';
-import { testBusTarget } from './web/workbench/debug-target';
+import { hex16, hex8, hi, lo } from './util/bits';
+import { playgroundTarget } from './web/workbench/debug-target';
 import { createMemoryPanel } from './web/workbench/memory-panel';
 import { createWorkbench } from './web/workbench/panel';
+import { createRegistersPanel } from './web/workbench/registers-panel';
 
 const canvas = document.querySelector<HTMLCanvasElement>('#screen');
 if (!canvas) throw new Error('Missing #screen canvas');
@@ -15,21 +17,36 @@ if (!host) throw new Error('Missing #workbench element');
 // &7C00 is where Mode 7 screen memory starts on a real Model B (AUG, memory
 // map). Nothing draws it yet, but it's a familiar place to put a message.
 const MODE7_SCREEN = 0x7c00;
+// The playground program: one page of NOPs (&EA) at &0400. The byte after it,
+// &0500, is &00 (BRK), which isn't implemented yet, so stepping off the end
+// shows the unimplemented-opcode error.
+const PROGRAM = 0x0400;
+const NOP = 0xea;
+
 const bus = new TestBus();
 bus.load(MODE7_SCREEN, Array.from('HELLO, BBC MICRO', (c) => c.charCodeAt(0)));
+bus.load(PROGRAM, new Array<number>(0x100).fill(NOP));
+// The reset vector, low byte first: &FFFC = &00, &FFFD = &04.
+bus.load(RESET_VECTOR, [lo(PROGRAM), hi(PROGRAM)]);
 
-const target = testBusTarget(bus);
+const cpu = new Cpu6502(bus);
+cpu.reset();
+
+const target = playgroundTarget(cpu, bus);
 const workbench = createWorkbench(host, target.name);
+const refreshAll = (): void => {
+  workbench.refreshAll();
+};
+workbench.add(createRegistersPanel(target, { onRun: refreshAll }));
 const memory = createMemoryPanel(target, {
-  start: MODE7_SCREEN,
-  onPoke: () => {
-    workbench.refreshAll();
-  },
+  start: PROGRAM,
+  onPoke: refreshAll,
+  pc: () => target.registers.pc,
 });
 workbench.add(memory);
 
 // A console handle for experimenting in DevTools, e.g.
-//   workbench.poke(0x7c10, 0x21)   // then watch the panel
+//   workbench.poke(0x0401, 0xa9)   // then Step twice
 Object.assign(window, {
   workbench: {
     peek: (address: number): string => `&${hex8(target.peek(address))}`,
@@ -40,6 +57,12 @@ Object.assign(window, {
     goTo: (address: number): void => {
       memory.goTo(address);
     },
-    help: `workbench.poke(0x${hex16(MODE7_SCREEN)}, 0x41), workbench.peek(addr), workbench.goTo(addr)`,
+    step: (): number => {
+      const cycles = target.step();
+      workbench.refreshAll();
+      return cycles;
+    },
+    cpu,
+    help: `workbench.poke(0x${hex16(PROGRAM)}, 0xa9), workbench.step(), workbench.peek(addr), workbench.goTo(addr), workbench.cpu.regs`,
   },
 });

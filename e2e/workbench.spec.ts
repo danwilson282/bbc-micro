@@ -10,6 +10,11 @@ function byte(page: Page, address: string): ReturnType<Page['locator']> {
 
 test.beforeEach(async ({ page }) => {
   await page.goto('/');
+  // Since Stage 04 the panel opens on the NOP program at &0400; these tests
+  // use the message at &7C00.
+  const panel = memoryPanel(page);
+  await panel.getByRole('textbox', { name: 'Go to address' }).fill('&7C00');
+  await panel.getByRole('button', { name: 'Go to address' }).click();
 });
 
 test('the memory panel shows page &7C00 with the preloaded message', async ({ page }) => {
@@ -38,7 +43,7 @@ test('an invalid byte is rejected and memory is unchanged', async ({ page }) => 
   const input = page.getByRole('textbox', { name: 'Edit byte at &7C00' });
   await input.fill('123');
   await input.press('Enter');
-  await expect(page.getByRole('status')).toContainText("isn't a byte");
+  await expect(memoryPanel(page).getByRole('status')).toContainText("isn't a byte");
   await input.press('Escape');
   await expect(byte(page, '7C00')).toHaveText('48');
 });

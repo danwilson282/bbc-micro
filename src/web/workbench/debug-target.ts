@@ -10,6 +10,8 @@
 // Part 5) satisfy this interface structurally: they just need these members,
 // and never have to import anything from src/web/.
 
+import type { Cpu6502 } from '../../cpu/cpu6502';
+import type { Registers } from '../../cpu/registers';
 import type { TestBus } from '../../memory/test-bus';
 
 export interface DebugTarget {
@@ -32,5 +34,33 @@ export function testBusTarget(bus: TestBus, name = 'CPU playground (64K TestBus)
     poke: (address, value) => {
       bus.write(address & 0xffff, value & 0xff);
     },
+  };
+}
+
+/**
+ * A target with a CPU in it. step() and reset() go through the target, not
+ * straight to the CPU, because from Part 5 a machine step also ticks devices.
+ */
+export interface CpuTarget extends DebugTarget {
+  /** The live registers. Panels read them; only step() and reset() change them. */
+  readonly registers: Readonly<Registers>;
+  /** Total CPU cycles since power-on. */
+  readonly cycles: number;
+  /** Runs one instruction and returns its cycles. May throw UnimplementedOpcodeError. */
+  step(): number;
+  /** Runs the reset sequence and returns its cycles. */
+  reset(): number;
+}
+
+/** The Part 2 playground: a 6502 on a flat 64K TestBus. */
+export function playgroundTarget(cpu: Cpu6502, bus: TestBus, name = 'CPU playground (6502 on a 64K TestBus)'): CpuTarget {
+  return {
+    ...testBusTarget(bus, name),
+    registers: cpu.regs,
+    get cycles() {
+      return cpu.cycles;
+    },
+    step: () => cpu.step(),
+    reset: () => cpu.reset(),
   };
 }
