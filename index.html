@@ -16,6 +16,8 @@
         --accent: #b3261e;
         --changed: #ffe08a;
         --error: #b3261e;
+        --flag-on: #2e7d32;
+        --flag-on-fg: #ffffff;
         color-scheme: light;
       }
       @media (prefers-color-scheme: dark) {
@@ -28,6 +30,8 @@
           --accent: #ff8a80;
           --changed: #6b5413;
           --error: #ff8a80;
+          --flag-on: #66bb6a;
+          --flag-on-fg: #0b1f0c;
           color-scheme: dark;
         }
       }
@@ -111,6 +115,10 @@
       .memory-table td.byte.changed {
         background: var(--changed);
       }
+      .memory-table td.byte.pc {
+        outline: 2px solid var(--accent);
+        outline-offset: -1px;
+      }
       .memory-table td.ascii {
         padding-left: 10px;
         white-space: pre;
@@ -119,6 +127,72 @@
         width: 2.5ch;
         font: inherit;
         padding: 0;
+      }
+      .registers-table {
+        border-collapse: collapse;
+        font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+        font-size: 0.9rem;
+      }
+      .registers-table th {
+        text-align: left;
+        padding: 1px 12px 1px 2px;
+        color: var(--muted);
+        font-weight: normal;
+      }
+      .registers-table td {
+        padding: 1px 12px 1px 2px;
+      }
+      .registers-table td.detail {
+        color: var(--muted);
+      }
+      .registers-table tr.changed td.value {
+        background: var(--changed);
+      }
+      .flags {
+        display: flex;
+        gap: 4px;
+        margin: 8px 0;
+        font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+      }
+      .flag {
+        display: inline-block;
+        width: 1.8em;
+        text-align: center;
+        padding: 2px 0;
+        border: 1px solid var(--border);
+        border-radius: 4px;
+        color: var(--muted);
+      }
+      .flag.on {
+        background: var(--flag-on);
+        border-color: var(--flag-on);
+        color: var(--flag-on-fg);
+      }
+      .flag.not-stored {
+        border-style: dashed;
+        opacity: 0.55;
+      }
+      .flag.changed {
+        outline: 2px solid var(--changed);
+      }
+      .cpu-line {
+        margin: 4px 0;
+        font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+        font-size: 0.85rem;
+      }
+      .cpu-controls {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        align-items: center;
+        margin-top: 8px;
+      }
+      .cpu-message {
+        font-size: 0.85rem;
+        color: var(--muted);
+      }
+      .cpu-message.error {
+        color: var(--error);
       }
     </style>
   </head>

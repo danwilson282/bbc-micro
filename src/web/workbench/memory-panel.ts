@@ -9,6 +9,7 @@
 
 import { hex16, hex8 } from '../../util/bits';
 import type { DebugTarget } from './debug-target';
+import { button } from './dom';
 import {
   BYTES_PER_ROW,
   ROWS_PER_PAGE,
@@ -26,6 +27,8 @@ export interface MemoryPanelOptions {
   readonly start: number;
   /** Called after a successful poke, so every panel can redraw. */
   readonly onPoke: () => void;
+  /** If given, the byte at the CPU's PC is outlined. */
+  readonly pc?: () => number;
 }
 
 export function createMemoryPanel(target: DebugTarget, options: MemoryPanelOptions): Panel & {
@@ -71,7 +74,7 @@ export function createMemoryPanel(target: DebugTarget, options: MemoryPanelOptio
   }
 
   function refresh(): void {
-    const view = buildMemoryView(target, start, ROWS_PER_PAGE, previous);
+    const view = buildMemoryView(target, start, ROWS_PER_PAGE, previous, options.pc?.());
     previous = view;
     body.replaceChildren();
     for (const row of view.rows) {
@@ -82,10 +85,12 @@ export function createMemoryPanel(target: DebugTarget, options: MemoryPanelOptio
       tr.append(label);
       for (const cell of row.cells) {
         const td = tr.insertCell();
-        td.className = cell.changed ? 'byte changed' : 'byte';
+        td.className = 'byte';
+        td.classList.toggle('changed', cell.changed);
+        td.classList.toggle('pc', cell.isPc);
         td.textContent = cell.hex;
         td.dataset.address = hex16(cell.address);
-        td.title = `&${hex16(cell.address)} = &${cell.hex} (${String(cell.value)})`;
+        td.title = `&${hex16(cell.address)} = &${cell.hex} (${String(cell.value)})${cell.isPc ? ' ← PC' : ''}`;
       }
       const ascii = tr.insertCell();
       ascii.className = 'ascii';
@@ -161,14 +166,6 @@ export function createMemoryPanel(target: DebugTarget, options: MemoryPanelOptio
   });
 
   return { title: 'Memory', element, refresh, goTo };
-}
-
-function button(text: string, label: string): HTMLButtonElement {
-  const b = document.createElement('button');
-  b.type = 'button';
-  b.textContent = text;
-  b.setAttribute('aria-label', label);
-  return b;
 }
 
 function th(text: string): HTMLTableCellElement {

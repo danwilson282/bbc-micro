@@ -23,6 +23,8 @@ export interface MemoryCell {
   readonly hex: string;
   /** True if the byte differs from the previous view of the same addresses. */
   readonly changed: boolean;
+  /** True if this is the byte the CPU's PC points at (the next opcode). */
+  readonly isPc: boolean;
 }
 
 export interface MemoryRow {
@@ -52,13 +54,15 @@ export function stepPage(start: number, pages: number): number {
 /**
  * Builds rowCount rows starting at the row containing start. Reads each byte
  * once, through peek(). If previous started at the same address, cells whose
- * value differs from it are marked changed.
+ * value differs from it are marked changed. If pc is given, that cell is
+ * marked isPc.
  */
 export function buildMemoryView(
   target: DebugTarget,
   start: number,
   rowCount: number,
   previous?: MemoryView,
+  pc?: number,
 ): MemoryView {
   const aligned = rowStart(start);
   const comparable = previous?.start === aligned ? previous : undefined;
@@ -72,7 +76,13 @@ export function buildMemoryView(
       const address = (rowAddress + i) & 0xffff;
       const value = target.peek(address) & 0xff;
       const old = oldCells?.[i];
-      cells.push({ address, value, hex: hex8(value), changed: old !== undefined && old.value !== value });
+      cells.push({
+        address,
+        value,
+        hex: hex8(value),
+        changed: old !== undefined && old.value !== value,
+        isPc: address === pc,
+      });
       ascii += toAscii(value);
     }
     rows.push({ address: rowAddress, label: hex16(rowAddress), cells, ascii });

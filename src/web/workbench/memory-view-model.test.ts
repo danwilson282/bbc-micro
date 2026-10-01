@@ -68,7 +68,14 @@ describe('buildMemoryView', () => {
     const { bus, target } = playground();
     bus.write(0x7c05, 0xa9);
     const cell = buildMemoryView(target, 0x7c00, 1).rows[0]?.cells[5];
-    expect(cell).toEqual({ address: 0x7c05, value: 0xa9, hex: 'A9', changed: false });
+    expect(cell).toEqual({ address: 0x7c05, value: 0xa9, hex: 'A9', changed: false, isPc: false });
+  });
+
+  it('marks the cell PC points at, and no other', () => {
+    const { target } = playground();
+    const view = buildMemoryView(target, 0x0400, 16, undefined, 0x0413);
+    const marked = view.rows.flatMap((r) => r.cells.filter((c) => c.isPc).map((c) => c.address));
+    expect(marked).toEqual([0x0413]);
   });
 
   it('shows printable ASCII in the text column and "." for everything else', () => {

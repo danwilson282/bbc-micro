@@ -2,7 +2,7 @@
 
 Tracks where the build is up to. The `/start-stage` and `/finish-stage` skills keep this file up to date. For what each stage involves, see [`BUILD-PLAN.md`](./BUILD-PLAN.md).
 
-**Current stage:** 04 — CPU skeleton (not started)
+**Current stage:** 05 — Addressing modes (not started)
 
 **Status values:**
 - `not started`
@@ -26,7 +26,7 @@ Tracks where the build is up to. The `/start-stage` and `/finish-stage` skills k
 
 | # | Stage | Status | Seen? | Branch | Doc | Notes |
 |---|---|---|---|---|---|---|
-| 04 | CPU skeleton | not started | | `stage/04-cpu-skeleton` | [doc](./stages/04-cpu-skeleton.md) | |
+| 04 | CPU skeleton | done | ✅ | `stage/04-cpu-skeleton` | [doc](./stages/04-cpu-skeleton.md) | `src/cpu/{cpu6502,registers,flags,opcodes}.ts`. Flags stored as six booleans (no B/bit 5). Registers panel with Step / Step ×16 / Reset, and a PC outline in the memory panel (not in plan). Memory panel now opens at `&0400`. `CpuTarget` in `debug-target.ts`. |
 | 05 | Addressing modes | not started | | `stage/05-addressing-modes` | [doc](./stages/05-addressing-modes.md) | |
 | 06 | Loads | not started | | `stage/06-loads` | [doc](./stages/06-loads.md) | |
 | 07 | Stores & transfers | not started | | `stage/07-stores-transfers` | [doc](./stages/07-stores-transfers.md) | |
@@ -131,4 +131,4 @@ Things to come back to: questions raised during a stage, known inaccuracies, ide
 - `typescript-eslint` supports TypeScript `<6.1.0`. Watch for this if TypeScript is upgraded.
 - Side-effect-free `peek(address)` for debug views: `hexdump` goes through `read()`, which would trigger device side effects on SHEILA. Needed once the workbench shows I/O memory (Stage 21+). (Stage 02) The workbench side is done: panels use `DebugTarget.peek` (Stage 03). The memory map still needs a real `peek`.
 - Workbench `refresh()` rebuilds the whole table. Measure it once it runs every frame (Stage 30), and switch to text-only updates if it's slow. (Stage 03)
-- Dummy bus reads (e.g. the page-crossing read in `abs,X`) aren't modelled by the instruction-stepped core. Revisit with the cycle-exact extras in Part 12. (Stage 02)
+- Dummy bus reads (e.g. the page-crossing read in `abs,X`, NOP's second cycle, and reset's three stack reads (Stage 04)) aren't modelled by the instruction-stepped core. Revisit with the cycle-exact extras in Part 12. (Stage 02)
