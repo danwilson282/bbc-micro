@@ -63,3 +63,13 @@ export function unpackP(flags: StatusFlags, p: number): void {
   flags.z = (byte & P_Z) !== 0;
   flags.c = (byte & P_C) !== 0;
 }
+
+/**
+ * Sets N and Z from a result, as every load, transfer, increment, logic op
+ * and shift does: N = bit 7 (the sign bit in two's complement), Z = the
+ * result is &00. Nothing else changes. e.g. &80 → N=1 Z=0, &00 → N=0 Z=1.
+ */
+export function setNZ(flags: StatusFlags, value: number): void {
+  flags.n = (value & 0x80) !== 0;
+  flags.z = (value & 0xff) === 0;
+}

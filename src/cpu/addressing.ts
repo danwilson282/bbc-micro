@@ -196,3 +196,25 @@ export function addrRelative(cpu: Cpu6502): number {
   cpu.pageCrossed = crossesPage(next, target);
   return target;
 }
+
+/** The 11 modes that end in an effective address (all but implied and accumulator). */
+export type AddressedMode = Exclude<AddressingMode, 'implied' | 'accumulator'>;
+
+/**
+ * Each mode's EA function, so an opcode row that says mode: 'absoluteX' gets
+ * addrAbsoluteX. Instructions look their function up here once, when the
+ * opcode table is built, so the row's mode and the code can never disagree.
+ */
+export const EFFECTIVE_ADDRESS: Readonly<Record<AddressedMode, (cpu: Cpu6502) => number>> = {
+  immediate: addrImmediate,
+  zeroPage: addrZeroPage,
+  zeroPageX: addrZeroPageX,
+  zeroPageY: addrZeroPageY,
+  absolute: addrAbsolute,
+  absoluteX: addrAbsoluteX,
+  absoluteY: addrAbsoluteY,
+  indirect: addrIndirect,
+  indexedIndirectX: addrIndexedIndirectX,
+  indirectIndexedY: addrIndirectIndexedY,
+  relative: addrRelative,
+};

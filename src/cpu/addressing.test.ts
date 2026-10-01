@@ -1,5 +1,6 @@
 import { TestBus } from '../memory/test-bus';
 import {
+  EFFECTIVE_ADDRESS,
   MODES,
   addrAbsolute,
   addrAbsoluteX,
@@ -86,6 +87,18 @@ describe('the MODES table', () => {
     for (const mode of ['absolute', 'absoluteX', 'absoluteY', 'indirect'] as const) {
       expect(MODES[mode].operandBytes).toBe(2);
     }
+  });
+});
+
+describe('EFFECTIVE_ADDRESS', () => {
+  it('has an EA function for every mode except implied and accumulator', () => {
+    const withAddress = Object.keys(MODES).filter((m) => m !== 'implied' && m !== 'accumulator');
+    expect(Object.keys(EFFECTIVE_ADDRESS).sort()).toEqual(withAddress.sort());
+  });
+
+  it('maps each mode to its own function', () => {
+    expect(EFFECTIVE_ADDRESS.absoluteX).toBe(addrAbsoluteX);
+    expect(EFFECTIVE_ADDRESS.indirectIndexedY).toBe(addrIndirectIndexedY);
   });
 });
 

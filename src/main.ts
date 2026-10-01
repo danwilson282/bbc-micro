@@ -3,9 +3,12 @@
 
 import { Cpu6502, RESET_VECTOR } from './cpu/cpu6502';
 import { TestBus } from './memory/test-bus';
+import { listingEnd, loadListing } from './playground/listing';
+import { LOADS_PROGRAM, LOADS_PROGRAM_START } from './playground/loads-program';
 import { hex16, hex8, hi, lo } from './util/bits';
 import { createAddressingPanel } from './web/workbench/addressing-panel';
 import { playgroundTarget } from './web/workbench/debug-target';
+import { createListingPanel } from './web/workbench/listing-panel';
 import { createMemoryPanel } from './web/workbench/memory-panel';
 import { createWorkbench } from './web/workbench/panel';
 import { createRegistersPanel } from './web/workbench/registers-panel';
@@ -18,15 +21,19 @@ if (!host) throw new Error('Missing #workbench element');
 // &7C00 is where Mode 7 screen memory starts on a real Model B (AUG, memory
 // map). Nothing draws it yet, but it's a familiar place to put a message.
 const MODE7_SCREEN = 0x7c00;
-// The playground program: one page of NOPs (&EA) at &0400. The byte after it,
-// &0500, is &00 (BRK), which isn't implemented yet, so stepping off the end
-// shows the unimplemented-opcode error.
-const PROGRAM = 0x0400;
+// The playground program (Stage 06): eleven hand-assembled loads at &0400,
+// then NOPs (&EA) to the end of the page. The byte after that, &0500, is &00
+// (BRK), which isn't implemented yet, so stepping off the end shows the
+// unimplemented-opcode error.
+const PROGRAM = LOADS_PROGRAM_START;
+const PAGE_END = 0x0500;
 const NOP = 0xea;
 
 const bus = new TestBus();
 bus.load(MODE7_SCREEN, Array.from('HELLO, BBC MICRO', (c) => c.charCodeAt(0)));
-bus.load(PROGRAM, new Array<number>(0x100).fill(NOP));
+loadListing(bus, LOADS_PROGRAM);
+const nopsFrom = listingEnd(LOADS_PROGRAM);
+bus.load(nopsFrom, new Array<number>(PAGE_END - nopsFrom).fill(NOP));
 // The reset vector, low byte first: &FFFC = &00, &FFFD = &04.
 bus.load(RESET_VECTOR, [lo(PROGRAM), hi(PROGRAM)]);
 
@@ -51,6 +58,7 @@ const refreshAll = (): void => {
   workbench.refreshAll();
 };
 workbench.add(createRegistersPanel(target, { onRun: refreshAll }));
+workbench.add(createListingPanel(target, LOADS_PROGRAM));
 const memory = createMemoryPanel(target, {
   start: PROGRAM,
   onPoke: refreshAll,
@@ -60,7 +68,7 @@ workbench.add(memory);
 workbench.add(createAddressingPanel(target));
 
 // A console handle for experimenting in DevTools, e.g.
-//   workbench.poke(0x0401, 0xa9)   // then Step twice
+//   workbench.poke(0x0401, 0xff)   // LDA #&00 becomes LDA #&FF; then Reset and Step
 Object.assign(window, {
   workbench: {
     peek: (address: number): string => `&${hex8(target.peek(address))}`,
@@ -77,6 +85,6 @@ Object.assign(window, {
       return cycles;
     },
     cpu,
-    help: `workbench.poke(0x${hex16(PROGRAM)}, 0xa9), workbench.step(), workbench.peek(addr), workbench.goTo(addr), workbench.cpu.regs`,
+    help: `workbench.poke(0x${hex16(PROGRAM + 1)}, 0xff), workbench.step(), workbench.peek(addr), workbench.goTo(addr), workbench.cpu.regs`,
   },
 });
