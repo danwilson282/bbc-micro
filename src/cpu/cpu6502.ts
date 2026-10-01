@@ -31,6 +31,12 @@ export class Cpu6502 {
   readonly regs: Registers = createRegisters();
   /** Total cycles since power-on. Not zeroed by reset: time keeps flowing. */
   cycles = 0;
+  /**
+   * Set by every addressing function (addressing.ts): did indexing carry into
+   * the high byte? Read instructions add a cycle when it's true. A field, not
+   * a return value, so the hot path never allocates a { ea, crossed } object.
+   */
+  pageCrossed = false;
 
   constructor(readonly bus: Bus) {}
 
@@ -66,7 +72,7 @@ export class Cpu6502 {
     return taken;
   }
 
-  /** Reads the byte at PC and moves PC past it. Operand fetches use this from Stage 05. */
+  /** Reads the byte at PC and moves PC past it. The addressing modes use it for operand bytes. */
   fetchByte(): number {
     const r = this.regs;
     const value = this.bus.read(r.pc);

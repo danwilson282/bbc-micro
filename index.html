@@ -194,6 +194,53 @@
       .cpu-message.error {
         color: var(--error);
       }
+      .explorer-form,
+      .explorer-presets {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px 12px;
+        align-items: center;
+        margin-bottom: 8px;
+        font-size: 0.85rem;
+      }
+      .explorer-field input,
+      .explorer-field select {
+        font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+      }
+      .explorer-presets {
+        gap: 6px;
+        color: var(--muted);
+      }
+      .explorer-instruction {
+        margin: 8px 0 4px;
+        font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+      }
+      .explorer-instruction code {
+        font-weight: bold;
+        margin-right: 16px;
+      }
+      .explorer-bytes {
+        color: var(--muted);
+      }
+      .explorer-steps {
+        margin: 4px 0;
+        padding-left: 1.6em;
+        font-size: 0.85rem;
+        line-height: 1.5;
+      }
+      .explorer-steps li.warn {
+        background: var(--changed);
+        border-radius: 3px;
+      }
+      .explorer-result,
+      .explorer-cycles {
+        margin: 4px 0;
+        font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+        font-size: 0.85rem;
+      }
+      .explorer-result.error {
+        color: var(--error);
+      }
     </style>
   </head>
   <body>
