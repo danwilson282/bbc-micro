@@ -194,6 +194,43 @@
       .cpu-message.error {
         color: var(--error);
       }
+      .listing-table {
+        border-collapse: collapse;
+        font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+        font-size: 0.85rem;
+      }
+      .listing-table th {
+        text-align: left;
+        color: var(--muted);
+        font-weight: normal;
+        padding: 1px 10px 1px 2px;
+      }
+      .listing-table td {
+        padding: 1px 10px 1px 2px;
+        white-space: nowrap;
+      }
+      .listing-table td.marker {
+        color: var(--accent);
+        width: 1ch;
+      }
+      .listing-table td.comment {
+        color: var(--muted);
+        font-family: system-ui, sans-serif;
+      }
+      .listing-table tr.current td {
+        background: var(--changed);
+      }
+      .listing-table tr.current td.comment {
+        color: var(--fg);
+      }
+      .listing-table tr.modified td.bytes {
+        text-decoration: line-through;
+      }
+      .listing-note {
+        margin: 6px 0 0;
+        font-size: 0.8rem;
+        color: var(--muted);
+      }
       .explorer-form,
       .explorer-presets {
         display: flex;

@@ -1,4 +1,4 @@
-import { P_B, P_C, P_D, P_I, P_N, P_UNUSED, P_V, P_Z, packP, unpackP, type StatusFlags } from './flags';
+import { P_B, P_C, P_D, P_I, P_N, P_UNUSED, P_V, P_Z, packP, setNZ, unpackP, type StatusFlags } from './flags';
 
 function clear(): StatusFlags {
   return { n: false, v: false, d: false, i: false, z: false, c: false };
@@ -68,5 +68,35 @@ describe('P round trip', () => {
       expect(packP(flags, false)).toBe((p & 0xcf) | P_UNUSED);
       expect(packP(flags, true)).toBe((p & 0xcf) | P_UNUSED | P_B);
     }
+  });
+});
+
+describe('setNZ', () => {
+  it.each([
+    ['00', false, true],
+    ['01', false, false],
+    ['41', false, false],
+    ['7F', false, false],
+    ['80', true, false],
+    ['FE', true, false],
+    ['FF', true, false],
+  ])('&%s gives N = bit 7 and Z = (value is &00): N=%s Z=%s', (hex, n, z) => {
+    const value = parseInt(hex, 16);
+    const flags = clear();
+    setNZ(flags, value);
+    expect(flags).toEqual({ ...clear(), n, z });
+  });
+
+  it('leaves V, D, I and C alone, and can clear N and Z as well as set them', () => {
+    const flags: StatusFlags = { n: true, v: true, d: true, i: true, z: true, c: true };
+    setNZ(flags, 0x41);
+    expect(flags).toEqual({ n: false, v: true, d: true, i: true, z: false, c: true });
+  });
+
+  it('looks only at the low 8 bits, as the 8-bit data bus would', () => {
+    const flags = clear();
+    setNZ(flags, 0x100);
+    expect(flags.z).toBe(true);
+    expect(flags.n).toBe(false);
   });
 });

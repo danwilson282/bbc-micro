@@ -1,6 +1,6 @@
 import { TestBus } from '../memory/test-bus';
 import { Cpu6502, UnimplementedOpcodeError } from './cpu6502';
-import { OPCODES } from './opcodes';
+import { OPCODES, buildTable, type OpcodeDefinition } from './opcodes';
 
 const NOP = 0xea;
 const RESET_VECTOR = 0xfffc;
@@ -106,18 +106,41 @@ describe('the opcode table', () => {
     expect(OPCODES).toHaveLength(256);
   });
 
-  it('implements only NOP so far', () => {
-    const implemented = OPCODES.flatMap((op, code) => (op ? [code] : []));
-    expect(implemented).toEqual([NOP]);
+  it('implements NOP and the 18 loads so far (Stage 06)', () => {
+    const implemented = OPCODES.flatMap((op) => (op ? [op.mnemonic] : []));
+    expect(implemented).toHaveLength(19);
+    expect(new Set(implemented)).toEqual(new Set(['NOP', 'LDA', 'LDX', 'LDY']));
+  });
+});
+
+describe('buildTable', () => {
+  const row = (opcode: number, mnemonic: string): OpcodeDefinition => ({
+    opcode,
+    mnemonic,
+    mode: 'implied',
+    bytes: 1,
+    cycles: 2,
+    execute: () => 0,
+  });
+
+  it('puts each row at its opcode byte and leaves the rest empty', () => {
+    const table = buildTable([[row(0x10, 'ONE')], [row(0x20, 'TWO')]]);
+    expect(table[0x10]?.mnemonic).toBe('ONE');
+    expect(table[0x20]?.mnemonic).toBe('TWO');
+    expect(table.filter((op) => op !== undefined)).toHaveLength(2);
+  });
+
+  it('refuses two rows for the same opcode, naming both', () => {
+    expect(() => buildTable([[row(0xa9, 'LDA')], [row(0xa9, 'OOPS')]])).toThrow('opcode &A9 defined twice: LDA and OOPS');
   });
 });
 
 describe('unimplemented opcodes', () => {
   it('throw an error naming the opcode and its address', () => {
     const { cpu, bus } = cpuAt(0x0400);
-    bus.write(0x0400, 0xa9); // LDA #: Stage 06
-    expect(() => cpu.step()).toThrow(new UnimplementedOpcodeError(0xa9, 0x0400));
-    expect(() => cpu.step()).toThrow('unimplemented opcode &A9 at &0400');
+    bus.write(0x0400, 0x8d); // STA abs: Stage 07
+    expect(() => cpu.step()).toThrow(new UnimplementedOpcodeError(0x8d, 0x0400));
+    expect(() => cpu.step()).toThrow('unimplemented opcode &8D at &0400');
   });
 
   it('leave PC on the opcode and the cycle count unchanged', () => {
