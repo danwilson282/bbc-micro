@@ -9,6 +9,7 @@
 
 import { hex16, hex8 } from '../../util/bits';
 import { toAscii } from '../../util/hexdump';
+import type { WriteRecord } from '../../memory/write-recorder';
 import type { DebugTarget } from './debug-target';
 
 export const BYTES_PER_ROW = 16;
@@ -23,6 +24,12 @@ export interface MemoryCell {
   readonly hex: string;
   /** True if the byte differs from the previous view of the same addresses. */
   readonly changed: boolean;
+  /**
+   * True if the CPU wrote this byte during the last run. Not the same as
+   * changed: storing &4F over &4F is a write but not a change, and a poke is
+   * a change but not a CPU write.
+   */
+  readonly written: boolean;
   /** True if this is the byte the CPU's PC points at (the next opcode). */
   readonly isPc: boolean;
 }
@@ -51,21 +58,20 @@ export function stepPage(start: number, pages: number): number {
   return (start + pages * PAGE_SIZE) & 0xffff;
 }
 
-/**
- * Builds rowCount rows starting at the row containing start. Reads each byte
- * once, through peek(). If previous started at the same address, cells whose
- * value differs from it are marked changed. If pc is given, that cell is
- * marked isPc.
- */
-export function buildMemoryView(
-  target: DebugTarget,
-  start: number,
-  rowCount: number,
-  previous?: MemoryView,
-  pc?: number,
-): MemoryView {
+/** Optional extras for buildMemoryView. */
+export interface MemoryViewMarks {
+  /** The last view. If it started at the same address, differing cells are marked changed. */
+  readonly previous?: MemoryView;
+  /** The CPU's PC: that cell is marked isPc. */
+  readonly pc?: number;
+  /** Addresses the CPU wrote during the last run: those cells are marked written. */
+  readonly written?: ReadonlySet<number>;
+}
+
+/** Builds rowCount rows starting at the row containing start. Reads each byte once, through peek(). */
+export function buildMemoryView(target: DebugTarget, start: number, rowCount: number, marks: MemoryViewMarks = {}): MemoryView {
   const aligned = rowStart(start);
-  const comparable = previous?.start === aligned ? previous : undefined;
+  const comparable = marks.previous?.start === aligned ? marks.previous : undefined;
   const rows: MemoryRow[] = [];
   for (let r = 0; r < rowCount; r++) {
     const rowAddress = (aligned + r * BYTES_PER_ROW) & 0xffff;
@@ -81,13 +87,29 @@ export function buildMemoryView(
         value,
         hex: hex8(value),
         changed: old !== undefined && old.value !== value,
-        isPc: address === pc,
+        written: marks.written?.has(address) ?? false,
+        isPc: address === marks.pc,
       });
       ascii += toAscii(value);
     }
     rows.push({ address: rowAddress, label: hex16(rowAddress), cells, ascii });
   }
   return { start: aligned, rows };
+}
+
+export interface WriteSummary {
+  /** One per kept write, oldest first, e.g. { address: 0x7c28, text: "&7C28 ← &48" }. */
+  readonly items: readonly { readonly address: number; readonly text: string }[];
+  /** Writes the recorder counted but didn't keep (it has a fixed capacity). */
+  readonly more: number;
+}
+
+/** The "Wrote:" line under the memory table. count is the recorder's total, which may exceed records. */
+export function summariseWrites(records: readonly WriteRecord[], count: number): WriteSummary {
+  return {
+    items: records.map(({ address, value }) => ({ address, text: `&${hex16(address)} ← &${hex8(value)}` })),
+    more: Math.max(0, count - records.length),
+  };
 }
 
 /**

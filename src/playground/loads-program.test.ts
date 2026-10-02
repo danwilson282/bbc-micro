@@ -4,12 +4,12 @@ import type { Registers } from '../cpu/registers';
 import { TestBus } from '../memory/test-bus';
 import { listingEnd, loadListing } from './listing';
 import { LOADS_PROGRAM, LOADS_PROGRAM_START } from './loads-program';
+import { loadPlaygroundData } from './setup';
 
 /** The Stage 05 playground set-up the program relies on, then the program. */
 function playground(): Cpu6502 {
   const bus = new TestBus();
-  bus.load(0x7c00, Array.from('HELLO, BBC MICRO', (c) => c.charCodeAt(0)));
-  bus.load(0x0070, [0x00, 0x7c]);
+  loadPlaygroundData(bus);
   loadListing(bus, LOADS_PROGRAM);
   bus.load(0xfffc, [LOADS_PROGRAM_START & 0xff, LOADS_PROGRAM_START >> 8]);
   const cpu = new Cpu6502(bus);

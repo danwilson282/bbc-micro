@@ -1,10 +1,12 @@
 // Browser entry point. Builds the Part 2 "CPU playground" (a 6502 on a flat
 // 64K TestBus) and mounts the workbench beside the screen canvas.
 
-import { Cpu6502, RESET_VECTOR } from './cpu/cpu6502';
+import { RESET_VECTOR } from './cpu/cpu6502';
 import { TestBus } from './memory/test-bus';
-import { listingEnd, loadListing } from './playground/listing';
-import { LOADS_PROGRAM, LOADS_PROGRAM_START } from './playground/loads-program';
+import { listingEnd, loadListing, type ListingLine } from './playground/listing';
+import { LOADS_PROGRAM } from './playground/loads-program';
+import { MODE7_SCREEN, loadPlaygroundData } from './playground/setup';
+import { STORES_PROGRAM } from './playground/stores-program';
 import { hex16, hex8, hi, lo } from './util/bits';
 import { createAddressingPanel } from './web/workbench/addressing-panel';
 import { playgroundTarget } from './web/workbench/debug-target';
@@ -18,57 +20,60 @@ if (!canvas) throw new Error('Missing #screen canvas');
 const host = document.querySelector<HTMLElement>('#workbench');
 if (!host) throw new Error('Missing #workbench element');
 
-// &7C00 is where Mode 7 screen memory starts on a real Model B (AUG, memory
-// map). Nothing draws it yet, but it's a familiar place to put a message.
-const MODE7_SCREEN = 0x7c00;
-// The playground program (Stage 06): eleven hand-assembled loads at &0400,
-// then NOPs (&EA) to the end of the page. The byte after that, &0500, is &00
-// (BRK), which isn't implemented yet, so stepping off the end shows the
-// unimplemented-opcode error.
-const PROGRAM = LOADS_PROGRAM_START;
+// The playground program: a hand-assembled listing at &0400, then NOPs (&EA)
+// to the end of the page. The byte after that, &0500, is &00 (BRK), which
+// isn't implemented yet, so stepping off the end shows the
+// unimplemented-opcode error. The current stage's program runs by default;
+// ?program=loads runs Stage 06's instead.
+const PROGRAMS: Readonly<Record<string, readonly ListingLine[]>> = {
+  loads: LOADS_PROGRAM, //   Stage 06
+  stores: STORES_PROGRAM, // Stage 07
+};
+const requested = new URLSearchParams(window.location.search).get('program') ?? 'stores';
+const program = PROGRAMS[requested] ?? STORES_PROGRAM;
+const PROGRAM = program[0]?.address ?? 0x0400;
 const PAGE_END = 0x0500;
 const NOP = 0xea;
 
 const bus = new TestBus();
-bus.load(MODE7_SCREEN, Array.from('HELLO, BBC MICRO', (c) => c.charCodeAt(0)));
-loadListing(bus, LOADS_PROGRAM);
-const nopsFrom = listingEnd(LOADS_PROGRAM);
+// "HELLO, BBC MICRO" at &7C00 and the pointer to it at &70/&71.
+loadPlaygroundData(bus);
+loadListing(bus, program);
+const nopsFrom = listingEnd(program);
 bus.load(nopsFrom, new Array<number>(PAGE_END - nopsFrom).fill(NOP));
 // The reset vector, low byte first: &FFFC = &00, &FFFD = &04.
 bus.load(RESET_VECTOR, [lo(PROGRAM), hi(PROGRAM)]);
 
-// Pointers for the addressing-mode explorer's examples (Stage 05):
-//   &70/&71 = 00 7C  a pointer to the Mode 7 screen, for LDA (&70),Y
-//   &FF/&00 = 00 7C  the same pointer straddling the end of page zero
+// More pointers for the addressing-mode explorer's examples (Stage 05):
+//   &FF/&00 = 00 7C  the &70 pointer again, straddling the end of page zero
 //   &30FF = 00, &3000 = 04, &3100 = 80  the JMP (&30FF) trap: the NMOS bug
 //     jumps to &0400; a "correct" CPU would go to &8000
-bus.load(0x0070, [lo(MODE7_SCREEN), hi(MODE7_SCREEN)]);
 bus.write(0x00ff, lo(MODE7_SCREEN));
 bus.write(0x0000, hi(MODE7_SCREEN));
 bus.write(0x30ff, 0x00);
 bus.write(0x3000, 0x04);
 bus.write(0x3100, 0x80);
 
-const cpu = new Cpu6502(bus);
-cpu.reset();
-
-const target = playgroundTarget(cpu, bus);
+// The target puts a WriteRecorder between the CPU and the bus (Stage 07).
+const target = playgroundTarget(bus);
+target.reset();
 const workbench = createWorkbench(host, target.name);
 const refreshAll = (): void => {
   workbench.refreshAll();
 };
 workbench.add(createRegistersPanel(target, { onRun: refreshAll }));
-workbench.add(createListingPanel(target, LOADS_PROGRAM));
+workbench.add(createListingPanel(target, program));
 const memory = createMemoryPanel(target, {
   start: PROGRAM,
   onPoke: refreshAll,
   pc: () => target.registers.pc,
+  writes: target.writes,
 });
 workbench.add(memory);
 workbench.add(createAddressingPanel(target));
 
 // A console handle for experimenting in DevTools, e.g.
-//   workbench.poke(0x0401, 0xff)   // LDA #&00 becomes LDA #&FF; then Reset and Step
+//   workbench.poke(0x0404, 0xff)   // stores program: LDA #&00 becomes LDA #&FF; then Reset and Step
 Object.assign(window, {
   workbench: {
     peek: (address: number): string => `&${hex8(target.peek(address))}`,
@@ -80,11 +85,12 @@ Object.assign(window, {
       memory.goTo(address);
     },
     step: (): number => {
+      target.writes.clear();
       const cycles = target.step();
       workbench.refreshAll();
       return cycles;
     },
-    cpu,
-    help: `workbench.poke(0x${hex16(PROGRAM + 1)}, 0xff), workbench.step(), workbench.peek(addr), workbench.goTo(addr), workbench.cpu.regs`,
+    cpu: target.cpu,
+    help: `workbench.poke(0x${hex16(PROGRAM + 4)}, 0xff), workbench.step(), workbench.peek(addr), workbench.goTo(addr), workbench.cpu.regs`,
   },
 });

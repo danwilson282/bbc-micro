@@ -100,6 +100,14 @@ export function buildRegistersView(target: CpuTarget, previous?: RegistersView):
   return { registers, flags, next, cycles: formatCycles(target.cycles) };
 }
 
+/** The panel's message after a run: "Ran 1 (4 cycles), 1 write". Writes are only mentioned if there were some. */
+export function describeRun(result: StepResult): string {
+  const writes = result.writes === 0 ? '' : `, ${String(result.writes)} ${result.writes === 1 ? 'write' : 'writes'}`;
+  const ran = `Ran ${String(result.steps)}`;
+  if (result.error !== undefined) return result.steps > 0 ? `${ran}${writes}, then stopped: ${result.error}` : result.error;
+  return `${ran} (${String(result.cycles)} cycles)${writes}`;
+}
+
 /** "9 cycles = 4.5 µs at 2 MHz": each 6502 cycle on the Model B is 0.5 µs. */
 export function formatCycles(cycles: number): string {
   const unit = cycles === 1 ? 'cycle' : 'cycles';
@@ -109,6 +117,8 @@ export function formatCycles(cycles: number): string {
 export interface StepResult {
   readonly steps: number;
   readonly cycles: number;
+  /** Bus writes the CPU made during the run. */
+  readonly writes: number;
   /** Set if an unimplemented opcode stopped the run early. */
   readonly error: string | undefined;
 }
@@ -117,10 +127,14 @@ export interface StepResult {
  * Steps up to n instructions, stopping early at an unimplemented opcode. The
  * error becomes a message for the panel instead of an exception; any other
  * error is a real bug and is rethrown.
+ *
+ * Clears the write log first, once, so afterwards it holds everything this
+ * run wrote: one instruction for Step, up to 16 for Step ×16.
  */
 export function stepMany(target: CpuTarget, n: number): StepResult {
   let steps = 0;
   let cycles = 0;
+  target.writes.clear();
   try {
     while (steps < n) {
       cycles += target.step();
@@ -128,7 +142,7 @@ export function stepMany(target: CpuTarget, n: number): StepResult {
     }
   } catch (error) {
     if (!(error instanceof UnimplementedOpcodeError)) throw error;
-    return { steps, cycles, error: error.message };
+    return { steps, cycles, writes: target.writes.count, error: error.message };
   }
-  return { steps, cycles, error: undefined };
+  return { steps, cycles, writes: target.writes.count, error: undefined };
 }

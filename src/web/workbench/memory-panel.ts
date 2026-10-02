@@ -6,7 +6,10 @@
 //   - Click a byte: it becomes a text input. Enter pokes it, Escape cancels.
 //   - "Go" jumps to the page containing a typed address.
 //   - "Prev"/"Next" step one page (&100 bytes) back or forward.
+//   - Bytes the CPU wrote in the last run get a border, and a "Wrote:" line
+//     lists them; click an address there to jump to its page.
 
+import type { WriteLog } from '../../memory/write-recorder';
 import { hex16, hex8 } from '../../util/bits';
 import type { DebugTarget } from './debug-target';
 import { button } from './dom';
@@ -18,6 +21,7 @@ import {
   parseHexByte,
   rowStart,
   stepPage,
+  summariseWrites,
   type MemoryView,
 } from './memory-view-model';
 import type { Panel } from './panel';
@@ -29,6 +33,8 @@ export interface MemoryPanelOptions {
   readonly onPoke: () => void;
   /** If given, the byte at the CPU's PC is outlined. */
   readonly pc?: () => number;
+  /** If given, bytes the CPU wrote in the last run are marked, and listed under the table. */
+  readonly writes?: WriteLog;
 }
 
 export function createMemoryPanel(target: DebugTarget, options: MemoryPanelOptions): Panel & {
@@ -66,7 +72,12 @@ export function createMemoryPanel(target: DebugTarget, options: MemoryPanelOptio
   head.append(th('ASCII'));
   const body = table.createTBody();
 
+  const wrote = document.createElement('p');
+  wrote.className = 'memory-writes';
+  wrote.dataset.field = 'writes';
+
   element.append(nav, table);
+  if (options.writes !== undefined) element.append(wrote);
 
   function say(text: string, isError = false): void {
     message.textContent = text;
@@ -74,8 +85,14 @@ export function createMemoryPanel(target: DebugTarget, options: MemoryPanelOptio
   }
 
   function refresh(): void {
-    const view = buildMemoryView(target, start, ROWS_PER_PAGE, previous, options.pc?.());
+    const records = options.writes?.recorded() ?? [];
+    const view = buildMemoryView(target, start, ROWS_PER_PAGE, {
+      previous,
+      pc: options.pc?.(),
+      written: new Set(records.map((w) => w.address)),
+    });
     previous = view;
+    if (options.writes !== undefined) showWrites(summariseWrites(records, options.writes.count));
     body.replaceChildren();
     for (const row of view.rows) {
       const tr = body.insertRow();
@@ -88,14 +105,33 @@ export function createMemoryPanel(target: DebugTarget, options: MemoryPanelOptio
         td.className = 'byte';
         td.classList.toggle('changed', cell.changed);
         td.classList.toggle('pc', cell.isPc);
+        td.classList.toggle('written', cell.written);
         td.textContent = cell.hex;
         td.dataset.address = hex16(cell.address);
-        td.title = `&${hex16(cell.address)} = &${cell.hex} (${String(cell.value)})${cell.isPc ? ' ← PC' : ''}`;
+        td.title = `&${hex16(cell.address)} = &${cell.hex} (${String(cell.value)})${cell.isPc ? ' ← PC' : ''}${cell.written ? ' (written by the last run)' : ''}`;
       }
       const ascii = tr.insertCell();
       ascii.className = 'ascii';
       ascii.textContent = row.ascii;
     }
+  }
+
+  function showWrites(summary: ReturnType<typeof summariseWrites>): void {
+    wrote.replaceChildren('Wrote: ');
+    if (summary.items.length === 0) {
+      wrote.append('nothing in the last run');
+      return;
+    }
+    summary.items.forEach((item, i) => {
+      if (i > 0) wrote.append(', ');
+      const jump = button(item.text, `Go to &${hex16(item.address)}`);
+      jump.className = 'write-link';
+      jump.addEventListener('click', () => {
+        goTo(item.address);
+      });
+      wrote.append(jump);
+    });
+    if (summary.more > 0) wrote.append(` +${String(summary.more)} more`);
   }
 
   function goTo(newStart: number): void {

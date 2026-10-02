@@ -10,9 +10,10 @@
 // Part 5) satisfy this interface structurally: they just need these members,
 // and never have to import anything from src/web/.
 
-import type { Cpu6502 } from '../../cpu/cpu6502';
+import { Cpu6502 } from '../../cpu/cpu6502';
 import type { Registers } from '../../cpu/registers';
 import type { TestBus } from '../../memory/test-bus';
+import { WriteRecorder, type WriteLog } from '../../memory/write-recorder';
 
 export interface DebugTarget {
   /** Shown in the workbench header, e.g. "CPU playground (64K TestBus)". */
@@ -50,17 +51,34 @@ export interface CpuTarget extends DebugTarget {
   step(): number;
   /** Runs the reset sequence and returns its cycles. */
   reset(): number;
+  /**
+   * The CPU's bus writes since the log was last cleared (stepMany clears it
+   * at the start of each run). Pokes aren't in it: they're the debugger's.
+   */
+  readonly writes: WriteLog;
 }
 
-/** The Part 2 playground: a 6502 on a flat 64K TestBus. */
-export function playgroundTarget(cpu: Cpu6502, bus: TestBus, name = 'CPU playground (6502 on a 64K TestBus)'): CpuTarget {
+/**
+ * The Part 2 playground: a 6502 on a flat 64K TestBus, with a WriteRecorder
+ * between them so the workbench can see what the CPU wrote.
+ *
+ *   Cpu6502 ──▶ WriteRecorder ──▶ TestBus ◀── peek / poke
+ *
+ * peek and poke go straight to the TestBus, so the debugger's own writes are
+ * never mistaken for the CPU's. Returns the CPU too, for the console handle.
+ */
+export function playgroundTarget(bus: TestBus, name = 'CPU playground (6502 on a 64K TestBus)'): CpuTarget & { readonly cpu: Cpu6502 } {
+  const recorder = new WriteRecorder(bus);
+  const cpu = new Cpu6502(recorder);
   return {
     ...testBusTarget(bus, name),
+    cpu,
     registers: cpu.regs,
     get cycles() {
       return cpu.cycles;
     },
     step: () => cpu.step(),
     reset: () => cpu.reset(),
+    writes: recorder,
   };
 }

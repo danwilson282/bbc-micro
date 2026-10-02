@@ -7,6 +7,7 @@ import {
   parseHexByte,
   rowStart,
   stepPage,
+  summariseWrites,
 } from './memory-view-model';
 
 function playground(): { bus: TestBus; target: ReturnType<typeof testBusTarget> } {
@@ -68,12 +69,12 @@ describe('buildMemoryView', () => {
     const { bus, target } = playground();
     bus.write(0x7c05, 0xa9);
     const cell = buildMemoryView(target, 0x7c00, 1).rows[0]?.cells[5];
-    expect(cell).toEqual({ address: 0x7c05, value: 0xa9, hex: 'A9', changed: false, isPc: false });
+    expect(cell).toEqual({ address: 0x7c05, value: 0xa9, hex: 'A9', changed: false, written: false, isPc: false });
   });
 
   it('marks the cell PC points at, and no other', () => {
     const { target } = playground();
-    const view = buildMemoryView(target, 0x0400, 16, undefined, 0x0413);
+    const view = buildMemoryView(target, 0x0400, 16, { pc: 0x0413 });
     const marked = view.rows.flatMap((r) => r.cells.filter((c) => c.isPc).map((c) => c.address));
     expect(marked).toEqual([0x0413]);
   });
@@ -100,7 +101,7 @@ describe('buildMemoryView', () => {
     const before = buildMemoryView(target, 0x7c00, 16);
     target.poke(0x7c05, 0x21);
     target.poke(0x7cff, 0x01);
-    const after = buildMemoryView(target, 0x7c00, 16, before);
+    const after = buildMemoryView(target, 0x7c00, 16, { previous: before });
     const changed = after.rows.flatMap((r) => r.cells.filter((c) => c.changed).map((c) => c.address));
     expect(changed).toEqual([0x7c05, 0x7cff]);
   });
@@ -109,8 +110,20 @@ describe('buildMemoryView', () => {
     const { target } = playground();
     const before = buildMemoryView(target, 0x7b00, 16);
     target.poke(0x7c05, 0x21);
-    const after = buildMemoryView(target, 0x7c00, 16, before);
+    const after = buildMemoryView(target, 0x7c00, 16, { previous: before });
     expect(after.rows.some((r) => r.cells.some((c) => c.changed))).toBe(false);
+  });
+
+  it('marks the bytes the CPU wrote, whether or not their value changed', () => {
+    const { bus, target } = playground();
+    bus.write(0x7c04, 0x4f);
+    const before = buildMemoryView(target, 0x7c00, 16);
+    bus.write(0x7c28, 0x48); // a write that changes the byte
+    bus.write(0x7c04, 0x4f); // a write of the value already there
+    const after = buildMemoryView(target, 0x7c00, 16, { previous: before, written: new Set([0x7c28, 0x7c04]) });
+    const cells = after.rows.flatMap((r) => r.cells);
+    expect(cells.filter((c) => c.written).map((c) => c.address)).toEqual([0x7c04, 0x7c28]);
+    expect(cells.filter((c) => c.changed).map((c) => c.address)).toEqual([0x7c28]);
   });
 
   it('reads memory through peek only, never through the side-effecting bus read', () => {
@@ -125,6 +138,30 @@ describe('buildMemoryView', () => {
     };
     buildMemoryView(target, 0xfe40, 1);
     expect(peeked).toEqual(Array.from({ length: 16 }, (_, i) => 0xfe40 + i));
+  });
+});
+
+describe('summariseWrites', () => {
+  it('lists each write as "&address ← &value", oldest first', () => {
+    const records = [
+      { address: 0x7c28, value: 0x48 },
+      { address: 0x0070, value: 0x00 },
+    ];
+    expect(summariseWrites(records, 2)).toEqual({
+      items: [
+        { address: 0x7c28, text: '&7C28 ← &48' },
+        { address: 0x0070, text: '&0070 ← &00' },
+      ],
+      more: 0,
+    });
+  });
+
+  it('says how many more writes there were than the recorder kept', () => {
+    expect(summariseWrites([{ address: 0x3000, value: 0x01 }], 5).more).toBe(4);
+  });
+
+  it('is empty when nothing was written', () => {
+    expect(summariseWrites([], 0)).toEqual({ items: [], more: 0 });
   });
 });
 

@@ -106,10 +106,12 @@ describe('the opcode table', () => {
     expect(OPCODES).toHaveLength(256);
   });
 
-  it('implements NOP and the 18 loads so far (Stage 06)', () => {
+  it('implements NOP, 18 loads, 13 stores and 6 transfers so far (Stage 07)', () => {
     const implemented = OPCODES.flatMap((op) => (op ? [op.mnemonic] : []));
-    expect(implemented).toHaveLength(19);
-    expect(new Set(implemented)).toEqual(new Set(['NOP', 'LDA', 'LDX', 'LDY']));
+    expect(implemented).toHaveLength(1 + 18 + 13 + 6);
+    expect(new Set(implemented)).toEqual(
+      new Set(['NOP', 'LDA', 'LDX', 'LDY', 'STA', 'STX', 'STY', 'TAX', 'TAY', 'TXA', 'TYA', 'TSX', 'TXS']),
+    );
   });
 });
 
@@ -138,9 +140,9 @@ describe('buildTable', () => {
 describe('unimplemented opcodes', () => {
   it('throw an error naming the opcode and its address', () => {
     const { cpu, bus } = cpuAt(0x0400);
-    bus.write(0x0400, 0x8d); // STA abs: Stage 07
-    expect(() => cpu.step()).toThrow(new UnimplementedOpcodeError(0x8d, 0x0400));
-    expect(() => cpu.step()).toThrow('unimplemented opcode &8D at &0400');
+    bus.write(0x0400, 0xe8); // INX: Stage 09
+    expect(() => cpu.step()).toThrow(new UnimplementedOpcodeError(0xe8, 0x0400));
+    expect(() => cpu.step()).toThrow('unimplemented opcode &E8 at &0400');
   });
 
   it('leave PC on the opcode and the cycle count unchanged', () => {
