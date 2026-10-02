@@ -9,11 +9,11 @@ import { Cpu6502, RESET_VECTOR } from '../src/cpu/cpu6502';
 import { TestBus } from '../src/memory/test-bus';
 import { loadListing } from '../src/playground/listing';
 import { LOADS_PROGRAM, LOADS_PROGRAM_START } from '../src/playground/loads-program';
+import { loadPlaygroundData } from '../src/playground/setup';
 import { hex16, hex8, hi, lo } from '../src/util/bits';
 
 const bus = new TestBus();
-bus.load(0x7c00, Array.from('HELLO, BBC MICRO', (c) => c.charCodeAt(0)));
-bus.load(0x0070, [0x00, 0x7c]);
+loadPlaygroundData(bus);
 loadListing(bus, LOADS_PROGRAM);
 bus.load(RESET_VECTOR, [lo(LOADS_PROGRAM_START), hi(LOADS_PROGRAM_START)]);
 

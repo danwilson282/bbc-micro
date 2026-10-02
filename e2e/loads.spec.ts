@@ -21,8 +21,10 @@ async function step(page: Page, times = 1): Promise<void> {
   for (let i = 0; i < times; i++) await button.click();
 }
 
+// Since Stage 07 the playground runs the stores program by default; the
+// Stage 06 loads program is still there behind ?program=loads.
 test.beforeEach(async ({ page }) => {
-  await page.goto('/');
+  await page.goto('/?program=loads');
 });
 
 test('the Program panel lists the hand-assembled loads and marks &0400 as next', async ({ page }) => {

@@ -1,7 +1,6 @@
-import { Cpu6502 } from '../../cpu/cpu6502';
 import { TestBus } from '../../memory/test-bus';
 import { playgroundTarget, type CpuTarget } from './debug-target';
-import { buildRegistersView, formatCycles, stepMany } from './registers-view-model';
+import { buildRegistersView, describeRun, formatCycles, stepMany } from './registers-view-model';
 
 const NOP = 0xea;
 
@@ -10,7 +9,7 @@ function playground(program: readonly number[] = []): { target: CpuTarget; bus: 
   const bus = new TestBus();
   bus.load(0xfffc, [0x00, 0x04]);
   bus.load(0x0400, program);
-  const target = playgroundTarget(new Cpu6502(bus), bus);
+  const target = playgroundTarget(bus);
   target.reset();
   return { target, bus };
 }
@@ -23,6 +22,17 @@ describe('playgroundTarget', () => {
     target.step();
     expect(target.registers.pc).toBe(0x0401);
     expect(target.cycles).toBe(9);
+  });
+});
+
+describe('playgroundTarget writes', () => {
+  it('records the CPU\'s writes, but not the debugger\'s pokes', () => {
+    const { target, bus } = playground([0x8d, 0x28, 0x7c]); // STA &7C28
+    target.poke(0x7c00, 0x99);
+    expect(target.writes.count).toBe(0);
+    target.step();
+    expect(target.writes.recorded()).toEqual([{ address: 0x7c28, value: 0x00 }]);
+    expect(bus.read(0x7c00)).toBe(0x99);
   });
 });
 
@@ -62,12 +72,12 @@ describe('buildRegistersView', () => {
   });
 
   it('shows the opcode at PC, and its mnemonic if it is implemented', () => {
-    const { target } = playground([NOP, 0xa9, 0x41, 0x8d]); // NOP, LDA #&41, STA (Stage 07)
+    const { target } = playground([NOP, 0xa9, 0x41, 0xe8]); // NOP, LDA #&41, INX (Stage 09)
     expect(buildRegistersView(target).next).toEqual({ address: 0x0400, opcode: NOP, text: '&0400: &EA NOP' });
     target.step();
     expect(buildRegistersView(target).next.text).toBe('&0401: &A9 LDA');
     target.step();
-    expect(buildRegistersView(target).next.text).toBe('&0403: &8D (not implemented yet)');
+    expect(buildRegistersView(target).next.text).toBe('&0403: &E8 (not implemented yet)');
   });
 
   it('marks only the registers and flags that changed since the previous view', () => {
@@ -99,13 +109,45 @@ describe('formatCycles', () => {
 describe('stepMany', () => {
   it('steps n instructions and reports how many ran', () => {
     const { target } = playground(new Array<number>(16).fill(NOP));
-    expect(stepMany(target, 16)).toEqual({ steps: 16, cycles: 32, error: undefined });
+    expect(stepMany(target, 16)).toEqual({ steps: 16, cycles: 32, writes: 0, error: undefined });
     expect(target.registers.pc).toBe(0x0410);
+  });
+
+  it('clears the write log once, then counts every write of the run', () => {
+    // STA &70 : STX &71 : STY &72, then NOPs
+    const { target } = playground([0x85, 0x70, 0x86, 0x71, 0x84, 0x72, NOP, NOP, NOP]);
+    stepMany(target, 1);
+    expect(target.writes.recorded().map((w) => w.address)).toEqual([0x70]);
+    const result = stepMany(target, 4);
+    expect(result).toMatchObject({ steps: 4, writes: 2 });
+    expect(target.writes.recorded().map((w) => w.address)).toEqual([0x71, 0x72]);
+    expect(stepMany(target, 1)).toMatchObject({ steps: 1, writes: 0 });
+    expect(target.writes.count).toBe(0);
   });
 
   it('stops at an unimplemented opcode and returns the error message instead of throwing', () => {
     const { target } = playground([NOP, NOP, 0x00]);
-    expect(stepMany(target, 16)).toEqual({ steps: 2, cycles: 4, error: 'unimplemented opcode &00 at &0402' });
+    expect(stepMany(target, 16)).toEqual({ steps: 2, cycles: 4, writes: 0, error: 'unimplemented opcode &00 at &0402' });
     expect(target.registers.pc).toBe(0x0402);
+  });
+});
+
+describe('describeRun', () => {
+  it('reports steps and cycles, and leaves writes out when there were none', () => {
+    expect(describeRun({ steps: 1, cycles: 5, writes: 0, error: undefined })).toBe('Ran 1 (5 cycles)');
+  });
+
+  it('adds the number of writes', () => {
+    expect(describeRun({ steps: 1, cycles: 4, writes: 1, error: undefined })).toBe('Ran 1 (4 cycles), 1 write');
+    expect(describeRun({ steps: 16, cycles: 50, writes: 3, error: undefined })).toBe('Ran 16 (50 cycles), 3 writes');
+  });
+
+  it('puts the error after what ran, or shows it alone if nothing ran', () => {
+    expect(describeRun({ steps: 2, cycles: 8, writes: 1, error: 'unimplemented opcode &00 at &0500' })).toBe(
+      'Ran 2, 1 write, then stopped: unimplemented opcode &00 at &0500',
+    );
+    expect(describeRun({ steps: 0, cycles: 0, writes: 0, error: 'unimplemented opcode &00 at &0500' })).toBe(
+      'unimplemented opcode &00 at &0500',
+    );
   });
 });

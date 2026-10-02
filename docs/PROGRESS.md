@@ -2,7 +2,7 @@
 
 Tracks where the build is up to. The `/start-stage` and `/finish-stage` skills keep this file up to date. For what each stage involves, see [`BUILD-PLAN.md`](./BUILD-PLAN.md).
 
-**Current stage:** 07 — Stores & transfers (not started)
+**Current stage:** 08 — Mini assembler (not started)
 
 **Status values:**
 - `not started`
@@ -29,7 +29,7 @@ Tracks where the build is up to. The `/start-stage` and `/finish-stage` skills k
 | 04 | CPU skeleton | done | ✅ | `stage/04-cpu-skeleton` | [doc](./stages/04-cpu-skeleton.md) | `src/cpu/{cpu6502,registers,flags,opcodes}.ts`. Flags stored as six booleans (no B/bit 5). Registers panel with Step / Step ×16 / Reset, and a PC outline in the memory panel (not in plan). Memory panel now opens at `&0400`. `CpuTarget` in `debug-target.ts`. |
 | 05 | Addressing modes | done | ✅ | `stage/05-addressing-modes` | [doc](./stages/05-addressing-modes.md) | `src/cpu/addressing.ts` (pure wrap helpers + 11 EA functions, `MODES` table). Page crossing reported via a `cpu.pageCrossed` field (no allocation). Addressing-mode explorer panel with presets; `main.ts` plants example pointers at `&70`, `&FF` and the `&30FF` JMP trap. `e2e/addressing.spec.ts`. Doc gained a "Start here" section after review. Explorer rework parked (see parking lot). |
 | 06 | Loads | done | ✅ | `stage/06-loads` | [doc](./stages/06-loads.md) | `src/cpu/instructions/loads.ts` (18 opcodes from one `load(register, mode)` factory), `setNZ` in `flags.ts`, `EFFECTIVE_ADDRESS` in `addressing.ts`, `buildTable(groups)` rejects duplicate opcodes. Playground program now lives in `src/playground/` as a hand-assembled listing (11 loads at `&0400`, then NOPs). New **Program** panel (not in plan) with ▶ at PC and an "edited" marker. `demo:loads` CLI trace (not in plan). `e2e/loads.spec.ts`. Explorer rework stayed parked (your call at stage start). |
-| 07 | Stores & transfers | not started | | `stage/07-stores-transfers` | [doc](./stages/07-stores-transfers.md) | |
+| 07 | Stores & transfers | done | ✅ | `stage/07-stores-transfers` | [doc](./stages/07-stores-transfers.md) | `src/cpu/instructions/{stores,transfers}.ts` (13 + 6 opcodes; stores ignore `pageCrossed`, `TXS` is its own function). New core `WriteRecorder` bus (`src/memory/write-recorder.ts`) between CPU and `TestBus`; `playgroundTarget(bus)` now wires it and exposes `writes`. Memory panel marks **written** bytes (blue bar, separate from "changed") plus a clickable "Wrote:" line; `stepMany` clears the log once per run. `buildMemoryView` takes an options object. Playground runs the 20-line stores program by default; `?program=loads` keeps Stage 06's. Shared `src/playground/setup.ts`. `demo:stores`, `e2e/stores.spec.ts`. |
 | 08 | Mini assembler | not started | | `stage/08-assembler` | [doc](./stages/08-assembler.md) | |
 | 09 | Increment & decrement | not started | | `stage/09-inc-dec` | [doc](./stages/09-inc-dec.md) | |
 | 10 | Binary arithmetic | not started | | `stage/10-binary-arithmetic` | [doc](./stages/10-binary-arithmetic.md) | |
@@ -133,4 +133,6 @@ Things to come back to: questions raised during a stage, known inaccuracies, ide
 - Workbench `refresh()` rebuilds the whole table. Measure it once it runs every frame (Stage 30), and switch to text-only updates if it's slow. (Stage 03)
 - Dummy bus reads (e.g. the page-crossing read in `abs,X`, NOP's second cycle, and reset's three stack reads (Stage 04)) aren't modelled by the instruction-stepped core. Revisit with the cycle-exact extras in Part 12. (Stage 02)
 - **Addressing-mode explorer rework** (Stage 05 review): the panel was hard to follow. It should become a cycle-by-cycle table with a **Next cycle** button (one bus read per row, with the Memory panel outlining each byte), spell out "effective address" instead of "EA" (which clashes with the NOP byte `&EA`), and have a **Put it in memory** button so its bytes aren't hypothetical. Good moment: Stage 06, when `LDA` can really be stepped. (Deferred again at Stage 06 to keep the stage small.)
+- Indexed stores' cycle-4 dummy read (e.g. `STA &FE3F,X` reads `&FE44` before writing it) is a real bus read with side effects on SHEILA. Not modelled; belongs with the dummy-read item above. (Stage 07)
+- Program selection is a bare `?program=` query string. Stage 08's assembly editor should replace hand-assembled listings, so no picker UI was built. (Stage 07)
 - Undocumented NMOS opcodes that also load registers (`LAX` `&A7`/`&AF`/…) aren't implemented. They belong with the optional extras in Part 12. (Stage 06)

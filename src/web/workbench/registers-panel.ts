@@ -7,7 +7,7 @@
 import type { CpuTarget } from './debug-target';
 import { button } from './dom';
 import type { Panel } from './panel';
-import { buildRegistersView, stepMany, type RegistersView } from './registers-view-model';
+import { buildRegistersView, describeRun, stepMany, type RegistersView } from './registers-view-model';
 
 export interface RegistersPanelOptions {
   /** Called after the CPU runs or resets, so every panel can redraw. */
@@ -93,11 +93,7 @@ export function createRegistersPanel(target: CpuTarget, options: RegistersPanelO
 
   function run(n: number): void {
     const result = stepMany(target, n);
-    if (result.error !== undefined) {
-      say(result.steps > 0 ? `Ran ${String(result.steps)}, then stopped: ${result.error}` : result.error, true);
-    } else {
-      say(`Ran ${String(result.steps)} (${String(result.cycles)} cycles)`);
-    }
+    say(describeRun(result), result.error !== undefined);
     options.onRun();
   }
 
@@ -109,6 +105,7 @@ export function createRegistersPanel(target: CpuTarget, options: RegistersPanelO
   });
   reset.addEventListener('click', () => {
     target.reset();
+    target.writes.clear();
     say('Reset: PC loaded from &FFFC/&FFFD');
     options.onRun();
   });
