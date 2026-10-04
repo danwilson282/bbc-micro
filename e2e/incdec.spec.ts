@@ -19,9 +19,8 @@ async function step(page: Page, times = 1): Promise<void> {
 
 const ON = /\bon\b/;
 
-// Stage 09's increment & decrement example is the playground's default.
 test.beforeEach(async ({ page }) => {
-  await page.goto('/');
+  await page.goto('/?program=incdec');
 });
 
 test('opens on the Stage 09 example', async ({ page }) => {
