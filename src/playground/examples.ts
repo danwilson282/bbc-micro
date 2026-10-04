@@ -94,7 +94,42 @@ start:  LDX #&FE          ; X=&FE: N=1, bit 7 is set
 
 const INCDEC_EXAMPLE: Example = { id: 'incdec', title: 'Stage 09: increment & decrement', source: INCDEC_SOURCE };
 
+/**
+ * Stage 10: a 16-bit addition, two signed overflows, then the addition run
+ * backwards as a 16-bit subtraction. No CLC/SEC until Stage 14, so it uses
+ * C=0 from our reset, and an overflowing ADC leaves C=1 ready for the SBCs.
+ */
+export const ARITHMETIC_SOURCE = `; Stage 10: binary arithmetic. 1000 + 300 in 16 bits, then back.
+; Watch C carry the ninth bit from the low byte into the high byte.
+; No CLC or SEC yet (Stage 14): C starts at 0 after our reset.
+
+sum     = &80             ; 2 bytes, low byte first: &80/&81
+diff    = &82             ; 2 bytes: &82/&83
+
+        *= &0400
+start:  LDA #&E8          ; low byte of 1000 (&03E8). Real code: CLC first
+        ADC #&2C          ; + low byte of 300 (&012C) = &114: A=&14, C=1
+        STA sum           ; STA leaves C alone
+        LDA #&03          ; high byte of 1000. LDA leaves C alone too
+        ADC #&01          ; &03 + &01 + carry 1 = &05. C=0
+        STA sum+1         ; sum = 14 05: &0514 = 1300
+        LDA #&50          ; +80
+        ADC #&50          ; +80 + +80 = +160 won't fit: A=&A0 (-96), V=1, C=0
+        LDA #&D0          ; -48
+        ADC #&90          ; -48 + -112 = -160 won't fit: A=&60 (+96), V=1, C=1
+        LDA sum           ; C=1 now, which SBC needs for "no borrow"
+        SBC #&E8          ; &14 - &E8 goes below 0: A=&2C, C=0 (borrowed)
+        STA diff
+        LDA sum+1
+        SBC #&03          ; &05 - &03 - borrow 1 = &01. C=1
+        STA diff+1        ; diff = 2C 01: &012C = 300 again
+        NOP               ; then the NOP slide, and BRK at &0500 stops it
+`;
+
+const ARITHMETIC_EXAMPLE: Example = { id: 'arithmetic', title: 'Stage 10: binary arithmetic', source: ARITHMETIC_SOURCE };
+
 export const EXAMPLES: readonly Example[] = [
+  ARITHMETIC_EXAMPLE,
   INCDEC_EXAMPLE,
   LABELS_EXAMPLE,
   { id: 'stores', title: 'Stage 07: stores & transfers', source: sourceFromListing('Stage 07: copy "HELLO" from row 0 to row 1 of the Mode 7 screen.', STORES_PROGRAM) },
@@ -103,5 +138,5 @@ export const EXAMPLES: readonly Example[] = [
 
 /** The example with this id, or the current stage's if there's none. */
 export function findExample(id: string | null): Example {
-  return EXAMPLES.find((example) => example.id === id) ?? INCDEC_EXAMPLE;
+  return EXAMPLES.find((example) => example.id === id) ?? ARITHMETIC_EXAMPLE;
 }

@@ -1,7 +1,7 @@
 import { assemble, formatError } from '../asm/assembler';
 import { Cpu6502, UnimplementedOpcodeError } from '../cpu/cpu6502';
 import { TestBus } from '../memory/test-bus';
-import { EXAMPLES, INCDEC_SOURCE, LABELS_SOURCE, findExample } from './examples';
+import { ARITHMETIC_SOURCE, EXAMPLES, INCDEC_SOURCE, LABELS_SOURCE, findExample } from './examples';
 import { LOADS_PROGRAM } from './loads-program';
 import { installProgram } from './setup';
 import { STORES_PROGRAM } from './stores-program';
@@ -123,13 +123,58 @@ describe('the Stage 09 increment & decrement example', () => {
   });
 });
 
+describe('the Stage 10 binary arithmetic example', () => {
+  interface After {
+    readonly a: number;
+    readonly c: boolean;
+    readonly v: boolean;
+  }
+
+  function trace(): { cpu: Cpu6502; bus: TestBus; after: After[] } {
+    const bus = new TestBus();
+    installProgram(bus, assembled(ARITHMETIC_SOURCE).lines, 0x0400);
+    const cpu = new Cpu6502(bus);
+    cpu.reset();
+    const after: After[] = [];
+    for (let i = 0; i < 17; i++) {
+      cpu.step();
+      after.push({ a: cpu.regs.a, c: cpu.regs.c, v: cpu.regs.v });
+    }
+    return { cpu, bus, after };
+  }
+
+  it('adds &03E8 + &012C: the low ADC carries out (C=1) and the high ADC takes it in', () => {
+    const { after } = trace();
+    expect(after[1]).toEqual({ a: 0x14, c: true, v: false });
+    expect(after[4]).toEqual({ a: 0x05, c: false, v: false });
+  });
+
+  it('stores the 16-bit sum &0514 (1300) low byte first at &80/&81', () => {
+    const { bus } = trace();
+    expect([bus.read(0x80), bus.read(0x81)]).toEqual([0x14, 0x05]);
+  });
+
+  it('shows two signed overflows: &50 + &50 (V=1, C=0) and &D0 + &90 (V=1, C=1)', () => {
+    const { after } = trace();
+    expect(after[7]).toEqual({ a: 0xa0, c: false, v: true });
+    expect(after[9]).toEqual({ a: 0x60, c: true, v: true });
+  });
+
+  it('subtracts back to &012C (300) at &82/&83, borrowing from the high byte', () => {
+    const { bus, after } = trace();
+    expect(after[11]).toEqual({ a: 0x2c, c: false, v: false });
+    expect(after[14]).toEqual({ a: 0x01, c: true, v: false });
+    expect([bus.read(0x82), bus.read(0x83)]).toEqual([0x2c, 0x01]);
+  });
+});
+
 describe('the examples', () => {
   it.each(EXAMPLES.map((e) => [e.id, e] as const))('%s assembles without errors', (_id, example) => {
     expect(assemble(example.source).ok).toBe(true);
   });
 
   it('falls back to the first example for an unknown or missing id', () => {
-    expect(findExample('nope').id).toBe('incdec');
-    expect(findExample(null).id).toBe('incdec');
+    expect(findExample('nope').id).toBe('arithmetic');
+    expect(findExample(null).id).toBe('arithmetic');
   });
 });
