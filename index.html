@@ -254,6 +254,50 @@
         font-size: 0.8rem;
         color: var(--muted);
       }
+      .asm-toolbar {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        align-items: center;
+        margin-bottom: 8px;
+      }
+      .asm-source {
+        box-sizing: border-box;
+        width: 100%;
+        font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+        font-size: 0.85rem;
+        line-height: 1.4;
+        tab-size: 8;
+        background: var(--bg);
+        color: var(--fg);
+        border: 1px solid var(--border);
+        border-radius: 4px;
+        padding: 6px 8px;
+        resize: vertical;
+      }
+      .asm-status {
+        margin: 6px 0 0;
+        font-size: 0.85rem;
+      }
+      .asm-status.error {
+        color: var(--error);
+      }
+      .asm-errors {
+        margin: 4px 0 0;
+        padding-left: 1.4em;
+        font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+        font-size: 0.85rem;
+        color: var(--error);
+      }
+      .asm-errors:empty {
+        display: none;
+      }
+      .asm-symbols {
+        margin: 4px 0 0;
+        font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+        font-size: 0.8rem;
+        color: var(--muted);
+      }
       .explorer-form,
       .explorer-presets {
         display: flex;
