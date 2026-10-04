@@ -12,6 +12,7 @@
 import type { AddressingMode } from './addressing';
 import type { Cpu6502 } from './cpu6502';
 import { ARITHMETIC } from './instructions/arithmetic';
+import { FLAG_OPS } from './instructions/flag-ops';
 import { INC_DEC } from './instructions/inc-dec';
 import { LOADS } from './instructions/loads';
 import { STORES } from './instructions/stores';
@@ -46,7 +47,7 @@ function nop(): number {
 const NOP: OpcodeDefinition = { opcode: 0xea, mnemonic: 'NOP', mode: 'implied', bytes: 1, cycles: 2, execute: nop };
 
 /** Every implemented instruction group, in stage order. */
-const GROUPS: readonly (readonly OpcodeDefinition[])[] = [[NOP], LOADS, STORES, TRANSFERS, INC_DEC, ARITHMETIC];
+const GROUPS: readonly (readonly OpcodeDefinition[])[] = [[NOP], LOADS, STORES, TRANSFERS, INC_DEC, ARITHMETIC, FLAG_OPS];
 
 /** Puts each row in its slot. Two rows claiming one opcode is a bug in the tables, so it throws. */
 export function buildTable(groups: readonly (readonly OpcodeDefinition[])[]): readonly (Opcode | undefined)[] {

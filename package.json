@@ -20,7 +20,8 @@
     "demo:stores": "tsx scripts/demo-stores.ts",
     "demo:asm": "tsx scripts/demo-asm.ts",
     "demo:incdec": "tsx scripts/demo-incdec.ts",
-    "demo:arith": "tsx scripts/demo-arith.ts"
+    "demo:arith": "tsx scripts/demo-arith.ts",
+    "demo:score": "tsx scripts/demo-score.ts"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

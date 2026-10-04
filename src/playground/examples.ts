@@ -128,7 +128,48 @@ start:  LDA #&E8          ; low byte of 1000 (&03E8). Real code: CLC first
 
 const ARITHMETIC_EXAMPLE: Example = { id: 'arithmetic', title: 'Stage 10: binary arithmetic', source: ARITHMETIC_SOURCE };
 
+/**
+ * Stage 11: decimal mode. A four-digit BCD score goes up by 10 and down by 6,
+ * with the carry and borrow handing off between its two bytes, and two ADCs
+ * show the NMOS Z quirk both ways round. Still no CLC/SEC (Stage 14), so each
+ * ADC/SBC is placed where C is already what it needs.
+ */
+export const DECIMAL_SOURCE = `; Stage 11: decimal mode. With D set, ADC and SBC count in BCD:
+; each hex digit is a decimal digit, so A never shows A-F.
+; Watch C carry hundreds, and Z go wrong (both ways) after ADC.
+
+score   = &80             ; 4 digits in 2 bytes, low byte first: &80/&81
+
+        *= &0400
+start:  SED               ; D=1: ADC and SBC now work in decimal
+        LDA #&09
+        ADC #&01          ; &09 + &01 = &10, not &0A. (C=0 after our reset)
+        LDA #&95          ; the score is 0995: add 10 points
+        ADC #&10          ; 95 + 10 = 105: A=&05, and C=1 carries the hundred
+        STA score
+        LDA #&09
+        ADC #&00          ; 09 + 00 + carry 1 = &10. C=0
+        STA score+1       ; score = 05 10, which reads as 1005
+        LDA #&80
+        ADC #&80          ; 80 + 80 = 160: A=&60, C=1. But Z=1! (binary &100)
+        LDA score         ; now take 6 points off. C=1: no borrow in
+        SBC #&06          ; 05 - 06 goes below 0: A=&99, C=0 (borrowed)
+        STA score
+        LDA score+1
+        SBC #&00          ; 10 - 00 - borrow 1 = &09. C=1
+        STA score+1       ; score = 99 09, which reads as 0999
+        LDA #&98
+        ADC #&01          ; 98 + 01 + carry 1 = 100: A=&00, C=1. But Z=0, N=1!
+        CLD               ; D=0: binary again
+        LDA #&10
+        SBC #&01          ; &10 - &01 = &0F in binary (decimal would give &09)
+        NOP               ; then the NOP slide, and BRK at &0500 stops it
+`;
+
+const DECIMAL_EXAMPLE: Example = { id: 'decimal', title: 'Stage 11: decimal mode', source: DECIMAL_SOURCE };
+
 export const EXAMPLES: readonly Example[] = [
+  DECIMAL_EXAMPLE,
   ARITHMETIC_EXAMPLE,
   INCDEC_EXAMPLE,
   LABELS_EXAMPLE,
@@ -138,5 +179,5 @@ export const EXAMPLES: readonly Example[] = [
 
 /** The example with this id, or the current stage's if there's none. */
 export function findExample(id: string | null): Example {
-  return EXAMPLES.find((example) => example.id === id) ?? ARITHMETIC_EXAMPLE;
+  return EXAMPLES.find((example) => example.id === id) ?? DECIMAL_EXAMPLE;
 }

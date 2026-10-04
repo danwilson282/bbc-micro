@@ -1,7 +1,7 @@
 import { assemble, formatError } from '../asm/assembler';
 import { Cpu6502, UnimplementedOpcodeError } from '../cpu/cpu6502';
 import { TestBus } from '../memory/test-bus';
-import { ARITHMETIC_SOURCE, EXAMPLES, INCDEC_SOURCE, LABELS_SOURCE, findExample } from './examples';
+import { ARITHMETIC_SOURCE, DECIMAL_SOURCE, EXAMPLES, INCDEC_SOURCE, LABELS_SOURCE, findExample } from './examples';
 import { LOADS_PROGRAM } from './loads-program';
 import { installProgram } from './setup';
 import { STORES_PROGRAM } from './stores-program';
@@ -168,13 +168,68 @@ describe('the Stage 10 binary arithmetic example', () => {
   });
 });
 
+describe('the Stage 11 decimal mode example', () => {
+  interface After {
+    readonly a: number;
+    readonly n: boolean;
+    readonly z: boolean;
+    readonly c: boolean;
+    readonly d: boolean;
+  }
+
+  function trace(): { bus: TestBus; after: After[] } {
+    const bus = new TestBus();
+    installProgram(bus, assembled(DECIMAL_SOURCE).lines, 0x0400);
+    const cpu = new Cpu6502(bus);
+    cpu.reset();
+    const after: After[] = [];
+    for (let i = 0; i < 22; i++) {
+      cpu.step();
+      const { a, n, z, c, d } = cpu.regs;
+      after.push({ a, n, z, c, d });
+    }
+    return { bus, after };
+  }
+
+  it('turns decimal mode on, and &09 + &01 gives &10', () => {
+    const { after } = trace();
+    expect(after[0]?.d).toBe(true);
+    expect(after[2]).toMatchObject({ a: 0x10, c: false });
+  });
+
+  it('adds 10 points to 0995: the low byte carries the hundred, and &80/&81 hold 05 10', () => {
+    const { after } = trace();
+    expect(after[4]).toMatchObject({ a: 0x05, c: true });
+    expect(after[8]).toMatchObject({ a: 0x10, c: false });
+  });
+
+  it('shows the Z quirk both ways: &80 + &80 = &60 with Z=1, and &98 + &01 + 1 = &00 with Z=0 and N=1', () => {
+    const { after } = trace();
+    expect(after[10]).toEqual({ a: 0x60, n: false, z: true, c: true, d: true });
+    expect(after[18]).toEqual({ a: 0x00, n: true, z: false, c: true, d: true });
+  });
+
+  it('takes 6 points off 1005, borrowing across the bytes: &80/&81 end as 99 09 (0999)', () => {
+    const { bus, after } = trace();
+    expect(after[12]).toMatchObject({ a: 0x99, c: false });
+    expect(after[15]).toMatchObject({ a: 0x09, c: true });
+    expect([bus.read(0x80), bus.read(0x81)]).toEqual([0x99, 0x09]);
+  });
+
+  it('after CLD, &10 − &01 is binary again: &0F', () => {
+    const { after } = trace();
+    expect(after[19]?.d).toBe(false);
+    expect(after[21]?.a).toBe(0x0f);
+  });
+});
+
 describe('the examples', () => {
   it.each(EXAMPLES.map((e) => [e.id, e] as const))('%s assembles without errors', (_id, example) => {
     expect(assemble(example.source).ok).toBe(true);
   });
 
   it('falls back to the first example for an unknown or missing id', () => {
-    expect(findExample('nope').id).toBe('arithmetic');
-    expect(findExample(null).id).toBe('arithmetic');
+    expect(findExample('nope').id).toBe('decimal');
+    expect(findExample(null).id).toBe('decimal');
   });
 });

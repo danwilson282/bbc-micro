@@ -2,7 +2,7 @@
 
 Tracks where the build is up to. The `/start-stage` and `/finish-stage` skills keep this file up to date. For what each stage involves, see [`BUILD-PLAN.md`](./BUILD-PLAN.md).
 
-**Current stage:** 11 — Decimal mode (not started)
+**Current stage:** 12 — Logic & BIT (not started)
 
 **Status values:**
 - `not started`
@@ -33,7 +33,7 @@ Tracks where the build is up to. The `/start-stage` and `/finish-stage` skills k
 | 08 | Mini assembler | done | ✅ | `stage/08-assembler` | [doc](./stages/08-assembler.md) | `src/asm/{encodings,parse,assembler}.ts`: all 151 documented opcodes as data, two passes, errors collected with line numbers. Also `name = value` constants and `+`/`-` expressions (not in plan). New **Assembler** panel (example picker, Ctrl+Enter). The Program panel now shows the assembled listing. Stage 06/07 programs are examples generated from their hand listings, and a test proves they assemble byte-for-byte the same. Playground set-up moved into `installProgram()` (`setup.ts`). `?program=` now picks an example (default `labels`). `demo:asm` (not in plan). `e2e/assembler.spec.ts`; cpu/stores specs now use `?program=stores`. |
 | 09 | Increment & decrement | done | ✅ | `stage/09-inc-dec` | [doc](./stages/09-inc-dec.md) | `src/cpu/instructions/inc-dec.ts` (12 opcodes). INC/DEC go through a private `readModifyWrite(mode, modify)` that models the NMOS **dummy write** (old value, then new: 2 writes per INC/DEC, visible in the Wrote line). Stage 13's memory shifts should export and reuse it. New default example `incdec` (`INCDEC_SOURCE`). `demo:incdec` (not in plan). `e2e/incdec.spec.ts`; `assembler.spec.ts` now opens `?program=labels`. Tests that used `&E8` as "unimplemented" now use `&69`. |
 | 10 | Binary arithmetic | done | ✅ | `stage/10-binary-arithmetic` | [doc](./stages/10-binary-arithmetic.md) | `src/cpu/instructions/arithmetic.ts` (16 opcodes). One exported `addWithCarry`; `subtractWithCarry` passes `value ^ 0xff`. Binary only: D is ignored until Stage 11. Exhaustive 131,072-case sweeps for ADC and SBC against integer reference formulas. New default example `arithmetic` (16-bit add, two overflows, 16-bit subtract). With no CLC/SEC until Stage 14, it relies on C=0 after our reset and on an overflowing ADC leaving C=1. `demo:arith` prints the V truth table from real ADCs (not in plan). `e2e/arithmetic.spec.ts`; `incdec.spec.ts` now opens `?program=incdec`. The "unimplemented" tests now use `&29`. |
-| 11 | Decimal mode | not started | | `stage/11-decimal-mode` | [doc](./stages/11-decimal-mode.md) | |
+| 11 | Decimal mode | done | ✅ | `stage/11-decimal-mode` | [doc](./stages/11-decimal-mode.md) | `addDecimal`/`subtractDecimal` in `arithmetic.ts`, picked per instruction by `add`/`subtract` on D. NMOS flags: decimal ADC takes N/V from the half-fixed sum and Z from the binary sum; decimal SBC keeps all the binary flags. Exhaustive sweeps: valid BCD against plain decimal arithmetic, and all 131,072 inputs against Clark's algorithm (6502.org). **SED/CLD brought forward from Stage 14** (your choice) into new `flag-ops.ts`; Stage 14 adds the other five there. New default example `decimal`. `demo:score` (00→99 counter, decimal vs binary, and a quirk table). The script is the loop until branches. `e2e/decimal.spec.ts`; `arithmetic.spec.ts` now opens `?program=arithmetic`. |
 | 12 | Logic & BIT | not started | | `stage/12-logic-bit` | [doc](./stages/12-logic-bit.md) | |
 | 13 | Shifts & rotates | not started | | `stage/13-shifts-rotates` | [doc](./stages/13-shifts-rotates.md) | |
 | 14 | Compare, branch & flag ops | not started | | `stage/14-compare-branch-flags` | [doc](./stages/14-compare-branch-flags.md) | |
@@ -138,5 +138,7 @@ Things to come back to: questions raised during a stage, known inaccuracies, ide
 - ~~Program selection is a bare `?program=` query string.~~ Done in Stage 08: the Assembler panel has an example picker, and `?program=` picks the initial example.
 - Assembler features not built yet: strings in `.byte`, `*` as the current address, `<`/`>` low/high byte, and the undocumented opcodes. Add them when a stage needs them. (Stage 08)
 - After Assemble & Run, the Registers panel highlights S/PC/P as "changed" because the reset happens after the first draw. It's harmless, but noisy on page load. (Stage 08)
+- Registers panel reads A as binary only (`&60` → "96 / 96"). It might show the BCD reading as well when D is set. (Stage 11)
+- Invalid-BCD results follow Clark's tutorial. Cross-check them against the real-hardware data in Stage 19. (Stage 11)
 - Undocumented `SBC #` duplicate at `&EB` isn't implemented. Part 12 extras. (Stage 10)
 - Undocumented NMOS opcodes that also load registers (`LAX` `&A7`/`&AF`/…) aren't implemented. They belong with the optional extras in Part 12. (Stage 06)

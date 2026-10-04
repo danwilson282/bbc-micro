@@ -106,11 +106,11 @@ describe('the opcode table', () => {
     expect(OPCODES).toHaveLength(256);
   });
 
-  it('implements NOP, 18 loads, 13 stores, 6 transfers, 12 increments/decrements and 16 ADC/SBC so far (Stage 10)', () => {
+  it('implements NOP, 18 loads, 13 stores, 6 transfers, 12 increments/decrements, 16 ADC/SBC, and SED/CLD so far (Stage 11)', () => {
     const implemented = OPCODES.flatMap((op) => (op ? [op.mnemonic] : []));
-    expect(implemented).toHaveLength(1 + 18 + 13 + 6 + 12 + 16);
+    expect(implemented).toHaveLength(1 + 18 + 13 + 6 + 12 + 16 + 2);
     expect(new Set(implemented)).toEqual(
-      new Set(['NOP', 'LDA', 'LDX', 'LDY', 'STA', 'STX', 'STY', 'TAX', 'TAY', 'TXA', 'TYA', 'TSX', 'TXS', 'INX', 'INY', 'DEX', 'DEY', 'INC', 'DEC', 'ADC', 'SBC']),
+      new Set(['NOP', 'LDA', 'LDX', 'LDY', 'STA', 'STX', 'STY', 'TAX', 'TAY', 'TXA', 'TYA', 'TSX', 'TXS', 'INX', 'INY', 'DEX', 'DEY', 'INC', 'DEC', 'ADC', 'SBC', 'SED', 'CLD']),
     );
   });
 });
