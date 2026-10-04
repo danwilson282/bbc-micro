@@ -27,7 +27,7 @@ async function step(page: Page, times = 1): Promise<void> {
 }
 
 test.beforeEach(async ({ page }) => {
-  await page.goto('/');
+  await page.goto('/?program=labels');
 });
 
 test('opens on the labels example, already assembled, with PC at &0400', async ({ page }) => {
