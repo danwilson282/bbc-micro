@@ -19,12 +19,12 @@ async function step(page: Page, times = 1): Promise<void> {
 
 const ON = /\bon\b/;
 
-// Stage 10's binary arithmetic example is the playground's default.
+// Stage 10's binary arithmetic example.
 test.beforeEach(async ({ page }) => {
-  await page.goto('/');
+  await page.goto('/?program=arithmetic');
 });
 
-test('opens on the Stage 10 example', async ({ page }) => {
+test('opens the Stage 10 example', async ({ page }) => {
   await expect(page.getByRole('region', { name: 'Assembler' }).getByRole('combobox', { name: 'Example program' })).toHaveValue('arithmetic');
   await expect(page.getByRole('region', { name: 'Program' }).locator('tr.current td.source')).toHaveText('start: LDA #&E8');
 });
