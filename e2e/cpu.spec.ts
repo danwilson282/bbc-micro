@@ -8,8 +8,10 @@ function register(page: Page, name: string): ReturnType<Page['locator']> {
   return registersPanel(page).locator(`tr[data-register="${name}"] td.value`);
 }
 
+// Since Stage 08 the playground opens on the assembler's labels example;
+// these tests use the Stage 07 stores program.
 test.beforeEach(async ({ page }) => {
-  await page.goto('/');
+  await page.goto('/?program=stores');
 });
 
 test('after reset, PC comes from the vector at &FFFC and S is &FD', async ({ page }) => {

@@ -17,7 +17,8 @@
     "demo:numbers": "tsx scripts/demo-numbers.ts",
     "demo:hexdump": "tsx scripts/demo-hexdump.ts",
     "demo:loads": "tsx scripts/demo-loads.ts",
-    "demo:stores": "tsx scripts/demo-stores.ts"
+    "demo:stores": "tsx scripts/demo-stores.ts",
+    "demo:asm": "tsx scripts/demo-asm.ts"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

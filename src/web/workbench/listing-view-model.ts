@@ -1,4 +1,4 @@
-// The Program panel's view-model: a hand-assembled listing, with the line at
+// The Program panel's view-model: a program listing, with the line at
 // PC marked, and any line whose bytes in memory no longer match the listing
 // flagged. The listing is only notes; memory is what the CPU actually runs.
 //

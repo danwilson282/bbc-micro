@@ -30,8 +30,10 @@ async function goTo(page: Page, address: string): Promise<void> {
   await memoryPanel(page).getByRole('button', { name: 'Go to address' }).click();
 }
 
+// Since Stage 08 the playground opens on the assembler's labels example;
+// these tests use the Stage 07 stores program.
 test.beforeEach(async ({ page }) => {
-  await page.goto('/');
+  await page.goto('/?program=stores');
 });
 
 test('the Program panel lists the stores program, starting with TSX', async ({ page }) => {

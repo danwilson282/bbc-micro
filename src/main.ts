@@ -1,14 +1,13 @@
 // Browser entry point. Builds the Part 2 "CPU playground" (a 6502 on a flat
 // 64K TestBus) and mounts the workbench beside the screen canvas.
 
-import { RESET_VECTOR } from './cpu/cpu6502';
 import { TestBus } from './memory/test-bus';
-import { listingEnd, loadListing, type ListingLine } from './playground/listing';
-import { LOADS_PROGRAM } from './playground/loads-program';
-import { MODE7_SCREEN, loadPlaygroundData } from './playground/setup';
-import { STORES_PROGRAM } from './playground/stores-program';
-import { hex16, hex8, hi, lo } from './util/bits';
+import type { ListingLine } from './playground/listing';
+import { EXAMPLES, findExample } from './playground/examples';
+import { PROGRAM_PAGE, installProgram } from './playground/setup';
+import { hex16, hex8 } from './util/bits';
 import { createAddressingPanel } from './web/workbench/addressing-panel';
+import { createAssemblerPanel } from './web/workbench/assembler-panel';
 import { playgroundTarget } from './web/workbench/debug-target';
 import { createListingPanel } from './web/workbench/listing-panel';
 import { createMemoryPanel } from './web/workbench/memory-panel';
@@ -20,60 +19,52 @@ if (!canvas) throw new Error('Missing #screen canvas');
 const host = document.querySelector<HTMLElement>('#workbench');
 if (!host) throw new Error('Missing #workbench element');
 
-// The playground program: a hand-assembled listing at &0400, then NOPs (&EA)
-// to the end of the page. The byte after that, &0500, is &00 (BRK), which
-// isn't implemented yet, so stepping off the end shows the
-// unimplemented-opcode error. The current stage's program runs by default;
-// ?program=loads runs Stage 06's instead.
-const PROGRAMS: Readonly<Record<string, readonly ListingLine[]>> = {
-  loads: LOADS_PROGRAM, //   Stage 06
-  stores: STORES_PROGRAM, // Stage 07
-};
-const requested = new URLSearchParams(window.location.search).get('program') ?? 'stores';
-const program = PROGRAMS[requested] ?? STORES_PROGRAM;
-const PROGRAM = program[0]?.address ?? 0x0400;
-const PAGE_END = 0x0500;
-const NOP = 0xea;
+// Programs come from the Assembler panel (Stage 08). The current stage's
+// example runs by default; ?program=stores or ?program=loads starts with an
+// earlier stage's instead.
+const initial = findExample(new URLSearchParams(window.location.search).get('program'));
 
 const bus = new TestBus();
-// "HELLO, BBC MICRO" at &7C00 and the pointer to it at &70/&71.
-loadPlaygroundData(bus);
-loadListing(bus, program);
-const nopsFrom = listingEnd(program);
-bus.load(nopsFrom, new Array<number>(PAGE_END - nopsFrom).fill(NOP));
-// The reset vector, low byte first: &FFFC = &00, &FFFD = &04.
-bus.load(RESET_VECTOR, [lo(PROGRAM), hi(PROGRAM)]);
-
-// More pointers for the addressing-mode explorer's examples (Stage 05):
-//   &FF/&00 = 00 7C  the &70 pointer again, straddling the end of page zero
-//   &30FF = 00, &3000 = 04, &3100 = 80  the JMP (&30FF) trap: the NMOS bug
-//     jumps to &0400; a "correct" CPU would go to &8000
-bus.write(0x00ff, lo(MODE7_SCREEN));
-bus.write(0x0000, hi(MODE7_SCREEN));
-bus.write(0x30ff, 0x00);
-bus.write(0x3000, 0x04);
-bus.write(0x3100, 0x80);
-
 // The target puts a WriteRecorder between the CPU and the bus (Stage 07).
 const target = playgroundTarget(bus);
-target.reset();
+let listing: readonly ListingLine[] = [];
+
 const workbench = createWorkbench(host, target.name);
 const refreshAll = (): void => {
   workbench.refreshAll();
 };
-workbench.add(createRegistersPanel(target, { onRun: refreshAll }));
-workbench.add(createListingPanel(target, program));
+
 const memory = createMemoryPanel(target, {
-  start: PROGRAM,
+  start: PROGRAM_PAGE,
   onPoke: refreshAll,
   pc: () => target.registers.pc,
   writes: target.writes,
 });
+
+// Assemble & Run: a clean playground with the new bytes in it (installProgram
+// also puts back "HELLO, BBC MICRO" at &7C00 and the explorer's pointers),
+// the reset vector pointing at the first byte, and a CPU reset.
+const assembler = createAssemblerPanel({
+  examples: EXAMPLES,
+  initial,
+  onAssembled: (assembly, entry) => {
+    listing = assembly.lines;
+    installProgram(bus, assembly.lines, entry);
+    target.reset();
+    target.writes.clear();
+    memory.goTo(entry);
+    refreshAll();
+  },
+});
+workbench.add(createRegistersPanel(target, { onRun: refreshAll }));
+workbench.add(assembler);
+workbench.add(createListingPanel(target, () => listing));
 workbench.add(memory);
 workbench.add(createAddressingPanel(target));
+assembler.assembleAndRun();
 
 // A console handle for experimenting in DevTools, e.g.
-//   workbench.poke(0x0404, 0xff)   // stores program: LDA #&00 becomes LDA #&FF; then Reset and Step
+//   workbench.poke(0x0401, 0xff)   // then Reset and Step
 Object.assign(window, {
   workbench: {
     peek: (address: number): string => `&${hex8(target.peek(address))}`,
@@ -91,6 +82,6 @@ Object.assign(window, {
       return cycles;
     },
     cpu: target.cpu,
-    help: `workbench.poke(0x${hex16(PROGRAM + 4)}, 0xff), workbench.step(), workbench.peek(addr), workbench.goTo(addr), workbench.cpu.regs`,
+    help: `workbench.poke(0x${hex16(PROGRAM_PAGE + 1)}, 0xff), workbench.step(), workbench.peek(addr), workbench.goTo(addr), workbench.cpu.regs`,
   },
 });
