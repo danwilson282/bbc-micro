@@ -208,7 +208,50 @@ start:  LDA #&B5          ; A = %1011 0101
 
 const LOGIC_EXAMPLE: Example = { id: 'logic', title: 'Stage 12: logic & BIT', source: LOGIC_SOURCE };
 
+/**
+ * Stage 13: shifts & rotates. 23 × 10 = 23 × 8 + 23 × 2 with ASL and one ADC,
+ * halving with LSR (remainder in C), a memory ASL, a 16-bit doubling with
+ * ASL/ROL, and one bit walked round the 9-bit C + A ring. Still no CLC
+ * (Stage 14): the last ASL before the ADC leaves C=0.
+ */
+export const SHIFTS_SOURCE = `; Stage 13: shifts & rotates. Multiply by 10 with no multiply instruction:
+; n * 10 = n * 8 + n * 2. Watch A's bits slide, and C catch the one that falls off.
+
+num     = &80             ; the number to multiply (not "x": that's a register)
+times2  = &81             ; num * 2, kept for the add
+result  = &82             ; num * 10
+word    = &84             ; a 16-bit number, low byte first: &84/&85
+
+        *= &0400
+start:  LDA #23           ; num = 23 = &17 = %0001 0111
+        STA num
+        ASL A             ; n * 2 = 46 = &2E. Old bit 7 (a 0) falls into C
+        STA times2
+        ASL A             ; n * 4 = 92 = &5C
+        ASL A             ; n * 8 = 184 = &B8. C=0: nothing fell off the top
+        ADC times2        ; n * 8 + n * 2 = 230 = &E6. That last ASL left C=0
+        STA result        ; result = 230 = 23 * 10
+        LSR A             ; halve: 115 = &73. Old bit 0 (a 0) falls into C
+        LSR A             ; halve: 57 = &39, C=1. 115 was odd: the remainder is in C
+        ASL num           ; on memory: num = 46. 5 cycles, 2 writes (watch the Wrote line)
+        LDA #&C0
+        STA word          ; word = &01C0 = 448
+        LDA #&01
+        STA word+1
+        ASL word          ; low byte: &C0 -> &80. Bit 7 (a 1) falls into C
+        ROL word+1        ; high byte: &01 -> &03. C comes in at bit 0. word = &0380 = 896
+        LDA #&01          ; now walk one bit round the 9-bit ring of C and A
+        LSR A             ; A = &00, C=1: the bit is in C. Z=1
+        ROR A             ; A = &80, C=0: C came in at the top. N=1
+        ROL A             ; A = &00, C=1: back out of the top into C
+        ROL A             ; A = &01, C=0: and in at the bottom. Where it started
+        NOP               ; then the NOP slide, and BRK at &0500 stops it
+`;
+
+const SHIFTS_EXAMPLE: Example = { id: 'shifts', title: 'Stage 13: shifts & rotates', source: SHIFTS_SOURCE };
+
 export const EXAMPLES: readonly Example[] = [
+  SHIFTS_EXAMPLE,
   LOGIC_EXAMPLE,
   DECIMAL_EXAMPLE,
   ARITHMETIC_EXAMPLE,
@@ -220,5 +263,5 @@ export const EXAMPLES: readonly Example[] = [
 
 /** The example with this id, or the current stage's if there's none. */
 export function findExample(id: string | null): Example {
-  return EXAMPLES.find((example) => example.id === id) ?? LOGIC_EXAMPLE;
+  return EXAMPLES.find((example) => example.id === id) ?? SHIFTS_EXAMPLE;
 }

@@ -1,7 +1,7 @@
 import { assemble, formatError } from '../asm/assembler';
 import { Cpu6502, UnimplementedOpcodeError } from '../cpu/cpu6502';
 import { TestBus } from '../memory/test-bus';
-import { ARITHMETIC_SOURCE, DECIMAL_SOURCE, EXAMPLES, INCDEC_SOURCE, LABELS_SOURCE, LOGIC_SOURCE, findExample } from './examples';
+import { ARITHMETIC_SOURCE, DECIMAL_SOURCE, EXAMPLES, INCDEC_SOURCE, LABELS_SOURCE, LOGIC_SOURCE, SHIFTS_SOURCE, findExample } from './examples';
 import { LOADS_PROGRAM } from './loads-program';
 import { installProgram } from './setup';
 import { STORES_PROGRAM } from './stores-program';
@@ -270,13 +270,71 @@ describe('the Stage 12 logic example', () => {
   });
 });
 
+describe('the Stage 13 shifts example', () => {
+  interface After {
+    readonly a: number;
+    readonly n: boolean;
+    readonly z: boolean;
+    readonly c: boolean;
+  }
+
+  function trace(): { bus: TestBus; after: After[]; cycles: number[] } {
+    const bus = new TestBus();
+    installProgram(bus, assembled(SHIFTS_SOURCE).lines, 0x0400);
+    const cpu = new Cpu6502(bus);
+    cpu.reset();
+    const after: After[] = [];
+    const cycles: number[] = [];
+    for (let i = 0; i < 22; i++) {
+      cycles.push(cpu.step());
+      const { a, n, z, c } = cpu.regs;
+      after.push({ a, n, z, c });
+    }
+    return { bus, after, cycles };
+  }
+
+  it('multiplies 23 by 10 with shifts: &17 → &2E → &5C → &B8, then + &2E = &E6 (230)', () => {
+    const { bus, after } = trace();
+    expect([0, 2, 4, 5, 6].map((i) => after[i]?.a)).toEqual([0x17, 0x2e, 0x5c, 0xb8, 0xe6]);
+    expect(after[5]?.c).toBe(false); // the last ASL leaves C=0 for the ADC
+    expect(bus.read(0x82)).toBe(230);
+  });
+
+  it('halves with LSR, the remainder landing in C: 230 → 115 (C=0) → 57 (C=1)', () => {
+    const { after } = trace();
+    expect(after[8]).toEqual({ a: 115, n: false, z: false, c: false });
+    expect(after[9]).toEqual({ a: 57, n: false, z: false, c: true });
+  });
+
+  it('ASL num doubles the byte in memory, in 5 cycles', () => {
+    const { bus, cycles } = trace();
+    expect(bus.read(0x80)).toBe(46);
+    expect(cycles[10]).toBe(5);
+  });
+
+  it('ASL then ROL doubles the 16-bit word: &01C0 → &0380', () => {
+    const { bus } = trace();
+    expect([bus.read(0x84), bus.read(0x85)]).toEqual([0x80, 0x03]);
+  });
+
+  it('walks one bit round the 9-bit ring: C, then bit 7, then C, then bit 0', () => {
+    const { after } = trace();
+    expect(after.slice(18, 22)).toEqual([
+      { a: 0x00, n: false, z: true, c: true },
+      { a: 0x80, n: true, z: false, c: false },
+      { a: 0x00, n: false, z: true, c: true },
+      { a: 0x01, n: false, z: false, c: false },
+    ]);
+  });
+});
+
 describe('the examples', () => {
   it.each(EXAMPLES.map((e) => [e.id, e] as const))('%s assembles without errors', (_id, example) => {
     expect(assemble(example.source).ok).toBe(true);
   });
 
   it('falls back to the first example for an unknown or missing id', () => {
-    expect(findExample('nope').id).toBe('logic');
-    expect(findExample(null).id).toBe('logic');
+    expect(findExample('nope').id).toBe('shifts');
+    expect(findExample(null).id).toBe('shifts');
   });
 });

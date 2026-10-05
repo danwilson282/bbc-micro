@@ -23,12 +23,12 @@ async function step(page: Page, times = 1): Promise<void> {
 
 const ON = /\bon\b/;
 
-// Stage 12's logic example is the playground's default.
+// Stage 12's logic example (no longer the default since Stage 13).
 test.beforeEach(async ({ page }) => {
-  await page.goto('/');
+  await page.goto('/?program=logic');
 });
 
-test('opens on the Stage 12 example', async ({ page }) => {
+test('?program=logic opens the Stage 12 example', async ({ page }) => {
   await expect(page.getByRole('region', { name: 'Assembler' }).getByRole('combobox', { name: 'Example program' })).toHaveValue('logic');
   await expect(page.getByRole('region', { name: 'Program' }).locator('tr.current td.source')).toHaveText('start: LDA #&B5');
 });
