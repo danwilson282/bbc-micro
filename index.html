@@ -165,6 +165,20 @@
       .registers-table td {
         padding: 1px 12px 1px 2px;
       }
+      .registers-table td.binary {
+        white-space: pre;
+      }
+      .registers-table .bit {
+        color: var(--muted);
+      }
+      .registers-table .bit.on {
+        color: inherit;
+        font-weight: bold;
+      }
+      .registers-table .bit.changed {
+        background: var(--changed);
+        border-radius: 2px;
+      }
       .registers-table td.detail {
         color: var(--muted);
       }

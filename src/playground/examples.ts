@@ -168,7 +168,48 @@ start:  SED               ; D=1: ADC and SBC now work in decimal
 
 const DECIMAL_EXAMPLE: Example = { id: 'decimal', title: 'Stage 11: decimal mode', source: DECIMAL_SOURCE };
 
+/**
+ * Stage 12: logic & BIT. Masks on A (clear, set, toggle), the three ASCII
+ * case tricks on "HELLO" at &7C00, then BIT tests that set N and V from
+ * memory and leave A alone. Watch A's binary view in the Registers panel.
+ */
+export const LOGIC_SOURCE = `; Stage 12: logic & BIT. Watch A's bits in the Registers panel.
+; AND clears bits, ORA sets them, EOR flips them. BIT only looks.
+
+flags   = &80             ; a byte of status bits for BIT to test
+screen  = &7C00           ; "HELLO, BBC MICRO" is here
+
+        *= &0400
+start:  LDA #&B5          ; A = %1011 0101
+        AND #&0F          ; keep the low nibble:  %0000 0101 = &05
+        ORA #&C0          ; set bits 7 and 6:     %1100 0101 = &C5. N=1
+        EOR #&FF          ; flip all eight (NOT): %0011 1010 = &3A
+        EOR #&FF          ; flip them back:       %1100 0101 = &C5
+        AND #&30          ; no 1s in common:      %0000 0000. Z=1
+        LDA screen        ; "H" = &48 = %0100 1000
+        EOR #&20          ; flip bit 5: &68 = "h". Case swapped
+        STA screen
+        LDA screen+1      ; "E" = &45
+        ORA #&20          ; set bit 5: &65 = "e". Forced lower case
+        STA screen+1
+        LDA screen        ; "h" = &68
+        AND #&DF          ; clear bit 5 (%1101 1111): &48 = "H". Forced upper
+        STA screen        ; the screen now says "HeLLO"
+        LDA #&C1          ; %1100 0001: bits 7, 6 and 0
+        STA flags
+        LDA #&01          ; test bit 0
+        BIT flags         ; &01 AND &C1 = &01: Z=0. N=1, V=1 from &C1. A=&01 still
+        LDA #&02          ; test bit 1
+        BIT flags         ; &02 AND &C1 = &00: Z=1. N and V still from &C1
+        LDA #&FF          ; A is negative: N=1
+        BIT screen+6      ; the space, &20 = %0010 0000: N=0 and V=0, from memory
+        NOP               ; then the NOP slide, and BRK at &0500 stops it
+`;
+
+const LOGIC_EXAMPLE: Example = { id: 'logic', title: 'Stage 12: logic & BIT', source: LOGIC_SOURCE };
+
 export const EXAMPLES: readonly Example[] = [
+  LOGIC_EXAMPLE,
   DECIMAL_EXAMPLE,
   ARITHMETIC_EXAMPLE,
   INCDEC_EXAMPLE,
@@ -179,5 +220,5 @@ export const EXAMPLES: readonly Example[] = [
 
 /** The example with this id, or the current stage's if there's none. */
 export function findExample(id: string | null): Example {
-  return EXAMPLES.find((example) => example.id === id) ?? DECIMAL_EXAMPLE;
+  return EXAMPLES.find((example) => example.id === id) ?? LOGIC_EXAMPLE;
 }

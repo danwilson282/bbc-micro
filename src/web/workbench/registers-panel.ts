@@ -1,4 +1,4 @@
-// The registers panel: A X Y S PC P, the flag lights, the cycle count, and
+// The registers panel: A X Y S PC P (A, X and Y in binary too), the flag lights, the cycle count, and
 // Step / Step ×16 / Reset buttons.
 //
 // All decisions come from registers-view-model.ts; this file only builds
@@ -68,6 +68,23 @@ export function createRegistersPanel(target: CpuTarget, options: RegistersPanelO
       const value = tr.insertCell();
       value.className = 'value';
       value.textContent = reg.hex;
+      const binary = tr.insertCell();
+      binary.className = 'binary';
+      if (reg.binary !== '') {
+        binary.setAttribute('aria-label', `${reg.name} in binary: ${reg.binary}`);
+        binary.append('%');
+        for (const b of reg.bits) {
+          const span = document.createElement('span');
+          span.className = 'bit';
+          span.classList.toggle('on', b.on);
+          span.classList.toggle('changed', b.changed);
+          span.dataset.bit = String(b.bit);
+          span.title = `bit ${String(b.bit)}${b.changed ? ': just changed' : ''}`;
+          span.textContent = b.on ? '1' : '0';
+          binary.append(span);
+          if (b.bit === 4) binary.append(' ');
+        }
+      }
       const detail = tr.insertCell();
       detail.className = 'detail';
       detail.textContent = reg.detail;

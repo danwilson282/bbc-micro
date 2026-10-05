@@ -1,7 +1,7 @@
 import { assemble, formatError } from '../asm/assembler';
 import { Cpu6502, UnimplementedOpcodeError } from '../cpu/cpu6502';
 import { TestBus } from '../memory/test-bus';
-import { ARITHMETIC_SOURCE, DECIMAL_SOURCE, EXAMPLES, INCDEC_SOURCE, LABELS_SOURCE, findExample } from './examples';
+import { ARITHMETIC_SOURCE, DECIMAL_SOURCE, EXAMPLES, INCDEC_SOURCE, LABELS_SOURCE, LOGIC_SOURCE, findExample } from './examples';
 import { LOADS_PROGRAM } from './loads-program';
 import { installProgram } from './setup';
 import { STORES_PROGRAM } from './stores-program';
@@ -223,13 +223,60 @@ describe('the Stage 11 decimal mode example', () => {
   });
 });
 
+describe('the Stage 12 logic example', () => {
+  interface After {
+    readonly a: number;
+    readonly n: boolean;
+    readonly v: boolean;
+    readonly z: boolean;
+  }
+
+  function trace(): { bus: TestBus; after: After[] } {
+    const bus = new TestBus();
+    installProgram(bus, assembled(LOGIC_SOURCE).lines, 0x0400);
+    const cpu = new Cpu6502(bus);
+    cpu.reset();
+    const after: After[] = [];
+    for (let i = 0; i < 24; i++) {
+      cpu.step();
+      const { a, n, v, z } = cpu.regs;
+      after.push({ a, n, v, z });
+    }
+    return { bus, after };
+  }
+
+  it('masks A: &B5 → &05 → &C5 → &3A → &C5 → &00 (Z=1)', () => {
+    const { after } = trace();
+    expect(after.slice(0, 6).map((x) => x.a)).toEqual([0xb5, 0x05, 0xc5, 0x3a, 0xc5, 0x00]);
+    expect(after[5]?.z).toBe(true);
+  });
+
+  it('swaps, lowers and raises case on the screen: "HELLO" ends as "HeLLO"', () => {
+    const { bus, after } = trace();
+    expect([after[7]?.a, after[10]?.a, after[13]?.a]).toEqual([0x68, 0x65, 0x48]);
+    expect(String.fromCharCode(...[0, 1, 2, 3, 4].map((i) => bus.read(0x7c00 + i)))).toBe('HeLLO');
+  });
+
+  it('BIT &80 (&C1) with A=&01: Z=0, N=1, V=1, and A unchanged', () => {
+    expect(trace().after[18]).toEqual({ a: 0x01, n: true, v: true, z: false });
+  });
+
+  it('BIT &80 (&C1) with A=&02: Z=1, with N and V still from memory', () => {
+    expect(trace().after[20]).toEqual({ a: 0x02, n: true, v: true, z: true });
+  });
+
+  it('BIT on the space (&20) with A=&FF: N=0 and V=0 although A is negative', () => {
+    expect(trace().after[22]).toEqual({ a: 0xff, n: false, v: false, z: false });
+  });
+});
+
 describe('the examples', () => {
   it.each(EXAMPLES.map((e) => [e.id, e] as const))('%s assembles without errors', (_id, example) => {
     expect(assemble(example.source).ok).toBe(true);
   });
 
   it('falls back to the first example for an unknown or missing id', () => {
-    expect(findExample('nope').id).toBe('decimal');
-    expect(findExample(null).id).toBe('decimal');
+    expect(findExample('nope').id).toBe('logic');
+    expect(findExample(null).id).toBe('logic');
   });
 });

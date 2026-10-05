@@ -63,6 +63,55 @@ describe('buildRegistersView', () => {
     expect(buildRegistersView(target).registers[0]?.detail).toBe('255 / −1');
   });
 
+  it('shows A, X and Y in binary, nibbles split, and leaves S, PC and P without', () => {
+    const { target } = playground();
+    Object.assign(target.registers, { a: 0xb5, x: 0x0f, y: 0x80 });
+    const view = buildRegistersView(target);
+    expect(view.registers.map((r) => [r.name, r.binary])).toEqual([
+      ['A', '%1011 0101'],
+      ['X', '%0000 1111'],
+      ['Y', '%1000 0000'],
+      ['S', ''],
+      ['PC', ''],
+      ['P', ''],
+    ]);
+  });
+
+  it('gives each byte register 8 bits, bit 7 first, that are on where the value has a 1', () => {
+    const { target } = playground();
+    Object.assign(target.registers, { a: 0xb5 });
+    const a = buildRegistersView(target).registers.find((r) => r.name === 'A');
+    expect(a?.bits.map((b) => b.bit)).toEqual([7, 6, 5, 4, 3, 2, 1, 0]);
+    expect(a?.bits.map((b) => (b.on ? '1' : '0')).join('')).toBe('10110101');
+    expect(buildRegistersView(target).registers[3]?.bits).toEqual([]);
+  });
+
+  it('marks no bits changed on the first view', () => {
+    const { target } = playground();
+    const a = buildRegistersView(target).registers.find((r) => r.name === 'A');
+    expect(a?.bits.some((b) => b.changed)).toBe(false);
+  });
+
+  it('after EOR #&20 on "H" (&48), marks only bit 5 of A as changed', () => {
+    const { target } = playground([0xa9, 0x48, 0x49, 0x20]); // LDA #&48, EOR #&20
+    target.step();
+    const before = buildRegistersView(target);
+    target.step();
+    const after = buildRegistersView(target, before);
+    expect(after.registers[0]?.hex).toBe('&68');
+    expect(after.registers[0]?.bits.filter((b) => b.changed).map((b) => b.bit)).toEqual([5]);
+  });
+
+  it('after AND #&0F on &B5, marks bits 7, 5 and 4 changed: the 1s it cleared', () => {
+    const { target } = playground([0xa9, 0xb5, 0x29, 0x0f]); // LDA #&B5, AND #&0F
+    target.step();
+    const before = buildRegistersView(target);
+    target.step();
+    const after = buildRegistersView(target, before);
+    expect(after.registers[0]?.binary).toBe('%0000 0101');
+    expect(after.registers[0]?.bits.filter((b) => b.changed).map((b) => b.bit)).toEqual([7, 5, 4]);
+  });
+
   it('lights the flags N V - B D I Z C from bit 7 down, marking B and bit 5 as not stored', () => {
     const { target } = playground();
     const flags = buildRegistersView(target).flags;
@@ -72,12 +121,12 @@ describe('buildRegistersView', () => {
   });
 
   it('shows the opcode at PC, and its mnemonic if it is implemented', () => {
-    const { target } = playground([NOP, 0xa9, 0x41, 0x29]); // NOP, LDA #&41, AND # (Stage 12)
+    const { target } = playground([NOP, 0xa9, 0x41, 0x0a]); // NOP, LDA #&41, ASL A (Stage 13)
     expect(buildRegistersView(target).next).toEqual({ address: 0x0400, opcode: NOP, text: '&0400: &EA NOP' });
     target.step();
     expect(buildRegistersView(target).next.text).toBe('&0401: &A9 LDA');
     target.step();
-    expect(buildRegistersView(target).next.text).toBe('&0403: &29 (not implemented yet)');
+    expect(buildRegistersView(target).next.text).toBe('&0403: &0A (not implemented yet)');
   });
 
   it('marks only the registers and flags that changed since the previous view', () => {

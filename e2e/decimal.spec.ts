@@ -19,9 +19,9 @@ async function step(page: Page, times = 1): Promise<void> {
 
 const ON = /\bon\b/;
 
-// Stage 11's decimal mode example is the playground's default.
+// Stage 11's decimal mode example. Stage 12's logic example is now the default.
 test.beforeEach(async ({ page }) => {
-  await page.goto('/');
+  await page.goto('/?program=decimal');
 });
 
 test('opens on the Stage 11 example', async ({ page }) => {
