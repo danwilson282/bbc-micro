@@ -1,6 +1,7 @@
 // The registers panel's view-model: pure functions that decide what to show.
 //
-//   A  &00  0 / 0        X  &00 ...      S  &FD  next push → &01FD
+//   A  &B5  %1011 0101  181 / −75      (A, X, Y: bits that just changed are marked)
+//   X  &00  %0000 0000  0 / 0          S  &FD  next push → &01FD
 //   PC &0400             P  &24  %00100100
 //   N V - B D I Z C      (lights; "-" and B are drawn as "not stored")
 //   Next: &0400: &EA NOP
@@ -23,6 +24,18 @@ export interface RegisterCell {
   readonly hex: string;
   /** A second reading of the value: decimal, a stack address, or binary. */
   readonly detail: string;
+  /** e.g. "%1011 0101" for A, X and Y; "" for S, PC and P (P's binary is its detail). */
+  readonly binary: string;
+  /** A, X and Y's eight bits, bit 7 first; empty for the others. */
+  readonly bits: readonly RegisterBit[];
+  readonly changed: boolean;
+}
+
+export interface RegisterBit {
+  /** 7 down to 0. */
+  readonly bit: number;
+  readonly on: boolean;
+  /** This bit differs from the previous view: e.g. only bit 5 after EOR #&20. */
   readonly changed: boolean;
 }
 
@@ -76,10 +89,17 @@ export function buildRegistersView(target: CpuTarget, previous?: RegistersView):
     { name: 'PC', value: r.pc, hex: `&${hex16(r.pc)}`, detail: '' },
     { name: 'P', value: p, hex: `&${hex8(p)}`, detail: `%${p.toString(2).padStart(8, '0')}` },
   ];
-  const registers = cells.map((cell, i) => ({
-    ...cell,
-    changed: previous !== undefined && previous.registers[i]?.value !== cell.value,
-  }));
+  const registers = cells.map((cell, i) => {
+    const before = previous?.registers[i]?.value;
+    const isByte = cell.name === 'A' || cell.name === 'X' || cell.name === 'Y';
+    return {
+      ...cell,
+      binary: isByte ? formatBinary(cell.value) : '',
+      // old EOR new has a 1 exactly where a bit flipped.
+      bits: isByte ? bitsOf(cell.value, before === undefined ? 0 : before ^ cell.value) : [],
+      changed: previous !== undefined && before !== cell.value,
+    };
+  });
 
   const flags = FLAG_BITS.map(({ name, mask, title }, i) => {
     const on = (p & mask) !== 0;
@@ -98,6 +118,22 @@ export function buildRegistersView(target: CpuTarget, previous?: RegistersView):
   const next = { address: r.pc, opcode, text: `&${hex16(r.pc)}: &${hex8(opcode)} ${mnemonic}` };
 
   return { registers, flags, next, cycles: formatCycles(target.cycles) };
+}
+
+/** A byte in binary with the nibbles split, one per hex digit: &B5 → "%1011 0101". */
+export function formatBinary(value: number): string {
+  const bits = (value & 0xff).toString(2).padStart(8, '0');
+  return `%${bits.slice(0, 4)} ${bits.slice(4)}`;
+}
+
+/** The eight bits of value, bit 7 first, marking the ones set in changedMask. */
+function bitsOf(value: number, changedMask: number): RegisterBit[] {
+  const bits: RegisterBit[] = [];
+  for (let bit = 7; bit >= 0; bit--) {
+    const mask = 1 << bit;
+    bits.push({ bit, on: (value & mask) !== 0, changed: (changedMask & mask) !== 0 });
+  }
+  return bits;
 }
 
 /** The panel's message after a run: "Ran 1 (4 cycles), 1 write". Writes are only mentioned if there were some. */
