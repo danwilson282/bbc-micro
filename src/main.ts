@@ -44,10 +44,12 @@ const memory = createMemoryPanel(target, {
 // Assemble & Run: a clean playground with the new bytes in it (installProgram
 // also puts back "HELLO, BBC MICRO" at &7C00 and the explorer's pointers),
 // the reset vector pointing at the first byte, and a CPU reset.
+const registers = createRegistersPanel(target, { onRun: refreshAll });
 const assembler = createAssemblerPanel({
   examples: EXAMPLES,
   initial,
   onAssembled: (assembly, entry) => {
+    registers.stop();
     listing = assembly.lines;
     installProgram(bus, assembly.lines, entry);
     target.reset();
@@ -56,7 +58,7 @@ const assembler = createAssemblerPanel({
     refreshAll();
   },
 });
-workbench.add(createRegistersPanel(target, { onRun: refreshAll }));
+workbench.add(registers);
 workbench.add(assembler);
 workbench.add(createListingPanel(target, () => listing));
 workbench.add(memory);

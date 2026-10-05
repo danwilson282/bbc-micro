@@ -250,7 +250,54 @@ start:  LDA #23           ; num = 23 = &17 = %0001 0111
 
 const SHIFTS_EXAMPLE: Example = { id: 'shifts', title: 'Stage 13: shifts & rotates', source: SHIFTS_SOURCE };
 
+/**
+ * Stage 14: the first real loops. Fills the 1K of Mode 7 screen memory with
+ * "A", waits about 1/6 second in a count-down loop, then "B", and so on to
+ * "Z". A compare (CPX, CMP) and branches (BNE, BCC) decide every step. Ends
+ * on a BRK, which is where Run stops.
+ */
+export const FILL_SOURCE = `; Stage 14: compare & branch. The first real loops.
+; Fills Mode 7 screen memory (&7C00-&7FFF) with "A", waits, then "B" ... "Z".
+; Type 7C00 in the Memory panel's Go box, then press Run and watch the bytes
+; and the cycle counter. About 8.8 million cycles: 4.4 seconds on a real BBC.
+
+ptr     = &80             ; zero-page pointer to the page being filled: &80/&81
+char    = &82             ; the character to fill with
+
+        *= &0400
+start:  LDA #&41          ; "A"
+        STA char
+        LDA #&00
+        STA ptr           ; the pointer's low byte stays &00 all the way
+pass:   LDA #&7C
+        STA ptr+1         ; ptr = &7C00, the first page of the screen
+        LDY #0
+        LDA char
+fill:   STA (ptr),Y       ; 6 cycles
+        INY               ; 2
+        BNE fill          ; 3 while Y hasn't wrapped to 0: 256 bytes a page
+        INC ptr+1         ; on to the next page
+        LDX ptr+1
+        CPX #&80          ; past the end of the screen? C=1 once X >= &80
+        BCC fill          ; C=0, X < &80: fill this page too (Y is 0 again)
+        LDX #0            ; wait: count Y down 256 times, 256 times over
+wait:   DEY               ; Y is 0, so the first DEY gives &FF
+        BNE wait          ; 256 x 5 cycles round this little loop ...
+        DEX
+        BNE wait          ; ... 256 times: about 329,000 cycles, 1/6 second
+next:   CLC               ; at last, a CLC before an ADC
+        LDA char
+        ADC #1
+        STA char          ; next character
+        CMP #&5B          ; past "Z" (&5A)? Z=1 when char = &5B
+        BNE pass          ; not yet: fill the screen again
+done:   BRK               ; Run stops here (BRK itself is Stage 17)
+`;
+
+const FILL_EXAMPLE: Example = { id: 'fill', title: 'Stage 14: compare & branch (Run me)', source: FILL_SOURCE };
+
 export const EXAMPLES: readonly Example[] = [
+  FILL_EXAMPLE,
   SHIFTS_EXAMPLE,
   LOGIC_EXAMPLE,
   DECIMAL_EXAMPLE,
@@ -263,5 +310,5 @@ export const EXAMPLES: readonly Example[] = [
 
 /** The example with this id, or the current stage's if there's none. */
 export function findExample(id: string | null): Example {
-  return EXAMPLES.find((example) => example.id === id) ?? SHIFTS_EXAMPLE;
+  return EXAMPLES.find((example) => example.id === id) ?? FILL_EXAMPLE;
 }

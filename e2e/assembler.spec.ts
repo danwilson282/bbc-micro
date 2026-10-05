@@ -45,9 +45,11 @@ test('the labels example writes "BBC" to row 2 of the screen', async ({ page }) 
   await memory.getByRole('button', { name: 'Go to address' }).click();
   await expect(memory.locator('td.byte[data-address="7C50"]')).toHaveText('42');
   await expect(memory.locator('td.byte[data-address="7C52"]')).toHaveText('43');
-  // The next byte is the .word's &50: the CPU can't tell data from code.
+  // The next byte is the .word's &50. The CPU can't tell data from code, and
+  // since Stage 14 &50 is BVC: V=0, so it branches &7C forward into the NOPs.
+  await expect(registersPanel(page).locator('[data-field="next"]')).toHaveText('Next: &041F: &50 BVC');
   await step(page);
-  await expect(registersPanel(page).getByRole('status')).toContainText('unimplemented opcode &50 at &041F');
+  await expect(register(page, 'PC')).toHaveText('&049D');
 });
 
 test('typing a new program and pressing Assemble & Run loads and resets it', async ({ page }) => {

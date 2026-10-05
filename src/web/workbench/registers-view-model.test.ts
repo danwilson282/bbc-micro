@@ -121,12 +121,12 @@ describe('buildRegistersView', () => {
   });
 
   it('shows the opcode at PC, and its mnemonic if it is implemented', () => {
-    const { target } = playground([NOP, 0xa9, 0x41, 0xc9]); // NOP, LDA #&41, CMP # (Stage 14)
+    const { target } = playground([NOP, 0xa9, 0x41, 0x4c]); // NOP, LDA #&41, JMP (Stage 15)
     expect(buildRegistersView(target).next).toEqual({ address: 0x0400, opcode: NOP, text: '&0400: &EA NOP' });
     target.step();
     expect(buildRegistersView(target).next.text).toBe('&0401: &A9 LDA');
     target.step();
-    expect(buildRegistersView(target).next.text).toBe('&0403: &C9 (not implemented yet)');
+    expect(buildRegistersView(target).next.text).toBe('&0403: &4C (not implemented yet)');
   });
 
   it('marks only the registers and flags that changed since the previous view', () => {
@@ -151,7 +151,13 @@ describe('formatCycles', () => {
   it('shows cycles with their emulated time at 2 MHz', () => {
     expect(formatCycles(9)).toBe('9 cycles = 4.5 µs at 2 MHz');
     expect(formatCycles(1)).toBe('1 cycle = 0.5 µs at 2 MHz');
-    expect(formatCycles(40_000)).toBe('40,000 cycles = 20,000 µs at 2 MHz');
+    expect(formatCycles(1_998)).toBe('1,998 cycles = 999 µs at 2 MHz');
+  });
+
+  it('switches to ms and then seconds for long runs', () => {
+    expect(formatCycles(40_000)).toBe('40,000 cycles = 20 ms at 2 MHz');
+    expect(formatCycles(340_001)).toBe('340,001 cycles = 170 ms at 2 MHz');
+    expect(formatCycles(8_850_000)).toBe('8,850,000 cycles = 4.43 s at 2 MHz');
   });
 });
 

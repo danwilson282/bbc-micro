@@ -144,10 +144,21 @@ export function describeRun(result: StepResult): string {
   return `${ran} (${String(result.cycles)} cycles)${writes}`;
 }
 
-/** "9 cycles = 4.5 µs at 2 MHz": each 6502 cycle on the Model B is 0.5 µs. */
+/**
+ * "9 cycles = 4.5 µs at 2 MHz": each 6502 cycle on the Model B is 0.5 µs.
+ * Longer runs switch to ms (from 2,000 cycles) and seconds (from 2,000,000).
+ */
 export function formatCycles(cycles: number): string {
   const unit = cycles === 1 ? 'cycle' : 'cycles';
-  return `${cycles.toLocaleString('en-GB')} ${unit} = ${(cycles / 2).toLocaleString('en-GB')} µs at 2 MHz`;
+  return `${cycles.toLocaleString('en-GB')} ${unit} = ${emulatedTime(cycles)} at 2 MHz`;
+}
+
+/** How long cycles take at 2 MHz: "4.5 µs", "170 ms", "4.43 s". */
+function emulatedTime(cycles: number): string {
+  const microseconds = cycles / 2;
+  if (microseconds < 1000) return `${microseconds.toLocaleString('en-GB')} µs`;
+  if (microseconds < 1_000_000) return `${(microseconds / 1000).toLocaleString('en-GB', { maximumFractionDigits: 1 })} ms`;
+  return `${(microseconds / 1_000_000).toLocaleString('en-GB', { maximumFractionDigits: 2 })} s`;
 }
 
 export interface StepResult {

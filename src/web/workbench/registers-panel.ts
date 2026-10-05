@@ -1,5 +1,5 @@
 // The registers panel: A X Y S PC P (A, X and Y in binary too), the flag lights, the cycle count, and
-// Step / Step ×16 / Reset buttons.
+// Step / Step ×16 / Run / Reset buttons.
 //
 // All decisions come from registers-view-model.ts; this file only builds
 // elements and handles clicks.
@@ -8,14 +8,18 @@ import type { CpuTarget } from './debug-target';
 import { button } from './dom';
 import type { Panel } from './panel';
 import { buildRegistersView, describeRun, stepMany, type RegistersView } from './registers-view-model';
+import { RUN_START, advanceRun, describeRunState, stopRun, type RunState } from './run-model';
 
 export interface RegistersPanelOptions {
   /** Called after the CPU runs or resets, so every panel can redraw. */
   readonly onRun: () => void;
 }
 
-export function createRegistersPanel(target: CpuTarget, options: RegistersPanelOptions): Panel {
+export function createRegistersPanel(target: CpuTarget, options: RegistersPanelOptions): Panel & { stop(): void } {
   let previous: RegistersView | undefined;
+  /** The Run in progress, if there is one, and its pending animation frame. */
+  let running: RunState | undefined;
+  let frame = 0;
 
   const element = document.createElement('div');
   element.className = 'registers-panel';
@@ -40,11 +44,13 @@ export function createRegistersPanel(target: CpuTarget, options: RegistersPanelO
   controls.className = 'cpu-controls';
   const step = button('Step', 'Step one instruction');
   const step16 = button('Step ×16', 'Step 16 instructions');
+  const runButton = button('Run', 'Run until BRK');
+  runButton.dataset.field = 'run';
   const reset = button('Reset', 'Reset the CPU');
   const message = document.createElement('span');
   message.className = 'cpu-message';
   message.setAttribute('role', 'status');
-  controls.append(step, step16, reset, message);
+  controls.append(step, step16, runButton, reset, message);
 
   element.append(table, flags, next, cycles, controls);
 
@@ -114,18 +120,59 @@ export function createRegistersPanel(target: CpuTarget, options: RegistersPanelO
     options.onRun();
   }
 
+  /** Run and Stop share one button. Step is disabled while running: one driver of the CPU at a time. */
+  function showRunning(isRunning: boolean): void {
+    runButton.textContent = isRunning ? 'Stop' : 'Run';
+    runButton.setAttribute('aria-label', isRunning ? 'Stop running' : 'Run until BRK');
+    step.disabled = isRunning;
+    step16.disabled = isRunning;
+  }
+
+  /** One animation frame of a Run: 40,000 cycles, then redraw everything (that's what makes the counter live). */
+  function tick(): void {
+    if (running === undefined) return;
+    running = advanceRun(target, running);
+    say(describeRunState(running, target.registers.pc), running.end === 'error');
+    options.onRun();
+    if (running.end === undefined) {
+      frame = requestAnimationFrame(tick);
+    } else {
+      running = undefined;
+      showRunning(false);
+    }
+  }
+
+  /** Stops a Run between frames. The CPU is always between instructions then. */
+  function stop(): void {
+    if (running === undefined) return;
+    cancelAnimationFrame(frame);
+    say(describeRunState(stopRun(running), target.registers.pc));
+    running = undefined;
+    showRunning(false);
+  }
+
   step.addEventListener('click', () => {
     run(1);
   });
   step16.addEventListener('click', () => {
     run(16);
   });
+  runButton.addEventListener('click', () => {
+    if (running !== undefined) {
+      stop();
+      return;
+    }
+    running = RUN_START;
+    showRunning(true);
+    tick();
+  });
   reset.addEventListener('click', () => {
+    stop();
     target.reset();
     target.writes.clear();
     say('Reset: PC loaded from &FFFC/&FFFD');
     options.onRun();
   });
 
-  return { title: 'Registers', element, refresh };
+  return { title: 'Registers', element, refresh, stop };
 }

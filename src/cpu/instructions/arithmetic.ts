@@ -13,11 +13,11 @@
 // plain binary sum. Only A and C are decimal. Decimal SBC's flags are all the
 // binary ones. Source: Bruce Clark, "Decimal Mode" (6502.org), Appendix A.
 
-import { EFFECTIVE_ADDRESS, type AddressedMode } from '../addressing';
-import type { Cpu6502 } from '../cpu6502';
+import type { AddressedMode } from '../addressing';
 import { setNZ } from '../flags';
 import type { OpcodeDefinition } from '../opcodes';
 import type { Registers } from '../registers';
+import { readOperand } from './read-operand';
 
 /**
  * The adder: A + value + C → A. C is the ninth bit of the sum. V is set when
@@ -94,24 +94,12 @@ export function subtract(regs: Registers, value: number): void {
   else subtractWithCarry(regs, value);
 }
 
-/**
- * Builds an ADC or SBC execute function, once, at module load. Like LDA it
- * reads its operand, so a page crossing costs +1 (Stage 05).
- */
-function arithmetic(mode: AddressedMode, alu: (regs: Registers, value: number) => void): (cpu: Cpu6502) => number {
-  const effectiveAddress = EFFECTIVE_ADDRESS[mode];
-  return (cpu) => {
-    alu(cpu.regs, cpu.bus.read(effectiveAddress(cpu)));
-    return cpu.pageCrossed ? 1 : 0;
-  };
-}
-
 function adc(opcode: number, mode: AddressedMode, bytes: number, cycles: number): OpcodeDefinition {
-  return { opcode, mnemonic: 'ADC', mode, bytes, cycles, execute: arithmetic(mode, add) };
+  return { opcode, mnemonic: 'ADC', mode, bytes, cycles, execute: readOperand(mode, add) };
 }
 
 function sbc(opcode: number, mode: AddressedMode, bytes: number, cycles: number): OpcodeDefinition {
-  return { opcode, mnemonic: 'SBC', mode, bytes, cycles, execute: arithmetic(mode, subtract) };
+  return { opcode, mnemonic: 'SBC', mode, bytes, cycles, execute: readOperand(mode, subtract) };
 }
 
 /**
