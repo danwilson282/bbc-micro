@@ -22,7 +22,8 @@
     "demo:incdec": "tsx scripts/demo-incdec.ts",
     "demo:arith": "tsx scripts/demo-arith.ts",
     "demo:score": "tsx scripts/demo-score.ts",
-    "demo:logic": "tsx scripts/demo-logic.ts"
+    "demo:logic": "tsx scripts/demo-logic.ts",
+    "demo:times10": "tsx scripts/demo-times10.ts"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

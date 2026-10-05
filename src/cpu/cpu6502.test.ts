@@ -108,9 +108,9 @@ describe('the opcode table', () => {
 
   it('implements NOP, 18 loads, 13 stores, 6 transfers, 12 increments/decrements, 16 ADC/SBC, SED/CLD, and 26 logic so far (Stage 12)', () => {
     const implemented = OPCODES.flatMap((op) => (op ? [op.mnemonic] : []));
-    expect(implemented).toHaveLength(1 + 18 + 13 + 6 + 12 + 16 + 2 + 26);
+    expect(implemented).toHaveLength(1 + 18 + 13 + 6 + 12 + 16 + 2 + 26 + 20);
     expect(new Set(implemented)).toEqual(
-      new Set(['NOP', 'LDA', 'LDX', 'LDY', 'STA', 'STX', 'STY', 'TAX', 'TAY', 'TXA', 'TYA', 'TSX', 'TXS', 'INX', 'INY', 'DEX', 'DEY', 'INC', 'DEC', 'ADC', 'SBC', 'SED', 'CLD', 'AND', 'ORA', 'EOR', 'BIT']),
+      new Set(['NOP', 'LDA', 'LDX', 'LDY', 'STA', 'STX', 'STY', 'TAX', 'TAY', 'TXA', 'TYA', 'TSX', 'TXS', 'INX', 'INY', 'DEX', 'DEY', 'INC', 'DEC', 'ADC', 'SBC', 'SED', 'CLD', 'AND', 'ORA', 'EOR', 'BIT', 'ASL', 'LSR', 'ROL', 'ROR']),
     );
   });
 });
@@ -140,9 +140,9 @@ describe('buildTable', () => {
 describe('unimplemented opcodes', () => {
   it('throw an error naming the opcode and its address', () => {
     const { cpu, bus } = cpuAt(0x0400);
-    bus.write(0x0400, 0x0a); // ASL A: Stage 13
-    expect(() => cpu.step()).toThrow(new UnimplementedOpcodeError(0x0a, 0x0400));
-    expect(() => cpu.step()).toThrow('unimplemented opcode &0A at &0400');
+    bus.write(0x0400, 0xc9); // CMP #: Stage 14
+    expect(() => cpu.step()).toThrow(new UnimplementedOpcodeError(0xc9, 0x0400));
+    expect(() => cpu.step()).toThrow('unimplemented opcode &C9 at &0400');
   });
 
   it('leave PC on the opcode and the cycle count unchanged', () => {

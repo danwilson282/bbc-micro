@@ -4,22 +4,19 @@
 // Programming Manual, chapters 7 and 10). That's deliberate: counters live
 // inside loops whose arithmetic needs C to survive from one pass to the next.
 //
-// INC and DEC are the first read-modify-write (RMW) instructions. The NMOS
-// 6502 can't leave the bus idle while the ALU works, so it writes the old
-// value back first, then the new one: two writes to the same address. RAM
-// doesn't care; a device register on SHEILA sees both. We model that dummy
-// write (MCS6500 Hardware Manual, Appendix A; 6502.org cycle-by-cycle notes).
+// INC and DEC are the first read-modify-write (RMW) instructions: read, write
+// the old value back (the NMOS dummy write), write the new value. That bus
+// pattern lives in rmw.ts, shared with the Stage 13 shifts.
 
-import { EFFECTIVE_ADDRESS } from '../addressing';
 import type { Cpu6502 } from '../cpu6502';
 import { setNZ } from '../flags';
 import type { OpcodeDefinition } from '../opcodes';
+import type { Registers } from '../registers';
+import { readModifyWrite, type RmwMode } from './rmw';
 
 type IndexRegister = 'x' | 'y';
 /** +1 for INC/INX/INY, -1 for DEC/DEX/DEY. A literal union, so a 2 won't compile. */
 type Delta = 1 | -1;
-/** The four modes the memory RMW instructions have. (The Stage 13 shifts have the same four.) */
-type RmwMode = 'zeroPage' | 'zeroPageX' | 'absolute' | 'absoluteX';
 
 /** INX, INY, DEX, DEY: built once at module load. (x + delta) & 0xff turns -1 into &FF. */
 function stepRegister(register: IndexRegister, delta: Delta): (cpu: Cpu6502) => number {
@@ -31,28 +28,11 @@ function stepRegister(register: IndexRegister, delta: Delta): (cpu: Cpu6502) => 
   };
 }
 
-/**
- * INC and DEC: read, write the old value back (the NMOS dummy write), write
- * the new value. Like a store, abs,X always pays the fix-up cycle (it's in
- * the base count of 7), so pageCrossed is ignored and no extra cycles return.
- * The indexed modes' dummy read isn't modelled (PROGRESS.md parking lot).
- */
-function readModifyWrite(mode: RmwMode, modify: (cpu: Cpu6502, value: number) => number): (cpu: Cpu6502) => number {
-  const effectiveAddress = EFFECTIVE_ADDRESS[mode];
-  return (cpu) => {
-    const ea = effectiveAddress(cpu);
-    const old = cpu.bus.read(ea);
-    cpu.bus.write(ea, old);
-    cpu.bus.write(ea, modify(cpu, old) & 0xff);
-    return 0;
-  };
-}
-
 /** The ALU half of INC or DEC: the new value, with N and Z set from it. */
-function incDec(delta: Delta): (cpu: Cpu6502, value: number) => number {
-  return (cpu, value) => {
+function incDec(delta: Delta): (regs: Registers, value: number) => number {
+  return (regs, value) => {
     const result = (value + delta) & 0xff;
-    setNZ(cpu.regs, result);
+    setNZ(regs, result);
     return result;
   };
 }
