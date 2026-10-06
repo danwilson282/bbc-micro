@@ -1,7 +1,7 @@
 import { assemble, formatError } from '../asm/assembler';
 import { Cpu6502, UnimplementedOpcodeError } from '../cpu/cpu6502';
 import { TestBus } from '../memory/test-bus';
-import { ARITHMETIC_SOURCE, DECIMAL_SOURCE, EXAMPLES, INCDEC_SOURCE, LABELS_SOURCE, LOGIC_SOURCE, SHIFTS_SOURCE, findExample } from './examples';
+import { ARITHMETIC_SOURCE, DECIMAL_SOURCE, EXAMPLES, FILL_SOURCE, INCDEC_SOURCE, LABELS_SOURCE, LOGIC_SOURCE, SHIFTS_SOURCE, findExample } from './examples';
 import { LOADS_PROGRAM } from './loads-program';
 import { installProgram } from './setup';
 import { STORES_PROGRAM } from './stores-program';
@@ -51,22 +51,26 @@ describe('the Stage 08 labels example', () => {
     expect(target?.bytes).toEqual([0x50, 0x7c]);
   });
 
-  it('runs: writes "BBC" to row 2 of the screen, then stops at the data (&50 is not implemented)', () => {
+  it('runs: writes "BBC" to row 2, then runs into its data. &50 7C is BVC +&7C (Stage 14), into the NOPs and on to BRK at &0500', () => {
     const bus = new TestBus();
     const result = assembled(LABELS_SOURCE);
     installProgram(bus, result.lines, 0x0400);
     const cpu = new Cpu6502(bus);
     cpu.reset();
     let error: unknown;
-    for (let i = 0; i < 20 && error === undefined; i++) {
+    let afterData: number | undefined;
+    for (let i = 0; i < 200 && error === undefined; i++) {
+      const pc = cpu.regs.pc;
       try {
         cpu.step();
       } catch (e) {
         error = e;
       }
+      if (pc === 0x041f) afterData = cpu.regs.pc;
     }
+    expect(afterData).toBe(0x049d); // &0421 + &7C
     expect(error).toBeInstanceOf(UnimplementedOpcodeError);
-    expect(cpu.regs.pc).toBe(0x041f);
+    expect(cpu.regs.pc).toBe(0x0500);
     expect([0x7c50, 0x7c51, 0x7c52].map((a) => bus.read(a))).toEqual([0x42, 0x42, 0x43]);
   });
 });
@@ -328,13 +332,73 @@ describe('the Stage 13 shifts example', () => {
   });
 });
 
+describe('the Stage 14 fill example', () => {
+  const SCREEN = 0x7c00;
+  const SCREEN_END = 0x8000;
+
+  /** Assembles and installs the example, and finds a label's address. */
+  function setUp(): { cpu: Cpu6502; bus: TestBus; label: (name: string) => number } {
+    const bus = new TestBus();
+    const result = assembled(FILL_SOURCE);
+    installProgram(bus, result.lines, 0x0400);
+    const cpu = new Cpu6502(bus);
+    cpu.reset();
+    const label = (name: string): number => {
+      const address = result.symbols.get(name);
+      if (address === undefined) throw new Error(`no label ${name}`);
+      return address;
+    };
+    return { cpu, bus, label };
+  }
+
+  /** Steps until PC reaches address (or a step limit), returning the cycles taken. */
+  function runTo(cpu: Cpu6502, address: number, limit = 10_000_000): number {
+    let cycles = 0;
+    for (let i = 0; i < limit && cpu.regs.pc !== address; i++) cycles += cpu.step();
+    return cycles;
+  }
+
+  function screen(bus: TestBus): Set<number> {
+    const bytes = new Set<number>();
+    for (let a = SCREEN; a < SCREEN_END; a++) bytes.add(bus.read(a));
+    return bytes;
+  }
+
+  it('fills all four pages of screen memory with "A" on the first pass, in 10 + 10 + 11,311 cycles', () => {
+    const { cpu, bus, label } = setUp();
+    const cycles = runTo(cpu, label('wait') - 2); // the LDX #0 before wait
+    expect(screen(bus)).toEqual(new Set([0x41]));
+    expect(bus.read(SCREEN_END)).toBe(0x00); // and not a byte further
+    // start (10), pass set-up (10), then 4 pages of 2,815 + 10 for INC/LDX/CPX, and BCC: 3 taken, 1 not
+    expect(cycles).toBe(10 + 10 + 4 * (2815 + 10) + 3 * 3 + 2);
+  });
+
+  it('the wait loop takes 328,705 cycles: 256 × (256 × 5 − 1 + 5) − 1, plus LDX #0', () => {
+    const { cpu, label } = setUp();
+    runTo(cpu, label('wait') - 2);
+    expect(runTo(cpu, label('next'))).toBe(2 + 256 * (256 * 5 - 1 + 5) - 1);
+  });
+
+  it('runs to its BRK with the screen full of "Z", in 8,841,075 cycles', () => {
+    const { cpu, bus, label } = setUp();
+    const brk = label('done');
+    expect(bus.read(brk)).toBe(0x00);
+    const cycles = runTo(cpu, brk);
+    expect(cpu.regs.pc).toBe(brk);
+    expect(screen(bus)).toEqual(new Set([0x5a]));
+    expect(bus.read(0x82)).toBe(0x5b);
+    // 10 at the start, 26 passes of 340,041 cycles, and the last BNE not taken (−1)
+    expect(cycles).toBe(10 + 26 * 340_041 - 1);
+  });
+});
+
 describe('the examples', () => {
   it.each(EXAMPLES.map((e) => [e.id, e] as const))('%s assembles without errors', (_id, example) => {
     expect(assemble(example.source).ok).toBe(true);
   });
 
   it('falls back to the first example for an unknown or missing id', () => {
-    expect(findExample('nope').id).toBe('shifts');
-    expect(findExample(null).id).toBe('shifts');
+    expect(findExample('nope').id).toBe('fill');
+    expect(findExample(null).id).toBe('fill');
   });
 });

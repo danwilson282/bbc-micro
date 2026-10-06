@@ -66,3 +66,27 @@ test('a poke from the console updates the panel', async ({ page }) => {
   await expect(byte(page, '7C10')).toHaveText('41');
   await expect(byte(page, '7C10')).toHaveClass(/changed/);
 });
+
+test('Registers and Memory sit under the screen; the other panels stay in the workbench column', async ({ page }) => {
+  const under = page.locator('#under-screen > section.panel');
+  await expect(under).toHaveCount(2);
+  await expect(under.nth(0)).toHaveAttribute('aria-label', 'Registers');
+  await expect(under.nth(1)).toHaveAttribute('aria-label', 'Memory');
+  const screen = await page.locator('#screen').boundingBox();
+  const registers = await page.getByRole('region', { name: 'Registers' }).boundingBox();
+  expect(screen && registers && registers.y >= screen.y + screen.height).toBe(true);
+  await expect(page.locator('#workbench').getByRole('region', { name: 'Assembler' })).toBeVisible();
+});
+
+test('the − next to a panel title hides it, + shows it again, and the choice survives a reload', async ({ page }) => {
+  const panel = memoryPanel(page);
+  await panel.getByRole('button', { name: 'Hide Memory' }).click();
+  await expect(panel.locator('tbody')).toBeHidden();
+  await expect(panel.getByRole('button', { name: 'Show Memory' })).toHaveText('+');
+  await expect(panel.getByRole('button', { name: 'Show Memory' })).toHaveAttribute('aria-expanded', 'false');
+  await page.reload();
+  await expect(memoryPanel(page).locator('tbody')).toBeHidden();
+  await memoryPanel(page).getByRole('button', { name: 'Show Memory' }).click();
+  await expect(memoryPanel(page).locator('tbody')).toBeVisible();
+  await expect(memoryPanel(page).getByRole('button', { name: 'Hide Memory' })).toHaveText('−');
+});

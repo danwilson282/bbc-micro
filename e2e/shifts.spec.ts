@@ -23,9 +23,9 @@ async function step(page: Page, times = 1): Promise<void> {
 
 const ON = /\bon\b/;
 
-// Stage 13's shifts example is the playground's default.
+// Stage 13's shifts example (the default until Stage 14).
 test.beforeEach(async ({ page }) => {
-  await page.goto('/');
+  await page.goto('/?program=shifts');
 });
 
 test('opens on the Stage 13 example', async ({ page }) => {

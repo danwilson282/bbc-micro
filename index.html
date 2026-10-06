@@ -54,9 +54,19 @@
         gap: 16px;
         align-items: flex-start;
       }
+      .screen-column {
+        flex: 0 1 640px;
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+      }
       #screen {
         background: #000;
         max-width: 100%;
+      }
+      #under-screen .panel:last-child {
+        margin-bottom: 0;
       }
       #workbench {
         flex: 1 1 560px;
@@ -76,8 +86,28 @@
         overflow-x: auto;
       }
       .panel h2 {
+        display: flex;
+        align-items: center;
+        gap: 8px;
         margin: 0 0 8px;
         font-size: 0.95rem;
+      }
+      .panel > [hidden] {
+        display: none !important;
+      }
+      .panel.collapsed {
+        padding-bottom: 8px;
+      }
+      .panel.collapsed h2 {
+        margin-bottom: 0;
+      }
+      .panel-toggle {
+        width: 1.6em;
+        height: 1.6em;
+        padding: 0;
+        line-height: 1;
+        font-size: 0.95rem;
+        font-family: ui-monospace, 'SF Mono', Menlo, monospace;
       }
       .memory-nav {
         display: flex;
@@ -364,7 +394,10 @@
   <body>
     <h1>BBC Micro Model B</h1>
     <div class="layout">
-      <canvas id="screen" width="640" height="512"></canvas>
+      <div class="screen-column">
+        <canvas id="screen" width="640" height="512"></canvas>
+        <div id="under-screen"></div>
+      </div>
       <aside id="workbench" aria-label="Workbench"></aside>
     </div>
     <script type="module" src="/src/main.ts"></script>

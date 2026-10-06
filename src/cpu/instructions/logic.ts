@@ -9,11 +9,11 @@
 // All three set N and Z from the result and leave V and C alone: a result
 // can't carry or overflow when no bit affects another.
 
-import { EFFECTIVE_ADDRESS, type AddressedMode } from '../addressing';
-import type { Cpu6502 } from '../cpu6502';
+import type { AddressedMode } from '../addressing';
 import { P_N, P_V, setNZ } from '../flags';
 import type { OpcodeDefinition } from '../opcodes';
 import type { Registers } from '../registers';
+import { readOperand, type OperandAlu } from './read-operand';
 
 /** AND: A ← A ∧ M. Clears every bit of A that is 0 in M. */
 export function and(regs: Registers, value: number): void {
@@ -44,23 +44,9 @@ export function bit(regs: Registers, value: number): void {
   regs.v = (value & P_V) !== 0;
 }
 
-/**
- * Builds an execute function that reads one operand and hands it to an ALU
- * function, once, at module load. Like LDA, a page crossing costs +1
- * (Stage 05). ADC/SBC have the same shape (arithmetic.ts); CMP in Stage 14
- * will too, which is the moment to share one copy.
- */
-function readOperand(mode: AddressedMode, alu: (regs: Registers, value: number) => void): (cpu: Cpu6502) => number {
-  const effectiveAddress = EFFECTIVE_ADDRESS[mode];
-  return (cpu) => {
-    alu(cpu.regs, cpu.bus.read(effectiveAddress(cpu)));
-    return cpu.pageCrossed ? 1 : 0;
-  };
-}
-
 type LogicMnemonic = 'AND' | 'ORA' | 'EOR' | 'BIT';
 
-const ALU: Readonly<Record<LogicMnemonic, (regs: Registers, value: number) => void>> = { AND: and, ORA: or, EOR: eor, BIT: bit };
+const ALU: Readonly<Record<LogicMnemonic, OperandAlu>> = { AND: and, ORA: or, EOR: eor, BIT: bit };
 
 function row(mnemonic: LogicMnemonic, opcode: number, mode: AddressedMode, bytes: number, cycles: number): OpcodeDefinition {
   return { opcode, mnemonic, mode, bytes, cycles, execute: readOperand(mode, ALU[mnemonic]) };
