@@ -8,6 +8,7 @@ import { PROGRAM_PAGE, installProgram } from './playground/setup';
 import { hex16, hex8 } from './util/bits';
 import { createAddressingPanel } from './web/workbench/addressing-panel';
 import { createAssemblerPanel } from './web/workbench/assembler-panel';
+import { createConverterPanel } from './web/workbench/converter-panel';
 import { playgroundTarget } from './web/workbench/debug-target';
 import { createListingPanel } from './web/workbench/listing-panel';
 import { createMemoryPanel } from './web/workbench/memory-panel';
@@ -66,6 +67,7 @@ workbench.add(memory, underScreen);
 workbench.add(assembler);
 workbench.add(createListingPanel(target, () => listing));
 workbench.add(createAddressingPanel(target));
+workbench.add(createConverterPanel());
 assembler.assembleAndRun();
 
 // A console handle for experimenting in DevTools, e.g.

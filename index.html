@@ -389,6 +389,39 @@
       .explorer-result.error {
         color: var(--error);
       }
+      .converter-form {
+        display: grid;
+        grid-template-columns: auto 1fr;
+        gap: 6px 10px;
+        align-items: center;
+        max-width: 22rem;
+        font-size: 0.85rem;
+      }
+      .converter-field {
+        display: contents;
+      }
+      .converter-field input {
+        font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+        min-width: 0;
+      }
+      .converter-field input[aria-invalid='true'] {
+        outline: 2px solid var(--error);
+      }
+      .converter-status {
+        margin: 8px 0 4px;
+        font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+        font-size: 0.85rem;
+      }
+      .converter-status.error {
+        color: var(--error);
+      }
+      .converter-notes {
+        margin: 4px 0 0;
+        padding-left: 1.4em;
+        font-size: 0.8rem;
+        line-height: 1.5;
+        color: var(--muted);
+      }
     </style>
   </head>
   <body>
