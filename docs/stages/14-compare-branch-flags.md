@@ -1,7 +1,7 @@
 # Stage 14: Compare, branch & flag ops
 
 > **Part:** 2 (The 6502 CPU) · **Branch:** `stage/14-compare-branch-flags` · **Needs:** 13
-> **Status:** in review
+> **Status:** done
 
 ## Goal
 
@@ -44,6 +44,14 @@ The playground opens on the new **Stage 14: compare & branch (Run me)** example.
 5. Press **Run** and then **Stop** part-way. The status says `Stopped by you at &…`, and Step works again from exactly where it stopped.
 
 The Cycles line in the panel is 7 cycles more than the Run total, because it also counts the reset sequence (Stage 04).
+
+### Layout change (asked for at review)
+
+The **Registers** and **Memory** panels now sit under the screen placeholder, and the Assembler, Program and Addressing-modes panels stay in the right-hand column. Every panel title has a **−** button that hides the panel's body (it becomes **+** to show it again). Your choice is remembered in this browser's `localStorage`. If storage is blocked, panels just start open.
+
+![Registers and Memory under the screen, Addressing modes collapsed](../../.playwright-mcp/layout-under-screen.png)
+
+(The two screenshots above were taken before this change, with the old layout.)
 
 ### In the terminal
 
@@ -373,6 +381,7 @@ sequenceDiagram
   - `advanceRun(target, state)` runs one frame (`CYCLES_PER_FRAME` = 40,000), adds it to the totals, and decides whether the run has ended (`'brk'`, `'error'`, or `'limit'` at `RUN_CYCLE_LIMIT` = 20,000,000). It clears the write log first, so the Memory panel marks the bytes written *this frame*.
   - `stopRun` and `describeRunState` handle the Stop button and the status line.
 - [`src/web/workbench/registers-panel.ts`](../../src/web/workbench/registers-panel.ts) has the Run/Stop button and a `requestAnimationFrame` loop: `tick()` → `advanceRun` → `onRun()` redraws every panel → the next frame. Reset, and Assemble & Run (through the new `stop()` the panel returns, wired in `main.ts`), stop a run first.
+- [`src/web/workbench/panel.ts`](../../src/web/workbench/panel.ts) (review change): `Workbench.add(panel, host?)` can place a panel in another column (`#under-screen` in `index.html`). Each heading gets a `−`/`+` toggle with `aria-expanded`, and the collapsed titles are kept in `localStorage` (reads and writes are wrapped in try/catch).
 - [`registers-view-model.ts`](../../src/web/workbench/registers-view-model.ts): `formatCycles` now switches to ms and seconds for long runs (`8,841,075 cycles = 4.42 s at 2 MHz`).
 
 ### The example and demo
@@ -413,7 +422,8 @@ sequenceDiagram
 ## Playwright verification
 
 - MCP: opened the playground, went to `&7C00` in Memory, and pressed Run. The mid-run screenshot ([`stage14-running.png`](../../.playwright-mcp/stage14-running.png)) shows the Stop button, disabled Step buttons, and a live `Running… 665,348 instructions` status. Waited for "Stopped at BRK". The full-page screenshot ([`stage14-done.png`](../../.playwright-mcp/stage14-done.png)) shows PC `&0430`, ▶ on `done: BRK`, and `&7C00`–`&7CFF` all `5A`.
-- Durable: `e2e/compare-branch.spec.ts` (4 tests). The full e2e suite passes: 60 tests.
+- Durable: `e2e/compare-branch.spec.ts` (4 tests), plus 2 in `e2e/workbench.spec.ts` for the review changes: Registers and Memory are under the screen, and −/+ hides and shows a panel, remembered across a reload. The full e2e suite passes: 62 tests.
+- MCP: [`layout-under-screen.png`](../../.playwright-mcp/layout-under-screen.png) shows the new layout with Addressing modes collapsed.
 
 ## Check your understanding
 

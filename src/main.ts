@@ -18,6 +18,9 @@ const canvas = document.querySelector<HTMLCanvasElement>('#screen');
 if (!canvas) throw new Error('Missing #screen canvas');
 const host = document.querySelector<HTMLElement>('#workbench');
 if (!host) throw new Error('Missing #workbench element');
+// Registers and Memory sit under the screen; the other panels go in the workbench column.
+const underScreen = document.querySelector<HTMLElement>('#under-screen');
+if (!underScreen) throw new Error('Missing #under-screen element');
 
 // Programs come from the Assembler panel (Stage 08). The current stage's
 // example runs by default; ?program=stores or ?program=loads starts with an
@@ -58,10 +61,10 @@ const assembler = createAssemblerPanel({
     refreshAll();
   },
 });
-workbench.add(registers);
+workbench.add(registers, underScreen);
+workbench.add(memory, underScreen);
 workbench.add(assembler);
 workbench.add(createListingPanel(target, () => listing));
-workbench.add(memory);
 workbench.add(createAddressingPanel(target));
 assembler.assembleAndRun();
 
