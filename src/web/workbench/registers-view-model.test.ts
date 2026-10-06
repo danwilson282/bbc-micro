@@ -121,12 +121,12 @@ describe('buildRegistersView', () => {
   });
 
   it('shows the opcode at PC, and its mnemonic if it is implemented', () => {
-    const { target } = playground([NOP, 0xa9, 0x41, 0x4c]); // NOP, LDA #&41, JMP (Stage 15)
+    const { target } = playground([NOP, 0xa9, 0x41, 0x02]); // NOP, LDA #&41, then &02 ("JAM", undocumented)
     expect(buildRegistersView(target).next).toEqual({ address: 0x0400, opcode: NOP, text: '&0400: &EA NOP' });
     target.step();
     expect(buildRegistersView(target).next.text).toBe('&0401: &A9 LDA');
     target.step();
-    expect(buildRegistersView(target).next.text).toBe('&0403: &4C (not implemented yet)');
+    expect(buildRegistersView(target).next.text).toBe('&0403: &02 (not implemented yet)');
   });
 
   it('marks only the registers and flags that changed since the previous view', () => {

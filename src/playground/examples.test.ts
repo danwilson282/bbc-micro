@@ -1,7 +1,7 @@
 import { assemble, formatError } from '../asm/assembler';
 import { Cpu6502, UnimplementedOpcodeError } from '../cpu/cpu6502';
 import { TestBus } from '../memory/test-bus';
-import { ARITHMETIC_SOURCE, DECIMAL_SOURCE, EXAMPLES, FILL_SOURCE, INCDEC_SOURCE, LABELS_SOURCE, LOGIC_SOURCE, SHIFTS_SOURCE, findExample } from './examples';
+import { ARITHMETIC_SOURCE, DECIMAL_SOURCE, EXAMPLES, FILL_SOURCE, INCDEC_SOURCE, LABELS_SOURCE, LOGIC_SOURCE, SHIFTS_SOURCE, STACK_SOURCE, findExample } from './examples';
 import { LOADS_PROGRAM } from './loads-program';
 import { installProgram } from './setup';
 import { STORES_PROGRAM } from './stores-program';
@@ -392,13 +392,88 @@ describe('the Stage 14 fill example', () => {
   });
 });
 
+describe('the Stage 15 stack example', () => {
+  function setUp(): { cpu: Cpu6502; bus: TestBus; label: (name: string) => number } {
+    const bus = new TestBus();
+    const result = assembled(STACK_SOURCE);
+    installProgram(bus, result.lines, 0x0400);
+    const cpu = new Cpu6502(bus);
+    cpu.reset();
+    const label = (name: string): number => {
+      const address = result.symbols.get(name);
+      if (address === undefined) throw new Error(`no label ${name}`);
+      return address;
+    };
+    return { cpu, bus, label };
+  }
+
+  /** Runs n instructions and returns the cycles they took. */
+  function steps(cpu: Cpu6502, n: number): number {
+    let cycles = 0;
+    for (let i = 0; i < n; i++) cycles += cpu.step();
+    return cycles;
+  }
+
+  it('pushes &11, &22, &33 down from &01FF, then pulls them back in reverse order', () => {
+    const { cpu, bus } = setUp();
+    steps(cpu, 2); // LDX #&FF, TXS
+    expect(cpu.regs.s).toBe(0xff);
+    steps(cpu, 6); // three LDA/PHA pairs
+    expect(cpu.regs.s).toBe(0xfc);
+    expect([bus.read(0x01fd), bus.read(0x01fe), bus.read(0x01ff)]).toEqual([0x33, 0x22, 0x11]);
+    const pulled = [0, 1, 2].map(() => {
+      cpu.step();
+      return cpu.regs.a;
+    });
+    expect(pulled).toEqual([0x33, 0x22, 0x11]);
+    expect(cpu.regs.s).toBe(0xff);
+    expect(bus.read(0x01fd)).toBe(0x33); // pulled, but still there
+  });
+
+  it('PHP pushes &3D (bits 5 and 4 set) and PLP brings C and D back', () => {
+    const { cpu, bus } = setUp();
+    steps(cpu, 11 + 3); // to PHP
+    expect(bus.read(0x01ff)).toBe(0x3d);
+    steps(cpu, 3); // CLC, CLD, PLP
+    expect(cpu.regs).toMatchObject({ c: true, d: true, i: true, s: 0xff });
+  });
+
+  it('pushing &C0 and pulling it with PLP sets N and V and clears I', () => {
+    const { cpu } = setUp();
+    steps(cpu, 17 + 3); // LDA #&C0, PHA, PLP
+    expect(cpu.regs).toMatchObject({ n: true, v: true, d: false, i: false, z: false, c: false, s: 0xff });
+  });
+
+  it('JMP over skips the BRK, then JMP (&10FF) lands on bug at &0480, not &0580', () => {
+    const { cpu, bus, label } = setUp();
+    steps(cpu, 20);
+    expect(cpu.step()).toBe(3); // JMP over
+    expect(cpu.regs.pc).toBe(label('over'));
+    steps(cpu, 6);
+    expect([bus.read(0x10ff), bus.read(0x1000), bus.read(0x1100)]).toEqual([0x80, 0x04, 0x05]);
+    expect(cpu.step()).toBe(5); // JMP (&10FF)
+    expect(label('bug')).toBe(0x0480);
+    expect(cpu.regs.pc).toBe(0x0480);
+  });
+
+  it('ends with the stack wrapping: &0100 then &01FF, before stopping at its BRK', () => {
+    const { cpu, bus, label } = setUp();
+    steps(cpu, 28 + 5);
+    expect(bus.read(0x0100)).toBe(0xaa);
+    expect(bus.read(0x01ff)).toBe(0xaa); // the &11 pushed at the start is gone
+    expect(cpu.regs.s).toBe(0xfe);
+    expect(cpu.regs.pc).toBe(label('bug') + 7); // LDX #, TXS, LDA #, PHA, PHA: 2 + 1 + 2 + 1 + 1 bytes
+    expect(bus.read(cpu.regs.pc)).toBe(0x00);
+  });
+});
+
 describe('the examples', () => {
   it.each(EXAMPLES.map((e) => [e.id, e] as const))('%s assembles without errors', (_id, example) => {
     expect(assemble(example.source).ok).toBe(true);
   });
 
   it('falls back to the first example for an unknown or missing id', () => {
-    expect(findExample('nope').id).toBe('fill');
-    expect(findExample(null).id).toBe('fill');
+    expect(findExample('nope').id).toBe('stack');
+    expect(findExample(null).id).toBe('stack');
   });
 });

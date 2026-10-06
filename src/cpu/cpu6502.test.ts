@@ -1,5 +1,5 @@
 import { TestBus } from '../memory/test-bus';
-import { Cpu6502, UnimplementedOpcodeError } from './cpu6502';
+import { Cpu6502, STACK_PAGE, UnimplementedOpcodeError } from './cpu6502';
 import { OPCODES, buildTable, type OpcodeDefinition } from './opcodes';
 
 const NOP = 0xea;
@@ -106,11 +106,11 @@ describe('the opcode table', () => {
     expect(OPCODES).toHaveLength(256);
   });
 
-  it('implements NOP, loads, stores, transfers, inc/dec, ADC/SBC, logic, shifts, compares, branches and flag ops so far (Stage 14)', () => {
+  it('implements NOP, loads, stores, transfers, inc/dec, ADC/SBC, logic, shifts, compares, branches, flag ops, JMP and the stack so far (Stage 15)', () => {
     const implemented = OPCODES.flatMap((op) => (op ? [op.mnemonic] : []));
-    expect(implemented).toHaveLength(1 + 18 + 13 + 6 + 12 + 16 + 7 + 26 + 20 + 14 + 8);
+    expect(implemented).toHaveLength(1 + 18 + 13 + 6 + 12 + 16 + 7 + 26 + 20 + 14 + 8 + 2 + 4);
     expect(new Set(implemented)).toEqual(
-      new Set(['NOP', 'LDA', 'LDX', 'LDY', 'STA', 'STX', 'STY', 'TAX', 'TAY', 'TXA', 'TYA', 'TSX', 'TXS', 'INX', 'INY', 'DEX', 'DEY', 'INC', 'DEC', 'ADC', 'SBC', 'SED', 'CLD', 'AND', 'ORA', 'EOR', 'BIT', 'ASL', 'LSR', 'ROL', 'ROR', 'CMP', 'CPX', 'CPY', 'BPL', 'BMI', 'BVC', 'BVS', 'BCC', 'BCS', 'BNE', 'BEQ', 'CLC', 'SEC', 'CLI', 'SEI', 'CLV']),
+      new Set(['NOP', 'LDA', 'LDX', 'LDY', 'STA', 'STX', 'STY', 'TAX', 'TAY', 'TXA', 'TYA', 'TSX', 'TXS', 'INX', 'INY', 'DEX', 'DEY', 'INC', 'DEC', 'ADC', 'SBC', 'SED', 'CLD', 'AND', 'ORA', 'EOR', 'BIT', 'ASL', 'LSR', 'ROL', 'ROR', 'CMP', 'CPX', 'CPY', 'BPL', 'BMI', 'BVC', 'BVS', 'BCC', 'BCS', 'BNE', 'BEQ', 'CLC', 'SEC', 'CLI', 'SEI', 'CLV', 'JMP', 'PHA', 'PLA', 'PHP', 'PLP']),
     );
   });
 });
@@ -140,9 +140,9 @@ describe('buildTable', () => {
 describe('unimplemented opcodes', () => {
   it('throw an error naming the opcode and its address', () => {
     const { cpu, bus } = cpuAt(0x0400);
-    bus.write(0x0400, 0x4c); // JMP &nnnn: Stage 15
-    expect(() => cpu.step()).toThrow(new UnimplementedOpcodeError(0x4c, 0x0400));
-    expect(() => cpu.step()).toThrow('unimplemented opcode &4C at &0400');
+    bus.write(0x0400, 0x02); // an undocumented NMOS "JAM" opcode: never in the documented table
+    expect(() => cpu.step()).toThrow(new UnimplementedOpcodeError(0x02, 0x0400));
+    expect(() => cpu.step()).toThrow('unimplemented opcode &02 at &0400');
   });
 
   it('leave PC on the opcode and the cycle count unchanged', () => {
@@ -182,5 +182,67 @@ describe('separate CPUs', () => {
     one.cpu.step();
     expect(two.cpu.regs.pc).toBe(0x0800);
     expect(two.cpu.cycles).toBe(7);
+  });
+});
+
+describe('the hardware stack (push and pull)', () => {
+  it('lives in page 1: STACK_PAGE is &0100', () => {
+    expect(STACK_PAGE).toBe(0x0100);
+  });
+
+  it('push writes at &0100 + S first, then decrements S: S points at the next free slot', () => {
+    const { cpu, bus } = cpuAt(0x0400);
+    cpu.regs.s = 0xff;
+    cpu.push(0x11);
+    expect(bus.read(0x01ff)).toBe(0x11);
+    expect(cpu.regs.s).toBe(0xfe);
+    cpu.push(0x22);
+    expect(bus.read(0x01fe)).toBe(0x22);
+    expect(cpu.regs.s).toBe(0xfd);
+  });
+
+  it('pull increments S first, then reads &0100 + S: last in, first out', () => {
+    const { cpu } = cpuAt(0x0400);
+    cpu.regs.s = 0xff;
+    cpu.push(0x11);
+    cpu.push(0x22);
+    cpu.push(0x33);
+    expect([cpu.pull(), cpu.pull(), cpu.pull()]).toEqual([0x33, 0x22, 0x11]);
+    expect(cpu.regs.s).toBe(0xff);
+  });
+
+  it('pulling leaves the byte in memory: it is only "free" because S moved past it', () => {
+    const { cpu, bus } = cpuAt(0x0400);
+    cpu.regs.s = 0xff;
+    cpu.push(0x5a);
+    cpu.pull();
+    expect(bus.read(0x01ff)).toBe(0x5a);
+  });
+
+  it('a push with S = &00 writes &0100 and wraps S to &FF: the stack never leaves page 1', () => {
+    const { cpu, bus } = cpuAt(0x0400);
+    cpu.regs.s = 0x00;
+    cpu.push(0xaa);
+    expect(bus.read(0x0100)).toBe(0xaa);
+    expect(bus.read(0x0200)).toBe(0x00);
+    expect(cpu.regs.s).toBe(0xff);
+    cpu.push(0xbb);
+    expect(bus.read(0x01ff)).toBe(0xbb); // overwrites the bottom of the stack
+  });
+
+  it('a pull with S = &FF wraps S to &00 and reads &0100, not &0200', () => {
+    const { cpu, bus } = cpuAt(0x0400);
+    bus.write(0x0100, 0x42);
+    bus.write(0x0200, 0x99);
+    cpu.regs.s = 0xff;
+    expect(cpu.pull()).toBe(0x42);
+    expect(cpu.regs.s).toBe(0x00);
+  });
+
+  it('push masks the value to a byte', () => {
+    const { cpu, bus } = cpuAt(0x0400);
+    cpu.regs.s = 0xff;
+    cpu.push(0x1ab);
+    expect(bus.read(0x01ff)).toBe(0xab);
   });
 });
