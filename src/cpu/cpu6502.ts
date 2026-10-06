@@ -14,6 +14,12 @@ import { createRegisters, type Registers } from './registers';
 export const RESET_VECTOR = 0xfffc;
 /** Cycles in the reset sequence (6502.org "Reset"; Visual6502 traces). */
 export const RESET_CYCLES = 7;
+/**
+ * The stack's page. The 6502 hard-wires the high byte of every stack address
+ * to &01, so S (8 bits) only ever picks a byte in &0100-&01FF
+ * (MCS6500 Programming Manual, §8 "Stack processing").
+ */
+export const STACK_PAGE = 0x0100;
 
 /** Thrown by step() when the opcode's table slot is empty. PC is left on the opcode. */
 export class UnimplementedOpcodeError extends Error {
@@ -70,6 +76,24 @@ export class Cpu6502 {
     const taken = entry.cycles + entry.execute(this);
     this.cycles += taken;
     return taken;
+  }
+
+  /**
+   * Pushes a byte: write it at &0100 + S, then S - 1. S always points at the
+   * next free slot (an "empty descending" stack). S wraps &00 → &FF, so the
+   * stack never leaves page 1: it overwrites its own bottom instead.
+   */
+  push(value: number): void {
+    const r = this.regs;
+    this.bus.write(STACK_PAGE | r.s, value & 0xff);
+    r.s = (r.s - 1) & 0xff;
+  }
+
+  /** Pulls a byte: S + 1 first, then read &0100 + S. The byte stays in memory; only S moves. */
+  pull(): number {
+    const r = this.regs;
+    r.s = (r.s + 1) & 0xff;
+    return this.bus.read(STACK_PAGE | r.s);
   }
 
   /** Reads the byte at PC and moves PC past it. The addressing modes use it for operand bytes. */

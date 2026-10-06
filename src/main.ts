@@ -14,12 +14,13 @@ import { createListingPanel } from './web/workbench/listing-panel';
 import { createMemoryPanel } from './web/workbench/memory-panel';
 import { createWorkbench } from './web/workbench/panel';
 import { createRegistersPanel } from './web/workbench/registers-panel';
+import { createStackPanel } from './web/workbench/stack-panel';
 
 const canvas = document.querySelector<HTMLCanvasElement>('#screen');
 if (!canvas) throw new Error('Missing #screen canvas');
 const host = document.querySelector<HTMLElement>('#workbench');
 if (!host) throw new Error('Missing #workbench element');
-// Registers and Memory sit under the screen; the other panels go in the workbench column.
+// Registers, Stack and Memory sit under the screen; the other panels go in the workbench column.
 const underScreen = document.querySelector<HTMLElement>('#under-screen');
 if (!underScreen) throw new Error('Missing #under-screen element');
 
@@ -63,6 +64,7 @@ const assembler = createAssemblerPanel({
   },
 });
 workbench.add(registers, underScreen);
+workbench.add(createStackPanel(target), underScreen);
 workbench.add(memory, underScreen);
 workbench.add(assembler);
 workbench.add(createListingPanel(target, () => listing));

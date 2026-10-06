@@ -19,9 +19,9 @@ async function step(page: Page, times = 1): Promise<void> {
 
 const ON = /\bon\b/;
 
-// Stage 14's fill example is the playground's default.
+// Stage 14's fill example (the default until Stage 15).
 test.beforeEach(async ({ page }) => {
-  await page.goto('/');
+  await page.goto('/?program=fill');
 });
 
 test('opens on the Stage 14 fill example', async ({ page }) => {

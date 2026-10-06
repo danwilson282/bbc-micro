@@ -296,7 +296,58 @@ done:   BRK               ; Run stops here (BRK itself is Stage 17)
 
 const FILL_EXAMPLE: Example = { id: 'fill', title: 'Stage 14: compare & branch (Run me)', source: FILL_SOURCE };
 
+/**
+ * Stage 15: jumps & the stack. Pushes and pulls in the Stack panel, PHP's
+ * extra bits, setting V through PLP, a JMP over a BRK, the JMP (&10FF)
+ * page-boundary bug, and the stack wrapping round page 1.
+ */
+export const STACK_SOURCE = `; Stage 15: jumps & the stack. Step it and watch the Stack panel.
+; Pushes go down from &01FF; pulls come back up. Last in, first out.
+
+        *= &0400
+start:  LDX #&FF
+        TXS               ; S=&FF: an empty stack. The MOS does this at reset
+        LDA #&11
+        PHA               ; &01FF = &11, S=&FE
+        LDA #&22
+        PHA               ; &01FE = &22, S=&FD
+        LDA #&33
+        PHA               ; &01FD = &33, S=&FC. Three bytes in use
+        PLA               ; A=&33: the last one in comes out first. S=&FD
+        PLA               ; A=&22, S=&FE
+        PLA               ; A=&11, S=&FF. Empty, but the bytes are still there
+        SEC
+        SED               ; C=1, D=1 (and I=1 from reset)
+        PHP               ; pushes &3D = %0011 1101: bits 5 and 4 (B) come out as 1
+        CLC
+        CLD               ; C=0, D=0
+        PLP               ; pulls &3D: C=1 and D=1 again. Bits 5 and 4 go nowhere
+        LDA #&C0          ; %1100 0000
+        PHA
+        PLP               ; P = &C0: N=1, V=1 (there's no SEV), and I=0, D=0, C=0
+        JMP over          ; JMP absolute: PC = over. 3 cycles
+        BRK               ; jumped over: Run would stop here if JMP didn't work
+over:   LDA #&80
+        STA &10FF         ; a pointer at the very end of page &10: low byte &80
+        LDA #&04
+        STA &1000         ; the high byte the NMOS 6502 actually reads
+        LDA #&05
+        STA &1100         ; the high byte you'd expect it to read
+        JMP (&10FF)       ; the bug: PC = &0480, not &0580
+
+        *= &0480
+bug:    LDX #&00          ; you're here because of the bug
+        TXS               ; S=&00: only one free byte left
+        LDA #&AA
+        PHA               ; writes &0100, and S wraps to &FF
+        PHA               ; writes &01FF: the &11 from the start is overwritten
+        BRK               ; Run stops here
+`;
+
+const STACK_EXAMPLE: Example = { id: 'stack', title: 'Stage 15: jumps & the stack', source: STACK_SOURCE };
+
 export const EXAMPLES: readonly Example[] = [
+  STACK_EXAMPLE,
   FILL_EXAMPLE,
   SHIFTS_EXAMPLE,
   LOGIC_EXAMPLE,
@@ -310,5 +361,5 @@ export const EXAMPLES: readonly Example[] = [
 
 /** The example with this id, or the current stage's if there's none. */
 export function findExample(id: string | null): Example {
-  return EXAMPLES.find((example) => example.id === id) ?? FILL_EXAMPLE;
+  return EXAMPLES.find((example) => example.id === id) ?? STACK_EXAMPLE;
 }

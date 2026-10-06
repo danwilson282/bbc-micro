@@ -24,7 +24,8 @@
     "demo:score": "tsx scripts/demo-score.ts",
     "demo:logic": "tsx scripts/demo-logic.ts",
     "demo:times10": "tsx scripts/demo-times10.ts",
-    "demo:fill": "tsx scripts/demo-fill.ts"
+    "demo:fill": "tsx scripts/demo-fill.ts",
+    "demo:stack": "tsx scripts/demo-stack.ts"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

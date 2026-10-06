@@ -43,8 +43,8 @@ describe('runFor', () => {
   });
 
   it('stops at an unimplemented opcode with its message, PC left on it', () => {
-    const { target } = playground([NOP, 0x4c, 0x00, 0x04]); // NOP, JMP &0400 (Stage 15)
-    expect(runFor(target, 1000)).toEqual({ steps: 1, cycles: 2, stop: 'error', error: 'unimplemented opcode &4C at &0401' });
+    const { target } = playground([NOP, 0x02]); // NOP, then playground([NOP, 0x4c, 0x00, 0x04]); // NOP, JMP &0400 (Stage 15)02: an undocumented "JAM" opcode
+    expect(runFor(target, 1000)).toEqual({ steps: 1, cycles: 2, stop: 'error', error: 'unimplemented opcode &02 at &0401' });
     expect(target.registers.pc).toBe(0x0401);
   });
 });
@@ -80,8 +80,8 @@ describe('advanceRun: one browser frame of a Run', () => {
   });
 
   it('ends at an unimplemented opcode, keeping its message', () => {
-    const { target } = playground([0x4c]);
-    expect(advanceRun(target, RUN_START)).toEqual({ steps: 0, cycles: 0, end: 'error', error: 'unimplemented opcode &4C at &0400' });
+    const { target } = playground([0x02]);
+    expect(advanceRun(target, RUN_START)).toEqual({ steps: 0, cycles: 0, end: 'error', error: 'unimplemented opcode &02 at &0400' });
   });
 
   it('clears the write log each frame, so the Memory panel shows the latest frame\'s writes', () => {
@@ -125,8 +125,8 @@ describe('describeRunState', () => {
     expect(describeRunState({ ...totals, end: 'stopped' }, 0x0410)).toBe(
       'Stopped by you at &0410 after 1,234 instructions, 340,000 cycles = 170 ms at 2 MHz',
     );
-    expect(describeRunState({ ...totals, end: 'error', error: 'unimplemented opcode &4C at &0410' }, 0x0410)).toBe(
-      'Stopped: unimplemented opcode &4C at &0410, after 1,234 instructions, 340,000 cycles = 170 ms at 2 MHz',
+    expect(describeRunState({ ...totals, end: 'error', error: 'unimplemented opcode &02 at &0410' }, 0x0410)).toBe(
+      'Stopped: unimplemented opcode &02 at &0410, after 1,234 instructions, 340,000 cycles = 170 ms at 2 MHz',
     );
   });
 

@@ -422,6 +422,52 @@
         line-height: 1.5;
         color: var(--muted);
       }
+      /* Stack panel (Stage 15): page 1 from &01FF down to just below S. */
+      .stack-summary {
+        margin: 0 0 6px;
+        font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+        font-size: 0.85rem;
+      }
+      .stack-table {
+        border-collapse: collapse;
+        font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+        font-size: 0.85rem;
+      }
+      .stack-table th {
+        color: var(--muted);
+        font-weight: normal;
+        padding: 1px 10px 1px 2px;
+        text-align: left;
+      }
+      .stack-table td {
+        padding: 1px 10px 1px 3px;
+      }
+      .stack-table tr.free td,
+      .stack-table tr.free th {
+        opacity: 0.45;
+      }
+      .stack-table tr.next-push {
+        outline: 2px solid var(--accent);
+        outline-offset: -1px;
+      }
+      .stack-table td.note {
+        color: var(--muted);
+      }
+      .stack-table tr.next-push td.note {
+        color: var(--accent);
+        font-weight: 600;
+      }
+      .stack-table td.hex.changed {
+        background: var(--changed);
+      }
+      .stack-table td.hex.written {
+        box-shadow: inset 0 -3px 0 var(--written);
+        font-weight: 600;
+      }
+      .stack-table tr.gap td {
+        color: var(--muted);
+        text-align: center;
+      }
     </style>
   </head>
   <body>
