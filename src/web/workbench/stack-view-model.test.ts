@@ -37,6 +37,27 @@ describe('the stack summary', () => {
   });
 });
 
+describe('the RTS hint', () => {
+  it('reads the next two pulls as a return address and adds 1, the way RTS does', () => {
+    const view = buildStackView(playground(0xfd, { 0x01fe: 0x09, 0x01ff: 0x04 }));
+    expect(view.rts).toBe('RTS now → &040A (pulls 09 04, + 1)');
+  });
+
+  it('uses the two bytes nearest S when calls are nested', () => {
+    const view = buildStackView(playground(0xfb, { 0x01fc: 0x26, 0x01fd: 0x04, 0x01fe: 0x12, 0x01ff: 0x04 }));
+    expect(view.rts).toBe('RTS now → &0427 (pulls 26 04, + 1)');
+  });
+
+  it('wraps &FFFF + 1 to &0000', () => {
+    expect(buildStackView(playground(0xfd, { 0x01fe: 0xff, 0x01ff: 0xff })).rts).toBe('RTS now → &0000 (pulls FF FF, + 1)');
+  });
+
+  it('is absent with fewer than two bytes in use', () => {
+    expect(buildStackView(playground(0xff)).rts).toBeUndefined();
+    expect(buildStackView(playground(0xfe)).rts).toBeUndefined();
+  });
+});
+
 describe('the stack rows', () => {
   it('run from &01FF down to three free slots below S, bottom of the stack first', () => {
     const view = buildStackView(playground(0xfc));

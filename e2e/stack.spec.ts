@@ -17,9 +17,9 @@ async function step(page: Page, times = 1): Promise<void> {
   for (let i = 0; i < times; i++) await button.click();
 }
 
-// Stage 15's stack example is the playground's default.
+// Stage 15's stack example (the default until Stage 16).
 test.beforeEach(async ({ page }) => {
-  await page.goto('/');
+  await page.goto('/?program=stack');
 });
 
 test('opens on the Stage 15 stack example, with the Stack panel showing S after reset', async ({ page }) => {
