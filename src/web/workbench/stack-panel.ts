@@ -18,6 +18,11 @@ export function createStackPanel(target: CpuTarget): Panel {
   summary.className = 'stack-summary';
   summary.dataset.field = 'summary';
 
+  const rts = document.createElement('p');
+  rts.className = 'stack-rts';
+  rts.dataset.field = 'rts';
+  rts.title = 'The next two bytes a pull would return, read as a return address. A hint: they may just be data.';
+
   const table = document.createElement('table');
   table.className = 'stack-table';
   const head = table.createTHead().insertRow();
@@ -29,7 +34,7 @@ export function createStackPanel(target: CpuTarget): Panel {
   }
   const body = table.createTBody();
 
-  element.append(summary, table);
+  element.append(summary, rts, table);
 
   function refresh(): void {
     const view = buildStackView(target, {
@@ -38,6 +43,8 @@ export function createStackPanel(target: CpuTarget): Panel {
     });
     previous = view;
     summary.textContent = view.summary;
+    rts.textContent = view.rts ?? '';
+    rts.hidden = view.rts === undefined;
     body.replaceChildren();
     for (const row of view.rows) {
       const tr = body.insertRow();

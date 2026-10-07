@@ -106,11 +106,11 @@ describe('the opcode table', () => {
     expect(OPCODES).toHaveLength(256);
   });
 
-  it('implements NOP, loads, stores, transfers, inc/dec, ADC/SBC, logic, shifts, compares, branches, flag ops, JMP and the stack so far (Stage 15)', () => {
+  it('implements NOP, loads, stores, transfers, inc/dec, ADC/SBC, logic, shifts, compares, branches, flag ops, JMP, the stack, JSR and RTS so far (Stage 16)', () => {
     const implemented = OPCODES.flatMap((op) => (op ? [op.mnemonic] : []));
-    expect(implemented).toHaveLength(1 + 18 + 13 + 6 + 12 + 16 + 7 + 26 + 20 + 14 + 8 + 2 + 4);
+    expect(implemented).toHaveLength(1 + 18 + 13 + 6 + 12 + 16 + 7 + 26 + 20 + 14 + 8 + 2 + 4 + 2);
     expect(new Set(implemented)).toEqual(
-      new Set(['NOP', 'LDA', 'LDX', 'LDY', 'STA', 'STX', 'STY', 'TAX', 'TAY', 'TXA', 'TYA', 'TSX', 'TXS', 'INX', 'INY', 'DEX', 'DEY', 'INC', 'DEC', 'ADC', 'SBC', 'SED', 'CLD', 'AND', 'ORA', 'EOR', 'BIT', 'ASL', 'LSR', 'ROL', 'ROR', 'CMP', 'CPX', 'CPY', 'BPL', 'BMI', 'BVC', 'BVS', 'BCC', 'BCS', 'BNE', 'BEQ', 'CLC', 'SEC', 'CLI', 'SEI', 'CLV', 'JMP', 'PHA', 'PLA', 'PHP', 'PLP']),
+      new Set(['NOP', 'LDA', 'LDX', 'LDY', 'STA', 'STX', 'STY', 'TAX', 'TAY', 'TXA', 'TYA', 'TSX', 'TXS', 'INX', 'INY', 'DEX', 'DEY', 'INC', 'DEC', 'ADC', 'SBC', 'SED', 'CLD', 'AND', 'ORA', 'EOR', 'BIT', 'ASL', 'LSR', 'ROL', 'ROR', 'CMP', 'CPX', 'CPY', 'BPL', 'BMI', 'BVC', 'BVS', 'BCC', 'BCS', 'BNE', 'BEQ', 'CLC', 'SEC', 'CLI', 'SEI', 'CLV', 'JMP', 'PHA', 'PLA', 'PHP', 'PLP', 'JSR', 'RTS']),
     );
   });
 });

@@ -1,7 +1,7 @@
 import { assemble, formatError } from '../asm/assembler';
 import { Cpu6502, UnimplementedOpcodeError } from '../cpu/cpu6502';
 import { TestBus } from '../memory/test-bus';
-import { ARITHMETIC_SOURCE, DECIMAL_SOURCE, EXAMPLES, FILL_SOURCE, INCDEC_SOURCE, LABELS_SOURCE, LOGIC_SOURCE, SHIFTS_SOURCE, STACK_SOURCE, findExample } from './examples';
+import { ARITHMETIC_SOURCE, DECIMAL_SOURCE, EXAMPLES, FILL_SOURCE, INCDEC_SOURCE, LABELS_SOURCE, LOGIC_SOURCE, SHIFTS_SOURCE, STACK_SOURCE, SUBROUTINES_SOURCE, findExample } from './examples';
 import { LOADS_PROGRAM } from './loads-program';
 import { installProgram } from './setup';
 import { STORES_PROGRAM } from './stores-program';
@@ -467,13 +467,97 @@ describe('the Stage 15 stack example', () => {
   });
 });
 
+describe('the Stage 16 subroutines example', () => {
+  function setUp(): { cpu: Cpu6502; bus: TestBus; label: (name: string) => number } {
+    const bus = new TestBus();
+    const result = assembled(SUBROUTINES_SOURCE);
+    installProgram(bus, result.lines, 0x0400);
+    const cpu = new Cpu6502(bus);
+    cpu.reset();
+    const label = (name: string): number => {
+      const address = result.symbols.get(name);
+      if (address === undefined) throw new Error(`no label ${name}`);
+      return address;
+    };
+    return { cpu, bus, label };
+  }
+
+  /** Steps until PC reaches address for the nth time (1 = the first). */
+  function stepTo(cpu: Cpu6502, address: number, nth = 1): void {
+    let seen = 0;
+    for (let i = 0; i < 1000; i++) {
+      cpu.step();
+      if (cpu.regs.pc === address && ++seen === nth) return;
+    }
+    throw new Error(`never reached &${address.toString(16)}`);
+  }
+
+  it('lays out main at &0400, square at &0423 and multiply at &0428', () => {
+    const { label } = setUp();
+    expect([label('start'), label('square'), label('multiply')]).toEqual([0x0400, 0x0423, 0x0428]);
+  });
+
+  it('the first JSR pushes &0409 (its own last byte), and RTS returns to &040A', () => {
+    const { cpu, bus, label } = setUp();
+    stepTo(cpu, label('multiply'));
+    expect(cpu.regs.s).toBe(0xfd);
+    expect([bus.read(0x01ff), bus.read(0x01fe)]).toEqual([0x04, 0x09]);
+    stepTo(cpu, 0x040a);
+    expect(cpu.regs.s).toBe(0xff);
+    expect([cpu.regs.a, cpu.regs.x]).toEqual([0x8f, 0x00]); // 13 x 11 = 143
+  });
+
+  it('inside square\'s call to multiply, the stack holds both return addresses: &0412 then &0426', () => {
+    const { cpu, bus, label } = setUp();
+    stepTo(cpu, label('multiply'), 2);
+    expect(cpu.regs.s).toBe(0xfb);
+    expect([0x01ff, 0x01fe, 0x01fd, 0x01fc].map((a) => bus.read(a))).toEqual([0x04, 0x12, 0x04, 0x26]);
+    stepTo(cpu, 0x0427); // multiply's RTS lands on square's RTS
+    expect(cpu.regs.s).toBe(0xfd);
+    stepTo(cpu, 0x0413); // and that one lands back in main
+    expect(cpu.regs.s).toBe(0xff);
+    expect([cpu.regs.a, cpu.regs.x]).toEqual([0x90, 0x00]); // 12 x 12 = 144
+  });
+
+  it('runs to its BRK at &0422 with 143, 144 and 30000 at &90-&95: 202 instructions, 640 cycles', () => {
+    const { cpu, bus } = setUp();
+    let instructions = 0;
+    let cycles = 0;
+    while (bus.read(cpu.regs.pc) !== 0x00) {
+      cycles += cpu.step();
+      instructions++;
+    }
+    expect(cpu.regs.pc).toBe(0x0422);
+    expect([0x90, 0x91, 0x92, 0x93, 0x94, 0x95].map((a) => bus.read(a))).toEqual([0x8f, 0x00, 0x90, 0x00, 0x30, 0x75]);
+    expect(instructions).toBe(202);
+    expect(cycles).toBe(640);
+    expect(cpu.regs.s).toBe(0xff);
+  });
+
+  it.each([
+    [0, 0, 0],
+    [1, 1, 1],
+    [255, 255, 65025],
+    [16, 16, 256],
+    [200, 150, 30000],
+  ])('multiply works for %i x %i = %i', (a, x, product) => {
+    const { cpu, label } = setUp();
+    cpu.regs.s = 0xff;
+    Object.assign(cpu.regs, { a, x, pc: label('multiply') });
+    cpu.push(0x04); // return to &0500 (a BRK), as if called from &04FD
+    cpu.push(0xff);
+    while (cpu.regs.pc !== 0x0500) cpu.step();
+    expect(cpu.regs.a | (cpu.regs.x << 8)).toBe(product);
+  });
+});
+
 describe('the examples', () => {
   it.each(EXAMPLES.map((e) => [e.id, e] as const))('%s assembles without errors', (_id, example) => {
     expect(assemble(example.source).ok).toBe(true);
   });
 
   it('falls back to the first example for an unknown or missing id', () => {
-    expect(findExample('nope').id).toBe('stack');
-    expect(findExample(null).id).toBe('stack');
+    expect(findExample('nope').id).toBe('subroutines');
+    expect(findExample(null).id).toBe('subroutines');
   });
 });

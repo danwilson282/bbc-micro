@@ -12,7 +12,7 @@
 // No DOM here: stack-panel.ts turns this into elements, Jest tests this.
 
 import { STACK_PAGE } from '../../cpu/cpu6502';
-import { hex16, hex8 } from '../../util/bits';
+import { hex16, hex8, word } from '../../util/bits';
 import type { CpuTarget } from './debug-target';
 import { formatBinary } from './registers-view-model';
 
@@ -64,6 +64,12 @@ export interface StackView {
   /** Bytes in use: &FF − S. */
   readonly depth: number;
   readonly summary: string;
+  /**
+   * Where an RTS would go right now: the next two pulls as a word, + 1.
+   * Only a hint: the 6502 can't tell a return address from two pushed data
+   * bytes, and neither can we. Undefined with fewer than 2 bytes in use.
+   */
+  readonly rts: string | undefined;
   readonly rows: readonly StackRow[];
   /** All 256 bytes of page 1, so the next view can tell what changed. */
   readonly page: readonly number[];
@@ -113,7 +119,15 @@ export function buildStackView(target: Pick<CpuTarget, 'peek' | 'registers'>, ma
     for (let address = lowest + tail - 1; address >= lowest; address--) rows.push(byteRow(address));
   }
 
-  return { s, depth, summary: summarise(s, depth), rows, page };
+  return { s, depth, summary: summarise(s, depth), rts: rtsHint(page, s, depth), rows, page };
+}
+
+/** "RTS now → &040A (pulls 09 04, + 1)": RTS pulls the low byte, then the high, then adds 1. */
+function rtsHint(page: readonly number[], s: number, depth: number): string | undefined {
+  if (depth < 2) return undefined;
+  const low = page[(s + 1) & 0xff] ?? 0;
+  const high = page[(s + 2) & 0xff] ?? 0;
+  return `RTS now → &${hex16((word(low, high) + 1) & 0xffff)} (pulls ${hex8(low)} ${hex8(high)}, + 1)`;
 }
 
 /** "S = &FC · 3 bytes in use · next push → &01FC · next pull ← &01FD" */

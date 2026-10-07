@@ -346,7 +346,67 @@ bug:    LDX #&00          ; you're here because of the bug
 
 const STACK_EXAMPLE: Example = { id: 'stack', title: 'Stage 15: jumps & the stack', source: STACK_SOURCE };
 
+/**
+ * Stage 16: subroutines. A shift-and-add multiply called three times, once
+ * from inside square, so two return addresses are on the stack at once.
+ */
+export const SUBROUTINES_SOURCE = `; Stage 16: subroutines. JSR pushes a return address, RTS pulls it back.
+; Step it and watch the Stack panel: each JSR adds two bytes, each RTS
+; takes them away. square calls multiply, so for a while there are four.
+
+mcand   = &80             ; multiply's scratch: the multiplicand
+mplier  = &81             ; the multiplier, shifted out one bit at a time
+lowbyte = &82             ; the product's low byte, built up by ROR
+results = &90             ; three 16-bit answers, low byte first
+
+        *= &0400
+start:  LDX #&FF
+        TXS               ; an empty stack, so the return addresses are easy to spot
+        LDA #13
+        LDX #11
+        JSR multiply      ; pushes &0409, the JSR's last byte. 13 x 11 = 143 = &008F
+        STA results       ; RTS comes back here, to &0409 + 1
+        STX results+1
+        LDA #12
+        JSR square        ; 12 x 12 = 144 = &0090, two calls deep
+        STA results+2
+        STX results+3
+        LDA #200
+        LDX #150
+        JSR multiply      ; 200 x 150 = 30000 = &7530
+        STA results+4
+        STX results+5
+        BRK               ; Run stops here. The answers are at &90-&95
+
+; square: A x A.  In: A.  Out: A = low byte, X = high byte.  Uses &80-&82 and Y.
+square: TAX               ; multiply wants its second number in X
+        JSR multiply      ; a call inside a call: the stack now holds two return addresses
+        RTS               ; (JMP multiply would do the same job, faster)
+
+; multiply: A x X, 8 bits x 8 bits = 16 bits, by shifting and adding.
+; In: A, X.  Out: A = low byte, X = high byte.  Uses &80-&82 and Y.
+multiply:
+        STA mcand
+        STX mplier
+        LDA #0            ; the product's high byte builds up in A
+        LDY #8            ; one round per bit of the multiplier
+next:   LSR mplier        ; the multiplier's next bit, lowest first, into C
+        BCC noadd         ; a 0 bit adds nothing
+        CLC
+        ADC mcand         ; a 1 bit adds the multiplicand to the high byte
+noadd:  ROR A             ; shift the 16-bit product right one place:
+        ROR lowbyte       ; A's bit 0 drops into the low byte's bit 7
+        DEY
+        BNE next
+        TAX               ; the high byte to X
+        LDA lowbyte       ; the low byte to A
+        RTS               ; back to whoever called: the address is on the stack
+`;
+
+const SUBROUTINES_EXAMPLE: Example = { id: 'subroutines', title: 'Stage 16: subroutines', source: SUBROUTINES_SOURCE };
+
 export const EXAMPLES: readonly Example[] = [
+  SUBROUTINES_EXAMPLE,
   STACK_EXAMPLE,
   FILL_EXAMPLE,
   SHIFTS_EXAMPLE,
@@ -361,5 +421,5 @@ export const EXAMPLES: readonly Example[] = [
 
 /** The example with this id, or the current stage's if there's none. */
 export function findExample(id: string | null): Example {
-  return EXAMPLES.find((example) => example.id === id) ?? STACK_EXAMPLE;
+  return EXAMPLES.find((example) => example.id === id) ?? SUBROUTINES_EXAMPLE;
 }
