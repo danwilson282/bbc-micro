@@ -9,6 +9,7 @@ import { hex16, hex8 } from './util/bits';
 import { createAddressingPanel } from './web/workbench/addressing-panel';
 import { createAssemblerPanel } from './web/workbench/assembler-panel';
 import { createConverterPanel } from './web/workbench/converter-panel';
+import { createInterruptsPanel } from './web/workbench/interrupts-panel';
 import { playgroundTarget } from './web/workbench/debug-target';
 import { createListingPanel } from './web/workbench/listing-panel';
 import { createMemoryPanel } from './web/workbench/memory-panel';
@@ -64,6 +65,7 @@ const assembler = createAssemblerPanel({
   },
 });
 workbench.add(registers, underScreen);
+workbench.add(createInterruptsPanel(target, { onChange: refreshAll }), underScreen);
 workbench.add(createStackPanel(target), underScreen);
 workbench.add(memory, underScreen);
 workbench.add(assembler);
@@ -91,6 +93,14 @@ Object.assign(window, {
       return cycles;
     },
     cpu: target.cpu,
-    help: `workbench.poke(0x${hex16(PROGRAM_PAGE + 1)}, 0xff), workbench.step(), workbench.peek(addr), workbench.goTo(addr), workbench.cpu.regs`,
+    irq: (): void => {
+      target.ringIrq();
+      workbench.refreshAll();
+    },
+    nmi: (): void => {
+      target.pulseNmi();
+      workbench.refreshAll();
+    },
+    help: `workbench.poke(0x${hex16(PROGRAM_PAGE + 1)}, 0xff), workbench.step(), workbench.peek(addr), workbench.goTo(addr), workbench.irq(), workbench.nmi(), workbench.cpu.regs`,
   },
 });

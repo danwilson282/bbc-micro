@@ -405,7 +405,66 @@ noadd:  ROR A             ; shift the 16-bit product right one place:
 
 const SUBROUTINES_EXAMPLE: Example = { id: 'subroutines', title: 'Stage 16: subroutines', source: SUBROUTINES_SOURCE };
 
+/**
+ * Stage 17: interrupts. An endless main loop, with IRQ, NMI and BRK handlers
+ * that each count. The IRQ handler tells BRK from IRQ by the B bit in the
+ * pushed P, and answers the playground's doorbell so it lets go of IRQ.
+ */
+export const INTERRUPTS_SOURCE = `; Stage 17: interrupts. Press Run: it stops at the BRK, like a breakpoint.
+; Press Run again to go through it, then press IRQ and NMI in the
+; Interrupts panel. Each handler adds 1 to its own counter. Type 0080 in
+; the Memory panel's Go box to watch them:
+;   &80 = IRQs   &81 = NMIs   &82 = BRKs   &84/&85 = the main loop's count
+
+doorbell = &FC00          ; the playground's IRQ device. Write to it to answer it
+irqs    = &80
+nmis    = &81
+brks    = &82
+main    = &84             ; 16 bits, low byte first
+
+        *= &0400
+start:  LDX #&FF
+        TXS
+        CLI               ; reset left I set: let IRQs in from now on
+        BRK               ; a software interrupt: IRQ's vector, but B = 1
+        .byte &42         ; the padding byte BRK skips (the BBC puts an error number here)
+idle:   INC main          ; the main program: count, for ever
+        BNE idle
+        INC main+1
+        JMP idle
+
+; IRQ and BRK both arrive here, through &FFFE.
+irq:    PHA               ; save A and X: the interrupted code mustn't notice
+        TXA
+        PHA
+        TSX               ; X = S. Now &0101,X = the saved X, &0102,X = A,
+        LDA &0103,X       ; and &0103,X = the P that was pushed
+        AND #&10          ; B: 1 if BRK pushed it, 0 for a real IRQ
+        BNE isbrk
+        STA doorbell      ; answer the doorbell, so it lets go of IRQ.
+                          ; Delete this line and press IRQ: the handler runs for ever
+        INC irqs
+        JMP done
+isbrk:  INC brks
+done:   PLA               ; put X and A back, in reverse order
+        TAX
+        PLA
+        RTI               ; pulls P (so I = 0 again) and PC: back to what was interrupted
+
+; NMI has a vector to itself, so there's no one to ask "who called?".
+nmi:    INC nmis          ; changes N and Z, but RTI puts the old P back
+        RTI
+
+        *= &FFFA          ; the vectors, at the very top of memory
+        .word nmi         ; &FFFA: NMI
+        .word start       ; &FFFC: RESET
+        .word irq         ; &FFFE: IRQ and BRK
+`;
+
+const INTERRUPTS_EXAMPLE: Example = { id: 'interrupts', title: 'Stage 17: interrupts (Run, then press IRQ / NMI)', source: INTERRUPTS_SOURCE };
+
 export const EXAMPLES: readonly Example[] = [
+  INTERRUPTS_EXAMPLE,
   SUBROUTINES_EXAMPLE,
   STACK_EXAMPLE,
   FILL_EXAMPLE,
@@ -421,5 +480,5 @@ export const EXAMPLES: readonly Example[] = [
 
 /** The example with this id, or the current stage's if there's none. */
 export function findExample(id: string | null): Example {
-  return EXAMPLES.find((example) => example.id === id) ?? SUBROUTINES_EXAMPLE;
+  return EXAMPLES.find((example) => example.id === id) ?? INTERRUPTS_EXAMPLE;
 }

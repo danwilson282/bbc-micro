@@ -19,12 +19,12 @@ async function step(page: Page, times: number): Promise<void> {
   for (let i = 0; i < times % 16; i++) await panel.getByRole('button', { name: 'Step one instruction' }).click();
 }
 
-// Stage 16's subroutines example is the playground's default.
+// Since Stage 17 the playground opens on the interrupts example.
 test.beforeEach(async ({ page }) => {
-  await page.goto('/');
+  await page.goto('/?program=subroutines');
 });
 
-test('opens on the Stage 16 subroutines example, with no RTS hint until two bytes are in use', async ({ page }) => {
+test('opens the Stage 16 subroutines example, with no RTS hint until two bytes are in use', async ({ page }) => {
   await expect(page.getByRole('region', { name: 'Assembler' }).getByRole('combobox', { name: 'Example program' })).toHaveValue('subroutines');
   await step(page, 2); // LDX #&FF, TXS
   await expect(stackPanel(page).locator('[data-field="rts"]')).toBeHidden();

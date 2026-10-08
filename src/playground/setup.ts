@@ -49,8 +49,10 @@ export function loadExplorerPointers(bus: Pick<Bus, 'write'>): void {
  * data and explorer pointers, NOPs through the program page, then the
  * program's bytes, and the reset vector pointing at entry.
  *
- * The NOPs end at &04FF. &0500 is &00 (BRK), which isn't implemented yet, so
- * a program that runs off the end of its page stops there with an error.
+ * The NOPs end at &04FF. &0500 is &00 (BRK), where Run stops. Stepped
+ * through, it vectors via &FFFE, which is &0000 unless the program sets it,
+ * and &0000 holds &7C (an undocumented opcode), so the CPU stops with an error.
+ * Programs that use interrupts put their own vectors at &FFFA-&FFFF.
  */
 export function installProgram(bus: Pick<Bus, 'write'>, lines: readonly ListingLine[], entry: number): void {
   for (let address = 0; address < 0x10000; address++) bus.write(address, 0x00);

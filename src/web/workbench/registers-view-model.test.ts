@@ -1,11 +1,11 @@
 import { TestBus } from '../../memory/test-bus';
-import { playgroundTarget, type CpuTarget } from './debug-target';
+import { playgroundTarget } from './debug-target';
 import { buildRegistersView, describeRun, formatCycles, stepMany } from './registers-view-model';
 
 const NOP = 0xea;
 
 /** A playground whose reset vector points at &0400, reset already done. */
-function playground(program: readonly number[] = []): { target: CpuTarget; bus: TestBus } {
+function playground(program: readonly number[] = []): { target: ReturnType<typeof playgroundTarget>; bus: TestBus } {
   const bus = new TestBus();
   bus.load(0xfffc, [0x00, 0x04]);
   bus.load(0x0400, program);
@@ -126,7 +126,19 @@ describe('buildRegistersView', () => {
     target.step();
     expect(buildRegistersView(target).next.text).toBe('&0401: &A9 LDA');
     target.step();
-    expect(buildRegistersView(target).next.text).toBe('&0403: &02 (not implemented yet)');
+    expect(buildRegistersView(target).next.text).toBe('&0403: &02 (undocumented: not implemented)');
+  });
+
+  it('says when the next step will be an interrupt instead, naming the vector and the handler it points at', () => {
+    const { target, bus } = playground([NOP]);
+    bus.load(0xfffa, [0x00, 0x06]);
+    bus.load(0xfffe, [0x00, 0x07]);
+    target.ringIrq();
+    expect(buildRegistersView(target).next.text).toBe('&0400: &EA NOP'); // I is set after reset: masked
+    target.cpu.regs.i = false;
+    expect(buildRegistersView(target).next.text).toBe('IRQ → &0700 (vector &FFFE), before &0400: &EA NOP');
+    target.pulseNmi();
+    expect(buildRegistersView(target).next.text).toBe('NMI → &0600 (vector &FFFA), before &0400: &EA NOP');
   });
 
   it('marks only the registers and flags that changed since the previous view', () => {
@@ -181,8 +193,8 @@ describe('stepMany', () => {
   });
 
   it('stops at an unimplemented opcode and returns the error message instead of throwing', () => {
-    const { target } = playground([NOP, NOP, 0x00]);
-    expect(stepMany(target, 16)).toEqual({ steps: 2, cycles: 4, writes: 0, error: 'unimplemented opcode &00 at &0402' });
+    const { target } = playground([NOP, NOP, 0x02]); // &02: an undocumented "JAM" opcode
+    expect(stepMany(target, 16)).toEqual({ steps: 2, cycles: 4, writes: 0, error: 'unimplemented opcode &02 at &0402' });
     expect(target.registers.pc).toBe(0x0402);
   });
 });

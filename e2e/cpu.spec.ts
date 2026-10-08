@@ -32,14 +32,15 @@ test('Step runs TSX: PC advances by 1 and 2 cycles pass', async ({ page }) => {
   await expect(memory.locator('td.byte.pc')).toHaveAttribute('data-address', '0401');
 });
 
-test('stepping off the end of the program page stops at the unimplemented BRK at &0500', async ({ page }) => {
+test('stepping off the end of the program page runs the BRK at &0500, through the empty vector to &0000', async ({ page }) => {
   // The 20-line stores program (63 cycles), then 213 NOPs from &042B to &04FF
-  // (426 cycles), after the 7-cycle reset: 233 instructions, so 15 clicks.
+  // (426 cycles), after the 7-cycle reset: 233 instructions. Then the BRK
+  // (7 cycles) jumps through &FFFE/&FFFF = &0000, where &7C is undocumented.
   const step16 = registersPanel(page).getByRole('button', { name: 'Step 16 instructions' });
   for (let i = 0; i < 15; i++) await step16.click();
-  await expect(register(page, 'PC')).toHaveText('&0500');
-  await expect(registersPanel(page).getByRole('status')).toContainText('unimplemented opcode &00 at &0500');
-  await expect(registersPanel(page).locator('[data-field="cycles"]')).toContainText('496 cycles');
+  await expect(register(page, 'PC')).toHaveText('&0000');
+  await expect(registersPanel(page).getByRole('status')).toContainText('unimplemented opcode &7C at &0000');
+  await expect(registersPanel(page).locator('[data-field="cycles"]')).toContainText('503 cycles');
 });
 
 test('Reset reloads PC from the vector and drops S by 3', async ({ page }) => {

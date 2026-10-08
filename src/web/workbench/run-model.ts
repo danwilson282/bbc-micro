@@ -5,10 +5,12 @@
 //   click Run ─▶ advanceRun ─▶ redraw ─▶ next animation frame ─▶ advanceRun …
 //                 (40,000 cycles)                                  until end ≠ undefined
 //
-// BRK is Stage 17, so &00 is still unimplemented. Every playground program
-// ends at one, though (its own, or the &00 at &0500 after the NOP slide), so
-// Run treats "the next opcode is BRK" as a clean stop, the way a debugger's
-// "run until break" does: PC is left on the BRK, which hasn't run.
+// Every playground program ends at a BRK (its own, or the &00 at &0500 after
+// the NOP slide), so Run treats "the next opcode is BRK" as a breakpoint: a
+// clean stop with PC left on the BRK, which hasn't run. Since Stage 17 BRK
+// can run, so a Run that STARTS on a BRK runs it, the way a debugger's
+// "continue" steps off the breakpoint it's sitting on. And if an interrupt is
+// due, the BRK isn't what happens next, so Run doesn't stop for it.
 //
 // DOM-free, so Jest tests it; registers-panel.ts does the animation frames.
 
@@ -37,15 +39,17 @@ export interface RunSlice {
 
 /**
  * Runs whole instructions until maxCycles have been used (the last one may
- * overshoot by a few), the next opcode is BRK, or an unimplemented opcode
- * stops the CPU. Any other error is a real bug and is rethrown.
+ * overshoot by a few), the next thing to run is a BRK, or an unimplemented
+ * opcode stops the CPU. Any other error is a real bug and is rethrown.
+ * With fromBreak, a BRK under PC at the start is run rather than stopped at.
  */
-export function runFor(target: CpuTarget, maxCycles: number): RunSlice {
+export function runFor(target: CpuTarget, maxCycles: number, fromBreak = false): RunSlice {
   let steps = 0;
   let cycles = 0;
   try {
     while (cycles < maxCycles) {
-      if (target.peek(target.registers.pc) === BRK_OPCODE) return { steps, cycles, stop: 'brk', error: undefined };
+      const atBreak = target.pendingInterrupt === undefined && target.peek(target.registers.pc) === BRK_OPCODE;
+      if (atBreak && !(fromBreak && steps === 0)) return { steps, cycles, stop: 'brk', error: undefined };
       cycles += target.step();
       steps++;
     }
@@ -76,7 +80,8 @@ export const RUN_START: RunState = { steps: 0, cycles: 0, end: undefined, error:
  */
 export function advanceRun(target: CpuTarget, state: RunState, limit = RUN_CYCLE_LIMIT, perFrame = CYCLES_PER_FRAME): RunState {
   target.writes.clear();
-  const slice = runFor(target, Math.min(perFrame, limit - state.cycles));
+  // Only the first frame continues from a BRK: that's the one Run was pressed on.
+  const slice = runFor(target, Math.min(perFrame, limit - state.cycles), state.steps === 0);
   const steps = state.steps + slice.steps;
   const cycles = state.cycles + slice.cycles;
   let end: RunEnd | undefined;

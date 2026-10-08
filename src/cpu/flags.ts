@@ -6,7 +6,8 @@
 // Inside the chip only six of these bits are real flip-flops: N V D I Z C.
 // Bit 5 and B have no storage at all. They only exist in the copy of P that
 // PHP, BRK and interrupts push onto the stack: bit 5 is always pushed as 1, and
-// B is pushed as 1 by PHP/BRK and 0 by IRQ/NMI (Stages 15 and 17).
+// B is pushed as 1 by PHP/BRK and 0 by IRQ/NMI. A handler at &FFFE reads it
+// from the stack to tell a BRK from an IRQ.
 //
 // So the CPU keeps six booleans (fast to set on every instruction) and packs
 // them into a byte only when P goes onto the stack or into the workbench.

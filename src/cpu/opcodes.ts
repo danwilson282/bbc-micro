@@ -5,8 +5,9 @@
 // byte. step() does OPCODES[opcode] and runs the entry's execute().
 //
 // A slot left undefined means "not implemented yet"; step() turns that into an
-// UnimplementedOpcodeError. The table fills in stage by stage until Stage 17
-// completes the 151 documented opcodes. Each instruction group lives in its
+// UnimplementedOpcodeError. The table filled in stage by stage until Stage 17
+// completed the 151 documented opcodes; the slots still empty are the
+// undocumented NMOS opcodes. Each instruction group lives in its
 // own file under instructions/ as a list of rows; buildTable() collects them.
 
 import type { AddressingMode } from './addressing';
@@ -16,6 +17,7 @@ import { BRANCHES } from './instructions/branches';
 import { COMPARE } from './instructions/compare';
 import { FLAG_OPS } from './instructions/flag-ops';
 import { INC_DEC } from './instructions/inc-dec';
+import { INTERRUPTS } from './instructions/interrupts';
 import { JUMPS } from './instructions/jumps';
 import { LOADS } from './instructions/loads';
 import { LOGIC } from './instructions/logic';
@@ -54,7 +56,7 @@ function nop(): number {
 const NOP: OpcodeDefinition = { opcode: 0xea, mnemonic: 'NOP', mode: 'implied', bytes: 1, cycles: 2, execute: nop };
 
 /** Every implemented instruction group, in stage order. */
-const GROUPS: readonly (readonly OpcodeDefinition[])[] = [[NOP], LOADS, STORES, TRANSFERS, INC_DEC, ARITHMETIC, FLAG_OPS, LOGIC, SHIFTS, COMPARE, BRANCHES, JUMPS, STACK, SUBROUTINES];
+const GROUPS: readonly (readonly OpcodeDefinition[])[] = [[NOP], LOADS, STORES, TRANSFERS, INC_DEC, ARITHMETIC, FLAG_OPS, LOGIC, SHIFTS, COMPARE, BRANCHES, JUMPS, STACK, SUBROUTINES, INTERRUPTS];
 
 /** Puts each row in its slot. Two rows claiming one opcode is a bug in the tables, so it throws. */
 export function buildTable(groups: readonly (readonly OpcodeDefinition[])[]): readonly (Opcode | undefined)[] {

@@ -33,7 +33,7 @@ function pla(cpu: Cpu6502): number {
 /**
  * PHP: push P. The chip has no flip-flops for bits 5 and 4, so it drives
  * both as 1: e.g. D, I and C set pushes %0011 1101 = &3D. B = 1 marks
- * "pushed by an instruction" (IRQ and NMI push B = 0, Stage 17).
+ * "pushed by an instruction" (IRQ and NMI push B = 0: cpu.enterInterrupt).
  */
 function php(cpu: Cpu6502): number {
   cpu.push(packP(cpu.regs, true));

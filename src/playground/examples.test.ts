@@ -1,7 +1,8 @@
 import { assemble, formatError } from '../asm/assembler';
 import { Cpu6502, UnimplementedOpcodeError } from '../cpu/cpu6502';
 import { TestBus } from '../memory/test-bus';
-import { ARITHMETIC_SOURCE, DECIMAL_SOURCE, EXAMPLES, FILL_SOURCE, INCDEC_SOURCE, LABELS_SOURCE, LOGIC_SOURCE, SHIFTS_SOURCE, STACK_SOURCE, SUBROUTINES_SOURCE, findExample } from './examples';
+import { ARITHMETIC_SOURCE, DECIMAL_SOURCE, EXAMPLES, FILL_SOURCE, INCDEC_SOURCE, INTERRUPTS_SOURCE, LABELS_SOURCE, LOGIC_SOURCE, SHIFTS_SOURCE, STACK_SOURCE, SUBROUTINES_SOURCE, findExample } from './examples';
+import { Doorbell } from './doorbell';
 import { LOADS_PROGRAM } from './loads-program';
 import { installProgram } from './setup';
 import { STORES_PROGRAM } from './stores-program';
@@ -51,27 +52,33 @@ describe('the Stage 08 labels example', () => {
     expect(target?.bytes).toEqual([0x50, 0x7c]);
   });
 
-  it('runs: writes "BBC" to row 2, then runs into its data. &50 7C is BVC +&7C (Stage 14), into the NOPs and on to BRK at &0500', () => {
+  it('runs: writes "BBC" to row 2, then runs into its data. &50 7C is BVC +&7C (Stage 14), into the NOPs and on to the BRK at &0500', () => {
     const bus = new TestBus();
     const result = assembled(LABELS_SOURCE);
     installProgram(bus, result.lines, 0x0400);
     const cpu = new Cpu6502(bus);
     cpu.reset();
-    let error: unknown;
     let afterData: number | undefined;
-    for (let i = 0; i < 200 && error === undefined; i++) {
+    for (let i = 0; i < 200 && cpu.regs.pc !== 0x0500; i++) {
       const pc = cpu.regs.pc;
-      try {
-        cpu.step();
-      } catch (e) {
-        error = e;
-      }
+      cpu.step();
       if (pc === 0x041f) afterData = cpu.regs.pc;
     }
     expect(afterData).toBe(0x049d); // &0421 + &7C
-    expect(error).toBeInstanceOf(UnimplementedOpcodeError);
     expect(cpu.regs.pc).toBe(0x0500);
+    expect(bus.read(0x0500)).toBe(0x00);
     expect([0x7c50, 0x7c51, 0x7c52].map((a) => bus.read(a))).toEqual([0x42, 0x42, 0x43]);
+  });
+
+  it('runs off the end: the BRK at &0500 goes through the empty vector at &FFFE to &0000, where &7C is undocumented', () => {
+    const bus = new TestBus();
+    installProgram(bus, assembled(LABELS_SOURCE).lines, 0x0400);
+    const cpu = new Cpu6502(bus);
+    cpu.reset();
+    while (cpu.regs.pc !== 0x0500) cpu.step();
+    expect(cpu.step()).toBe(7); // BRK
+    expect(cpu.regs.pc).toBe(0x0000);
+    expect(() => cpu.step()).toThrow(new UnimplementedOpcodeError(0x7c, 0x0000));
   });
 });
 
@@ -551,13 +558,121 @@ describe('the Stage 16 subroutines example', () => {
   });
 });
 
+describe('the Stage 17 interrupts example', () => {
+  const IRQS = 0x80;
+  const NMIS = 0x81;
+  const BRKS = 0x82;
+  const MAIN = 0x84;
+
+  /**
+   * The example installed as the playground does it: CPU → Doorbell → TestBus,
+   * with step() copying the doorbell's line to the CPU's IRQ pin afterwards.
+   */
+  function setUp(): { cpu: Cpu6502; bus: TestBus; bell: Doorbell; step: () => number; label: (name: string) => number } {
+    const result = assembled(INTERRUPTS_SOURCE);
+    const bus = new TestBus();
+    installProgram(bus, result.lines, 0x0400);
+    const bell = new Doorbell(bus);
+    const cpu = new Cpu6502(bell);
+    cpu.reset();
+    const step = (): number => {
+      const cycles = cpu.step();
+      cpu.irq = bell.ringing;
+      return cycles;
+    };
+    const label = (name: string): number => {
+      const value = result.symbols.get(name);
+      if (value === undefined) throw new Error(`no label ${name}`);
+      return value;
+    };
+    return { cpu, bus, bell, step, label };
+  }
+
+  /** Steps until PC is at address, or throws after a generous limit. */
+  function runTo(step: () => number, cpu: Cpu6502, address: number): void {
+    for (let i = 0; i < 1000; i++) {
+      if (cpu.regs.pc === address) return;
+      step();
+    }
+    throw new Error(`never reached &${address.toString(16)}`);
+  }
+
+  it('puts its vectors at &FFFA-&FFFF: NMI, RESET and IRQ/BRK', () => {
+    const { bus, label } = setUp();
+    const at = (a: number): number => bus.read(a) | (bus.read(a + 1) << 8);
+    expect([at(0xfffa), at(0xfffc), at(0xfffe)]).toEqual([label('nmi'), label('start'), label('irq')]);
+    expect([label('start'), label('idle'), label('irq')]).toEqual([0x0400, 0x0406, 0x040f]);
+  });
+
+  it('BRK at &0404 pushes &0406 (skipping the padding byte) and P with B = 1, and is counted at &82', () => {
+    const { cpu, bus, step, label } = setUp();
+    runTo(step, cpu, 0x0404); // LDX, TXS, CLI
+    expect(step()).toBe(7);
+    expect(cpu.regs.pc).toBe(label('irq'));
+    expect([bus.read(0x01ff), bus.read(0x01fe), bus.read(0x01fd)]).toEqual([0x04, 0x06, 0xb0]); // N (from LDX #&FF), bit 5, B
+    runTo(step, cpu, label('idle'));
+    expect([bus.read(IRQS), bus.read(NMIS), bus.read(BRKS)]).toEqual([0, 0, 1]);
+    expect(cpu.regs.s).toBe(0xff);
+    expect(cpu.regs.i).toBe(false);
+  });
+
+  it('an IRQ is told apart from BRK by B = 0, answered at &FC00, and counted at &80; the main loop carries on', () => {
+    const { cpu, bus, bell, step, label } = setUp();
+    runTo(step, cpu, label('idle'));
+    for (let i = 0; i < 10; i++) step();
+    const interrupted = cpu.regs.pc;
+    bell.ring();
+    cpu.irq = true;
+    expect(step()).toBe(7);
+    expect(bus.read(0x01fd)).toBe(0x20); // B = 0: a real IRQ
+    expect((bus.read(0x01ff) << 8) | bus.read(0x01fe)).toBe(interrupted);
+    runTo(step, cpu, interrupted);
+    expect(bell.ringing).toBe(false);
+    expect([bus.read(IRQS), bus.read(NMIS), bus.read(BRKS)]).toEqual([1, 0, 1]);
+    const before = bus.read(MAIN);
+    for (let i = 0; i < 9; i++) step();
+    expect(bus.read(MAIN)).not.toBe(before);
+  });
+
+  it('an NMI goes to its own handler and is counted at &81, even with I set', () => {
+    const { cpu, bus, step, label } = setUp();
+    runTo(step, cpu, label('idle'));
+    cpu.regs.i = true;
+    cpu.setNmi(true);
+    cpu.setNmi(false);
+    step();
+    expect(cpu.regs.pc).toBe(label('nmi'));
+    step(); // INC nmis
+    step(); // RTI
+    expect(bus.read(NMIS)).toBe(1);
+    expect(cpu.regs.i).toBe(true); // RTI put back the P it interrupted
+  });
+
+  it('without the STA doorbell, one IRQ press runs the handler for ever and the main loop stops', () => {
+    const source = INTERRUPTS_SOURCE.replace(/^ *STA doorbell.*$/m, '');
+    const result = assembled(source);
+    const bus = new TestBus();
+    installProgram(bus, result.lines, 0x0400);
+    const bell = new Doorbell(bus);
+    const cpu = new Cpu6502(bell);
+    cpu.reset();
+    for (let i = 0; i < 40; i++) cpu.step(); // through the BRK and into the main loop
+    bell.ring();
+    cpu.irq = bell.ringing;
+    const main = bus.read(MAIN) | (bus.read(MAIN + 1) << 8);
+    for (let i = 0; i < 1000; i++) cpu.step();
+    expect(bus.read(IRQS)).toBeGreaterThan(50);
+    expect(bus.read(MAIN) | (bus.read(MAIN + 1) << 8)).toBe(main);
+  });
+});
+
 describe('the examples', () => {
   it.each(EXAMPLES.map((e) => [e.id, e] as const))('%s assembles without errors', (_id, example) => {
     expect(assemble(example.source).ok).toBe(true);
   });
 
   it('falls back to the first example for an unknown or missing id', () => {
-    expect(findExample('nope').id).toBe('subroutines');
-    expect(findExample(null).id).toBe('subroutines');
+    expect(findExample('nope').id).toBe('interrupts');
+    expect(findExample(null).id).toBe('interrupts');
   });
 });

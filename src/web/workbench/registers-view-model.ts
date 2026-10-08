@@ -5,13 +5,14 @@
 //   PC &0400             P  &24  %00100100
 //   N V - B D I Z C      (lights; "-" and B are drawn as "not stored")
 //   Next: &0400: &EA NOP
+//   Next: IRQ → &0700 (vector &FFFE), before &0400: &EA NOP   (an interrupt is due)
 //
 // No DOM here: registers-panel.ts turns this into elements, Jest tests this.
 
-import { UnimplementedOpcodeError } from '../../cpu/cpu6502';
+import { IRQ_VECTOR, NMI_VECTOR, UnimplementedOpcodeError } from '../../cpu/cpu6502';
 import { P_B, P_C, P_D, P_I, P_N, P_UNUSED, P_V, P_Z, packP } from '../../cpu/flags';
 import { OPCODES } from '../../cpu/opcodes';
-import { hex16, hex8, toSigned8 } from '../../util/bits';
+import { hex16, hex8, toSigned8, word } from '../../util/bits';
 import type { CpuTarget } from './debug-target';
 
 export type RegisterName = 'A' | 'X' | 'Y' | 'S' | 'PC' | 'P';
@@ -52,7 +53,7 @@ export interface FlagLight {
 export interface NextInstruction {
   readonly address: number;
   readonly opcode: number;
-  /** e.g. "&0400: &EA NOP". */
+  /** e.g. "&0400: &EA NOP", or "IRQ → &0700 (vector &FFFE), before &0400: &EA NOP" when an interrupt is due. */
   readonly text: string;
 }
 
@@ -114,8 +115,16 @@ export function buildRegistersView(target: CpuTarget, previous?: RegistersView):
 
   const opcode = target.peek(r.pc);
   const entry = OPCODES[opcode];
-  const mnemonic = entry === undefined ? '(not implemented yet)' : entry.mnemonic;
-  const next = { address: r.pc, opcode, text: `&${hex16(r.pc)}: &${hex8(opcode)} ${mnemonic}` };
+  const mnemonic = entry === undefined ? '(undocumented: not implemented)' : entry.mnemonic;
+  const instruction = `&${hex16(r.pc)}: &${hex8(opcode)} ${mnemonic}`;
+  const due = target.pendingInterrupt;
+  let text = instruction;
+  if (due !== undefined) {
+    const vector = due === 'nmi' ? NMI_VECTOR : IRQ_VECTOR;
+    const handler = word(target.peek(vector), target.peek(vector + 1));
+    text = `${due.toUpperCase()} → &${hex16(handler)} (vector &${hex16(vector)}), before ${instruction}`;
+  }
+  const next = { address: r.pc, opcode, text };
 
   return { registers, flags, next, cycles: formatCycles(target.cycles) };
 }
