@@ -28,7 +28,9 @@
     "demo:stack": "tsx scripts/demo-stack.ts",
     "demo:multiply": "tsx scripts/demo-multiply.ts",
     "demo:interrupts": "tsx scripts/demo-interrupts.ts",
-    "demo:trace": "tsx scripts/demo-trace.ts"
+    "demo:trace": "tsx scripts/demo-trace.ts",
+    "demo:singlestep": "tsx scripts/demo-singlestep.ts",
+    "fetch-fixtures": "bash scripts/fetch-test-fixtures.sh"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
