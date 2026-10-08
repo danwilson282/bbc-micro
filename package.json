@@ -30,7 +30,8 @@
     "demo:interrupts": "tsx scripts/demo-interrupts.ts",
     "demo:trace": "tsx scripts/demo-trace.ts",
     "demo:singlestep": "tsx scripts/demo-singlestep.ts",
-    "fetch-fixtures": "bash scripts/fetch-test-fixtures.sh"
+    "fetch-fixtures": "bash scripts/fetch-test-fixtures.sh",
+    "demo:functional": "tsx scripts/demo-functional.ts"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
