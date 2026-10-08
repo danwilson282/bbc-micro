@@ -11,6 +11,7 @@
 // and never have to import anything from src/web/.
 
 import { Cpu6502, type InterruptKind } from '../../cpu/cpu6502';
+import { Tracer } from '../../cpu/trace';
 import type { Registers } from '../../cpu/registers';
 import type { TestBus } from '../../memory/test-bus';
 import { WriteRecorder, type WriteLog } from '../../memory/write-recorder';
@@ -76,39 +77,53 @@ export interface InterruptTarget extends CpuTarget {
   readonly nmiPending: boolean;
 }
 
+/** A CPU target that keeps a trace of the steps it has run (Stage 18). */
+export interface TracedTarget extends CpuTarget {
+  /** The last 1,024 steps, recorded just before each ran. Cleared by reset(). */
+  readonly trace: Tracer;
+}
+
 /**
  * The Part 2 playground: a 6502 on a flat 64K TestBus, with a WriteRecorder
  * between them so the workbench can see what the CPU wrote, and a doorbell
- * at &FC00 for the IRQ button to ring (Stage 17).
+ * at &FC00 for the IRQ button to ring (Stage 17), and a tracer that notes
+ * each step just before it runs (Stage 18).
  *
  *   Cpu6502 ──▶ WriteRecorder ──▶ Doorbell ──▶ TestBus ◀── peek / poke
+ *                                                  ▲
+ *                                       Tracer ────┘ (peeks the bytes at PC)
  *
  * peek and poke go straight to the TestBus, so the debugger's own writes are
  * never mistaken for the CPU's. Returns the CPU too, for the console handle.
  */
-export function playgroundTarget(bus: TestBus, name = 'CPU playground (6502 on a 64K TestBus)'): InterruptTarget & { readonly cpu: Cpu6502 } {
+export function playgroundTarget(bus: TestBus, name = 'CPU playground (6502 on a 64K TestBus)'): InterruptTarget & TracedTarget & { readonly cpu: Cpu6502 } {
   const doorbell = new Doorbell(bus);
   const recorder = new WriteRecorder(doorbell);
   const cpu = new Cpu6502(recorder);
+  const base = testBusTarget(bus, name);
+  const trace = new Tracer((address) => base.peek(address));
   // After anything that might change the doorbell, copy its line to the CPU's
   // /IRQ pin. Part 5's machine does the same after ticking its devices (BUILD-PLAN §3).
   const syncIrq = (): void => {
     cpu.irq = doorbell.ringing;
   };
   return {
-    ...testBusTarget(bus, name),
+    ...base,
     cpu,
+    trace,
     registers: cpu.regs,
     get cycles() {
       return cpu.cycles;
     },
     step: () => {
+      trace.record(cpu);
       const cycles = cpu.step();
       syncIrq();
       return cycles;
     },
-    // /RES reaches the devices too: the doorbell goes quiet.
+    // /RES reaches the devices too: the doorbell goes quiet. The trace starts again.
     reset: () => {
+      trace.clear();
       doorbell.reset();
       syncIrq();
       return cpu.reset();

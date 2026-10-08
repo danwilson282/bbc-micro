@@ -64,3 +64,29 @@ describe('the playground target: interrupt buttons', () => {
     expect(target.pendingInterrupt).toBeUndefined();
   });
 });
+
+describe('the playground target: trace', () => {
+  it('records every step before it runs, through peek, so the trace lists what ran in order', () => {
+    const { target } = playground();
+    target.step();
+    target.step();
+    expect(target.trace.recent(10).map((e) => [e.kind, e.pc])).toEqual([
+      ['instruction', 0x0400],
+      ['instruction', 0x0401],
+    ]);
+  });
+
+  it('records an interrupt step as an interrupt', () => {
+    const { target } = playground();
+    target.ringIrq();
+    target.step();
+    expect(target.trace.recent(1)[0]).toMatchObject({ kind: 'irq', pc: 0x0400 });
+  });
+
+  it('reset starts a fresh trace', () => {
+    const { target } = playground();
+    target.step();
+    target.reset();
+    expect(target.trace.recorded).toBe(0);
+  });
+});

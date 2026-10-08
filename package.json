@@ -27,7 +27,8 @@
     "demo:fill": "tsx scripts/demo-fill.ts",
     "demo:stack": "tsx scripts/demo-stack.ts",
     "demo:multiply": "tsx scripts/demo-multiply.ts",
-    "demo:interrupts": "tsx scripts/demo-interrupts.ts"
+    "demo:interrupts": "tsx scripts/demo-interrupts.ts",
+    "demo:trace": "tsx scripts/demo-trace.ts"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

@@ -5,10 +5,13 @@ import { TestBus } from './memory/test-bus';
 import type { ListingLine } from './playground/listing';
 import { EXAMPLES, findExample } from './playground/examples';
 import { PROGRAM_PAGE, installProgram } from './playground/setup';
+import { TRACE_HEADER, formatTraceLine } from './cpu/trace';
 import { hex16, hex8 } from './util/bits';
 import { createAddressingPanel } from './web/workbench/addressing-panel';
 import { createAssemblerPanel } from './web/workbench/assembler-panel';
 import { createConverterPanel } from './web/workbench/converter-panel';
+import { createDisassemblyPanel } from './web/workbench/disassembly-panel';
+import { labelsFromSymbols } from './web/workbench/disassembly-view-model';
 import { createInterruptsPanel } from './web/workbench/interrupts-panel';
 import { playgroundTarget } from './web/workbench/debug-target';
 import { createListingPanel } from './web/workbench/listing-panel';
@@ -34,6 +37,8 @@ const bus = new TestBus();
 // The target puts a WriteRecorder between the CPU and the bus (Stage 07).
 const target = playgroundTarget(bus);
 let listing: readonly ListingLine[] = [];
+// Address → name, from the last assembly, so the Disassembly panel can say "JSR one".
+let labels: ReadonlyMap<number, string> = new Map();
 
 const workbench = createWorkbench(host, target.name);
 const refreshAll = (): void => {
@@ -57,6 +62,7 @@ const assembler = createAssemblerPanel({
   onAssembled: (assembly, entry) => {
     registers.stop();
     listing = assembly.lines;
+    labels = labelsFromSymbols(assembly.symbols);
     installProgram(bus, assembly.lines, entry);
     target.reset();
     target.writes.clear();
@@ -70,6 +76,7 @@ workbench.add(createStackPanel(target), underScreen);
 workbench.add(memory, underScreen);
 workbench.add(assembler);
 workbench.add(createListingPanel(target, () => listing));
+workbench.add(createDisassemblyPanel(target, () => labels));
 workbench.add(createAddressingPanel(target));
 workbench.add(createConverterPanel());
 assembler.assembleAndRun();
@@ -93,6 +100,7 @@ Object.assign(window, {
       return cycles;
     },
     cpu: target.cpu,
+    trace: (count = 20): string => [TRACE_HEADER, ...target.trace.recent(count).map((entry) => formatTraceLine(entry, labels))].join('\n'),
     irq: (): void => {
       target.ringIrq();
       workbench.refreshAll();
@@ -101,6 +109,6 @@ Object.assign(window, {
       target.pulseNmi();
       workbench.refreshAll();
     },
-    help: `workbench.poke(0x${hex16(PROGRAM_PAGE + 1)}, 0xff), workbench.step(), workbench.peek(addr), workbench.goTo(addr), workbench.irq(), workbench.nmi(), workbench.cpu.regs`,
+    help: `workbench.poke(0x${hex16(PROGRAM_PAGE + 1)}, 0xff), workbench.step(), workbench.peek(addr), workbench.goTo(addr), workbench.trace(20), workbench.irq(), workbench.nmi(), workbench.cpu.regs`,
   },
 });
