@@ -24,9 +24,9 @@ async function zeroPage(page: Page, address: number): Promise<ReturnType<Page['l
   return memory.locator(`td.byte[data-address="${address.toString(16).toUpperCase().padStart(4, '0')}"]`);
 }
 
-// Stage 17's interrupts example is the playground's default.
+// Stage 17's interrupts example (the default until Stage 18).
 test.beforeEach(async ({ page }) => {
-  await page.goto('/');
+  await page.goto('/?program=interrupts');
 });
 
 test('opens on the interrupts example, with the three vectors listed', async ({ page }) => {

@@ -463,7 +463,47 @@ nmi:    INC nmis          ; changes N and Z, but RTI puts the old P back
 
 const INTERRUPTS_EXAMPLE: Example = { id: 'interrupts', title: 'Stage 17: interrupts (Run, then press IRQ / NMI)', source: INTERRUPTS_SOURCE };
 
+/**
+ * Stage 18: disassembler & trace. Two ways to make the disassembly (memory
+ * now) and the trace (what ran) disagree: one run of bytes with two entry
+ * points (the &2C "BIT skip"), and a loop that rewrites its own STA operand.
+ */
+export const TRACE_SOURCE = `; Stage 18: disassembler & trace. The Disassembly panel decodes MEMORY;
+; the Program panel shows this SOURCE. Step it and watch them disagree:
+;  - "one" and "two" share bytes: the &2C hides LDA #2 inside a BIT.
+;  - the loop rewrites its own STA, so the listing goes out of date.
+; npm run demo:trace prints the whole run as a trace.
+
+screen  = &7C28           ; Mode 7, row 1
+result  = &80
+
+        *= &0400
+start:  LDX #&FF
+        TXS
+        JSR one           ; result = 1
+        JSR two           ; result = 2
+        LDA #&2A          ; "*"
+        LDY #4
+store:  STA screen        ; 8D 28 7C, but not for long:
+        INC store+1       ; self-modifying code. Next time round it's STA &7C29
+        DEY
+        BNE store
+        BRK               ; Run stops here, like a breakpoint
+
+; Two entry points into one run of bytes. Enter at "one" and the &2C makes
+; the next two bytes (A9 02, "LDA #2") the operand of a BIT &02A9, which only
+; reads &02A9 and sets flags. Enter at "two" and they're an LDA again.
+one:    LDA #1
+        .byte &2C         ; BIT &nnnn: swallows the next two bytes
+two:    LDA #2
+        STA result
+        RTS
+`;
+
+const TRACE_EXAMPLE: Example = { id: 'trace', title: 'Stage 18: disassembler & trace', source: TRACE_SOURCE };
+
 export const EXAMPLES: readonly Example[] = [
+  TRACE_EXAMPLE,
   INTERRUPTS_EXAMPLE,
   SUBROUTINES_EXAMPLE,
   STACK_EXAMPLE,
@@ -480,5 +520,5 @@ export const EXAMPLES: readonly Example[] = [
 
 /** The example with this id, or the current stage's if there's none. */
 export function findExample(id: string | null): Example {
-  return EXAMPLES.find((example) => example.id === id) ?? INTERRUPTS_EXAMPLE;
+  return EXAMPLES.find((example) => example.id === id) ?? TRACE_EXAMPLE;
 }

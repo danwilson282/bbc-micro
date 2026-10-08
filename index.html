@@ -293,6 +293,70 @@
       .listing-table tr.modified td.bytes {
         text-decoration: line-through;
       }
+      .disasm-nav {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        align-items: center;
+        margin-bottom: 4px;
+      }
+      .disasm-message {
+        font-size: 0.85rem;
+        color: var(--muted);
+      }
+      .disasm-message.error {
+        color: var(--error);
+      }
+      .disasm-heading {
+        margin: 8px 0 2px;
+        font-size: 0.85rem;
+        font-weight: 600;
+      }
+      .disasm-table {
+        border-collapse: collapse;
+        font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+        font-size: 0.85rem;
+      }
+      .disasm-table th {
+        text-align: left;
+        color: var(--muted);
+        font-weight: normal;
+        padding: 1px 10px 1px 2px;
+      }
+      .disasm-table td {
+        padding: 1px 10px 1px 2px;
+        white-space: nowrap;
+      }
+      .disasm-table td.marker {
+        color: var(--accent);
+        width: 1ch;
+      }
+      .disasm-table td.label {
+        color: var(--written);
+      }
+      .disasm-table td.when {
+        color: var(--muted);
+        font-family: system-ui, sans-serif;
+      }
+      .disasm-ran td {
+        color: var(--muted);
+      }
+      .disasm-ran tr.changed-since td.bytes {
+        text-decoration: line-through;
+      }
+      .disasm-next tr.current td {
+        background: var(--changed);
+      }
+      .disasm-empty,
+      .disasm-interrupt,
+      .disasm-note {
+        margin: 4px 0 0;
+        font-size: 0.8rem;
+        color: var(--muted);
+      }
+      .disasm-interrupt {
+        color: var(--accent);
+      }
       .listing-note {
         margin: 6px 0 0;
         font-size: 0.8rem;

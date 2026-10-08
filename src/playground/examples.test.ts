@@ -1,7 +1,9 @@
 import { assemble, formatError } from '../asm/assembler';
 import { Cpu6502, UnimplementedOpcodeError } from '../cpu/cpu6502';
+import { disassemble } from '../cpu/disassembler';
+import { Tracer, formatTraceLine } from '../cpu/trace';
 import { TestBus } from '../memory/test-bus';
-import { ARITHMETIC_SOURCE, DECIMAL_SOURCE, EXAMPLES, FILL_SOURCE, INCDEC_SOURCE, INTERRUPTS_SOURCE, LABELS_SOURCE, LOGIC_SOURCE, SHIFTS_SOURCE, STACK_SOURCE, SUBROUTINES_SOURCE, findExample } from './examples';
+import { ARITHMETIC_SOURCE, DECIMAL_SOURCE, EXAMPLES, FILL_SOURCE, INCDEC_SOURCE, INTERRUPTS_SOURCE, LABELS_SOURCE, LOGIC_SOURCE, SHIFTS_SOURCE, STACK_SOURCE, SUBROUTINES_SOURCE, TRACE_SOURCE, findExample } from './examples';
 import { Doorbell } from './doorbell';
 import { LOADS_PROGRAM } from './loads-program';
 import { installProgram } from './setup';
@@ -666,13 +668,67 @@ describe('the Stage 17 interrupts example', () => {
   });
 });
 
+describe('the Stage 18 trace example', () => {
+  /** Installs the example and runs it, traced, until PC reaches the BRK. */
+  function run(): { cpu: Cpu6502; bus: TestBus; tracer: Tracer; symbols: ReadonlyMap<string, number> } {
+    const result = assembled(TRACE_SOURCE);
+    const bus = new TestBus();
+    installProgram(bus, result.lines, 0x0400);
+    const cpu = new Cpu6502(bus);
+    cpu.reset();
+    const tracer = new Tracer((a) => bus.read(a));
+    while (bus.read(cpu.regs.pc) !== 0x00) {
+      tracer.record(cpu);
+      cpu.step();
+    }
+    return { cpu, bus, tracer, symbols: result.symbols };
+  }
+
+  it('lays out store at &040D, then the two entry points one (&0417) and two (&041A) a BIT apart', () => {
+    const { symbols } = run();
+    expect([symbols.get('start'), symbols.get('store'), symbols.get('one'), symbols.get('two')]).toEqual([0x0400, 0x040d, 0x0417, 0x041a]);
+  });
+
+  it('runs 29 instructions in 105 cycles (46 to set up and call, 59 in the loop) before the BRK at &0416', () => {
+    const { cpu, tracer } = run();
+    expect(cpu.regs.pc).toBe(0x0416);
+    expect(tracer.recorded).toBe(29);
+    expect(cpu.cycles - 7).toBe(105);
+  });
+
+  it('calling one runs LDA #&01 and then BIT &02A9; calling two runs LDA #&02; result ends as 2', () => {
+    const { bus, tracer } = run();
+    const ran = tracer.recent(29).map((e) => formatTraceLine(e).slice(16, 44).trim());
+    expect(ran.slice(2, 11)).toEqual([
+      '20 17 04  JSR &0417',
+      'A9 01     LDA #&01',
+      '2C A9 02  BIT &02A9',
+      '85 80     STA &80',
+      '60        RTS',
+      '20 1A 04  JSR &041A',
+      'A9 02     LDA #&02',
+      '85 80     STA &80',
+      '60        RTS',
+    ]);
+    expect(bus.read(0x80)).toBe(2);
+  });
+
+  it('the trace shows each version of the self-modified STA; memory (and so the disassembly) only the last', () => {
+    const { bus, tracer } = run();
+    const stores = tracer.recent(29).filter((e) => e.pc === 0x040d);
+    expect(stores.map((e) => formatTraceLine(e).slice(26, 44).trim())).toEqual(['STA &7C28', 'STA &7C29', 'STA &7C2A', 'STA &7C2B']);
+    expect(disassemble((a) => bus.read(a), 0x040d).text).toBe('STA &7C2C');
+    expect([0x7c28, 0x7c29, 0x7c2a, 0x7c2b, 0x7c2c].map((a) => bus.read(a))).toEqual([0x2a, 0x2a, 0x2a, 0x2a, 0x00]);
+  });
+});
+
 describe('the examples', () => {
   it.each(EXAMPLES.map((e) => [e.id, e] as const))('%s assembles without errors', (_id, example) => {
     expect(assemble(example.source).ok).toBe(true);
   });
 
   it('falls back to the first example for an unknown or missing id', () => {
-    expect(findExample('nope').id).toBe('interrupts');
-    expect(findExample(null).id).toBe('interrupts');
+    expect(findExample('nope').id).toBe('trace');
+    expect(findExample(null).id).toBe('trace');
   });
 });
