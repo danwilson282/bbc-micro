@@ -106,11 +106,11 @@ describe('the opcode table', () => {
     expect(OPCODES).toHaveLength(256);
   });
 
-  it('implements NOP, loads, stores, transfers, inc/dec, ADC/SBC, logic, shifts, compares, branches, flag ops, JMP, the stack, JSR and RTS so far (Stage 16)', () => {
+  it('implements all 56 documented instructions, 151 opcodes, after Stage 17 adds BRK and RTI', () => {
     const implemented = OPCODES.flatMap((op) => (op ? [op.mnemonic] : []));
-    expect(implemented).toHaveLength(1 + 18 + 13 + 6 + 12 + 16 + 7 + 26 + 20 + 14 + 8 + 2 + 4 + 2);
+    expect(implemented).toHaveLength(1 + 18 + 13 + 6 + 12 + 16 + 7 + 26 + 20 + 14 + 8 + 2 + 4 + 2 + 2);
     expect(new Set(implemented)).toEqual(
-      new Set(['NOP', 'LDA', 'LDX', 'LDY', 'STA', 'STX', 'STY', 'TAX', 'TAY', 'TXA', 'TYA', 'TSX', 'TXS', 'INX', 'INY', 'DEX', 'DEY', 'INC', 'DEC', 'ADC', 'SBC', 'SED', 'CLD', 'AND', 'ORA', 'EOR', 'BIT', 'ASL', 'LSR', 'ROL', 'ROR', 'CMP', 'CPX', 'CPY', 'BPL', 'BMI', 'BVC', 'BVS', 'BCC', 'BCS', 'BNE', 'BEQ', 'CLC', 'SEC', 'CLI', 'SEI', 'CLV', 'JMP', 'PHA', 'PLA', 'PHP', 'PLP', 'JSR', 'RTS']),
+      new Set(['NOP', 'LDA', 'LDX', 'LDY', 'STA', 'STX', 'STY', 'TAX', 'TAY', 'TXA', 'TYA', 'TSX', 'TXS', 'INX', 'INY', 'DEX', 'DEY', 'INC', 'DEC', 'ADC', 'SBC', 'SED', 'CLD', 'AND', 'ORA', 'EOR', 'BIT', 'ASL', 'LSR', 'ROL', 'ROR', 'CMP', 'CPX', 'CPY', 'BPL', 'BMI', 'BVC', 'BVS', 'BCC', 'BCS', 'BNE', 'BEQ', 'CLC', 'SEC', 'CLI', 'SEI', 'CLV', 'JMP', 'PHA', 'PLA', 'PHP', 'PLP', 'JSR', 'RTS', 'BRK', 'RTI']),
     );
   });
 });
@@ -147,7 +147,7 @@ describe('unimplemented opcodes', () => {
 
   it('leave PC on the opcode and the cycle count unchanged', () => {
     const { cpu, bus } = cpuAt(0x0400);
-    bus.load(0x0400, [NOP, 0x00]); // NOP, then BRK (Stage 17)
+    bus.load(0x0400, [NOP, 0x02]); // NOP, then JAM (undocumented)
     cpu.step();
     expect(() => cpu.step()).toThrow(UnimplementedOpcodeError);
     expect(cpu.regs.pc).toBe(0x0401);

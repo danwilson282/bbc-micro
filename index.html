@@ -475,6 +475,43 @@
         color: var(--muted);
         text-align: center;
       }
+      /* Interrupts panel (Stage 17): the CPU's interrupt inputs and the vectors. */
+      .interrupt-inputs {
+        display: grid;
+        grid-template-columns: auto 1fr;
+        gap: 2px 12px;
+        margin: 8px 0 6px;
+        font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+        font-size: 0.85rem;
+      }
+      .interrupt-inputs dt {
+        color: var(--muted);
+      }
+      .interrupt-inputs dd {
+        margin: 0;
+      }
+      .interrupt-inputs dd.active {
+        color: var(--accent);
+        font-weight: 600;
+      }
+      .interrupt-verdict {
+        margin: 0 0 6px;
+        font-size: 0.85rem;
+      }
+      .vector-table {
+        border-collapse: collapse;
+        font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+        font-size: 0.85rem;
+      }
+      .vector-table th {
+        color: var(--muted);
+        font-weight: normal;
+        text-align: left;
+        padding: 1px 10px 1px 2px;
+      }
+      .vector-table td {
+        padding: 1px 10px 1px 3px;
+      }
     </style>
   </head>
   <body>

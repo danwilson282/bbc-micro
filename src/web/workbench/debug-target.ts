@@ -10,10 +10,11 @@
 // Part 5) satisfy this interface structurally: they just need these members,
 // and never have to import anything from src/web/.
 
-import { Cpu6502 } from '../../cpu/cpu6502';
+import { Cpu6502, type InterruptKind } from '../../cpu/cpu6502';
 import type { Registers } from '../../cpu/registers';
 import type { TestBus } from '../../memory/test-bus';
 import { WriteRecorder, type WriteLog } from '../../memory/write-recorder';
+import { Doorbell } from '../../playground/doorbell';
 
 export interface DebugTarget {
   /** Shown in the workbench header, e.g. "CPU playground (64K TestBus)". */
@@ -47,8 +48,13 @@ export interface CpuTarget extends DebugTarget {
   readonly registers: Readonly<Registers>;
   /** Total CPU cycles since power-on. */
   readonly cycles: number;
-  /** Runs one instruction and returns its cycles. May throw UnimplementedOpcodeError. */
+  /**
+   * Runs one instruction and returns its cycles. May throw UnimplementedOpcodeError.
+   * If an interrupt is due, the step is the 7-cycle interrupt sequence instead.
+   */
   step(): number;
+  /** What the next step() will do instead of an instruction, if anything (Stage 17). */
+  readonly pendingInterrupt: InterruptKind | undefined;
   /** Runs the reset sequence and returns its cycles. */
   reset(): number;
   /**
@@ -58,18 +64,37 @@ export interface CpuTarget extends DebugTarget {
   readonly writes: WriteLog;
 }
 
+/** A CPU target with interrupt buttons wired to something (Stage 17). */
+export interface InterruptTarget extends CpuTarget {
+  /** The IRQ button: rings the doorbell at &FC00, which holds IRQ until the handler answers it. */
+  ringIrq(): void;
+  /** The NMI button: one pulse on /NMI (asserted then released), so one falling edge. */
+  pulseNmi(): void;
+  /** Is something holding the IRQ line? */
+  readonly irqLine: boolean;
+  /** Is the NMI edge detector's latch set? */
+  readonly nmiPending: boolean;
+}
+
 /**
  * The Part 2 playground: a 6502 on a flat 64K TestBus, with a WriteRecorder
- * between them so the workbench can see what the CPU wrote.
+ * between them so the workbench can see what the CPU wrote, and a doorbell
+ * at &FC00 for the IRQ button to ring (Stage 17).
  *
- *   Cpu6502 ──▶ WriteRecorder ──▶ TestBus ◀── peek / poke
+ *   Cpu6502 ──▶ WriteRecorder ──▶ Doorbell ──▶ TestBus ◀── peek / poke
  *
  * peek and poke go straight to the TestBus, so the debugger's own writes are
  * never mistaken for the CPU's. Returns the CPU too, for the console handle.
  */
-export function playgroundTarget(bus: TestBus, name = 'CPU playground (6502 on a 64K TestBus)'): CpuTarget & { readonly cpu: Cpu6502 } {
-  const recorder = new WriteRecorder(bus);
+export function playgroundTarget(bus: TestBus, name = 'CPU playground (6502 on a 64K TestBus)'): InterruptTarget & { readonly cpu: Cpu6502 } {
+  const doorbell = new Doorbell(bus);
+  const recorder = new WriteRecorder(doorbell);
   const cpu = new Cpu6502(recorder);
+  // After anything that might change the doorbell, copy its line to the CPU's
+  // /IRQ pin. Part 5's machine does the same after ticking its devices (BUILD-PLAN §3).
+  const syncIrq = (): void => {
+    cpu.irq = doorbell.ringing;
+  };
   return {
     ...testBusTarget(bus, name),
     cpu,
@@ -77,8 +102,34 @@ export function playgroundTarget(bus: TestBus, name = 'CPU playground (6502 on a
     get cycles() {
       return cpu.cycles;
     },
-    step: () => cpu.step(),
-    reset: () => cpu.reset(),
+    step: () => {
+      const cycles = cpu.step();
+      syncIrq();
+      return cycles;
+    },
+    // /RES reaches the devices too: the doorbell goes quiet.
+    reset: () => {
+      doorbell.reset();
+      syncIrq();
+      return cpu.reset();
+    },
     writes: recorder,
+    get pendingInterrupt() {
+      return cpu.pendingInterrupt;
+    },
+    ringIrq: () => {
+      doorbell.ring();
+      syncIrq();
+    },
+    pulseNmi: () => {
+      cpu.setNmi(true);
+      cpu.setNmi(false);
+    },
+    get irqLine() {
+      return cpu.irq;
+    },
+    get nmiPending() {
+      return cpu.nmiPending;
+    },
   };
 }

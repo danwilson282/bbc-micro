@@ -1,12 +1,12 @@
 import { TestBus } from '../../memory/test-bus';
-import { playgroundTarget, type CpuTarget } from './debug-target';
+import { playgroundTarget, type InterruptTarget } from './debug-target';
 import { CYCLES_PER_FRAME, RUN_START, advanceRun, describeRunState, runFor, stopRun, type RunState } from './run-model';
 
 const NOP = 0xea;
 const BRK = 0x00;
 
 /** A playground whose reset vector points at &0400, reset already done. */
-function playground(program: readonly number[]): { target: CpuTarget; bus: TestBus } {
+function playground(program: readonly number[]): { target: InterruptTarget; bus: TestBus } {
   const bus = new TestBus();
   bus.load(0xfffc, [0x00, 0x04]);
   bus.load(0x0400, program);
@@ -35,6 +35,25 @@ describe('runFor', () => {
     expect(runFor(target, 1000)).toEqual({ steps: 0, cycles: 0, stop: 'brk', error: undefined });
   });
 
+  it('runs a BRK it starts on when asked to continue, like a debugger continuing from a breakpoint', () => {
+    // &0400 BRK, padding byte; the IRQ/BRK vector points at &0410: NOP, NOP, BRK
+    const { target, bus } = playground([BRK, 0xea]);
+    bus.load(0xfffe, [0x10, 0x04]);
+    bus.load(0x0410, [NOP, NOP, BRK]);
+    expect(runFor(target, 1000, true)).toEqual({ steps: 3, cycles: 7 + 2 + 2, stop: 'brk', error: undefined });
+    expect(target.registers.pc).toBe(0x0412);
+  });
+
+  it('does not stop at a BRK when an interrupt is due first: the interrupt is what happens next', () => {
+    // NMI handler at &0420: NOP, then BRK
+    const { target, bus } = playground([BRK]);
+    bus.load(0xfffa, [0x20, 0x04]);
+    bus.load(0x0420, [NOP, BRK]);
+    target.pulseNmi();
+    expect(runFor(target, 1000)).toEqual({ steps: 2, cycles: 7 + 2, stop: 'brk', error: undefined });
+    expect(target.registers.pc).toBe(0x0421);
+  });
+
   it('stops once it has used up its cycle budget, finishing the instruction it was on', () => {
     const { target } = playground(new Array<number>(100).fill(NOP));
     // NOPs are 2 cycles: 5 of them reach the budget of 9 (the 5th overshoots by 1).
@@ -43,7 +62,7 @@ describe('runFor', () => {
   });
 
   it('stops at an unimplemented opcode with its message, PC left on it', () => {
-    const { target } = playground([NOP, 0x02]); // NOP, then playground([NOP, 0x4c, 0x00, 0x04]); // NOP, JMP &0400 (Stage 15)02: an undocumented "JAM" opcode
+    const { target } = playground([NOP, 0x02]); // NOP, then &02: an undocumented "JAM" opcode
     expect(runFor(target, 1000)).toEqual({ steps: 1, cycles: 2, stop: 'error', error: 'unimplemented opcode &02 at &0401' });
     expect(target.registers.pc).toBe(0x0401);
   });
@@ -77,6 +96,14 @@ describe('advanceRun: one browser frame of a Run', () => {
   it('ends at BRK', () => {
     const { target } = playground(COUNTDOWN);
     expect(advanceRun(target, RUN_START)).toMatchObject({ steps: 11, end: 'brk' });
+  });
+
+  it('continues through a BRK on its first frame only: Run, then Run again, goes through the breakpoint', () => {
+    const { target, bus } = playground([BRK, 0xea]);
+    bus.load(0xfffe, [0x10, 0x04]);
+    bus.load(0x0410, [NOP, BRK]);
+    expect(advanceRun(target, RUN_START)).toMatchObject({ steps: 2, end: 'brk' });
+    expect(target.registers.pc).toBe(0x0411);
   });
 
   it('ends at an unimplemented opcode, keeping its message', () => {

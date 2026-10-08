@@ -6,7 +6,8 @@
 // nothing.
 
 import type { Bus } from '../memory/bus';
-import { hex16, hex8, word } from '../util/bits';
+import { hex16, hex8, hi, lo, word } from '../util/bits';
+import { packP } from './flags';
 import { OPCODES } from './opcodes';
 import { createRegisters, type Registers } from './registers';
 
@@ -14,6 +15,15 @@ import { createRegisters, type Registers } from './registers';
 export const RESET_VECTOR = 0xfffc;
 /** Cycles in the reset sequence (6502.org "Reset"; Visual6502 traces). */
 export const RESET_CYCLES = 7;
+/** NMI vector: &FFFA/&FFFB (MCS6500 manual, Chapter 9). MOS 1.20 points it at &0D00 in RAM. */
+export const NMI_VECTOR = 0xfffa;
+/** IRQ vector, shared with BRK: &FFFE/&FFFF (MCS6500 manual, Chapter 9). */
+export const IRQ_VECTOR = 0xfffe;
+/** Cycles in the IRQ/NMI/BRK sequence: 2 reads, 3 pushes, 2 vector reads (64doc). */
+export const INTERRUPT_CYCLES = 7;
+
+/** Which interrupt the next step() will take instead of an instruction. */
+export type InterruptKind = 'nmi' | 'irq';
 /**
  * The stack's page. The 6502 hard-wires the high byte of every stack address
  * to &01, so S (8 bits) only ever picks a byte in &0100-&01FF
@@ -43,6 +53,21 @@ export class Cpu6502 {
    * a return value, so the hot path never allocates a { ea, crossed } object.
    */
   pageCrossed = false;
+  /**
+   * The /IRQ input pin, level-sensitive: true while something is pulling it
+   * low ("asserted"). Whoever owns the CPU sets it before each step, from the
+   * devices' own lines (BUILD-PLAN §3). The CPU keeps no memory of it: if it
+   * goes false before the CPU looks, the request is simply gone.
+   */
+  irq = false;
+  /**
+   * The NMI edge detector's latch. setNmi() sets it on a false → true change
+   * of the line; taking the NMI clears it. So a pulse is never lost, and a
+   * line held low fires only once.
+   */
+  nmiPending = false;
+  /** The /NMI line's last level, so setNmi() can spot an edge. */
+  private nmiLine = false;
 
   constructor(readonly bus: Bus) {}
 
@@ -55,6 +80,9 @@ export class Cpu6502 {
    */
   reset(): number {
     const r = this.regs;
+    // Our choice, not a datasheet fact: a stale NMI shouldn't fire into the
+    // freshly reset program. irq belongs to the devices, so it's left alone.
+    this.nmiPending = false;
     r.s = (r.s - 3) & 0xff;
     r.i = true;
     r.pc = word(this.bus.read(RESET_VECTOR), this.bus.read(RESET_VECTOR + 1));
@@ -63,12 +91,38 @@ export class Cpu6502 {
   }
 
   /**
+   * Drives the /NMI pin: true = pulled low (asserted). Only the change from
+   * released to asserted (the falling edge, in volts) requests an NMI.
+   */
+  setNmi(asserted: boolean): void {
+    if (asserted && !this.nmiLine) this.nmiPending = true;
+    this.nmiLine = asserted;
+  }
+
+  /** What the next step() will do instead of an instruction, if anything. NMI wins over IRQ. */
+  get pendingInterrupt(): InterruptKind | undefined {
+    if (this.nmiPending) return 'nmi';
+    if (this.irq && !this.regs.i) return 'irq';
+    return undefined;
+  }
+
+  /**
    * Runs one instruction: fetch the opcode at PC, look it up, execute it.
    * Returns the cycles it took. On an unimplemented opcode, throws with PC
    * and the cycle count unchanged, so you can see exactly where it stopped.
+   *
+   * First, though, it looks at the interrupt inputs, as the chip does at the
+   * end of every instruction. If one is due, this step is the 7-cycle
+   * interrupt sequence instead, and the handler's first instruction is the
+   * next step.
    */
   step(): number {
     const r = this.regs;
+    if (this.nmiPending) {
+      this.nmiPending = false;
+      return this.interrupt(NMI_VECTOR);
+    }
+    if (this.irq && !r.i) return this.interrupt(IRQ_VECTOR);
     const opcode = this.bus.read(r.pc);
     const entry = OPCODES[opcode];
     if (entry === undefined) throw new UnimplementedOpcodeError(opcode, r.pc);
@@ -76,6 +130,28 @@ export class Cpu6502 {
     const taken = entry.cycles + entry.execute(this);
     this.cycles += taken;
     return taken;
+  }
+
+  /**
+   * The sequence BRK, IRQ and NMI share (it's BRK's microcode): push PC high
+   * then low, push P with bit 5 = 1 and B as given, set I, and load PC from
+   * the vector, low byte first. D is left alone (NMOS; the 65C02 clears it).
+   * BRK passes b = true, so its handler can tell it from an IRQ.
+   */
+  enterInterrupt(vector: number, b: boolean): void {
+    const r = this.regs;
+    this.push(hi(r.pc));
+    this.push(lo(r.pc));
+    this.push(packP(r, b));
+    r.i = true;
+    r.pc = word(this.bus.read(vector), this.bus.read((vector + 1) & 0xffff));
+  }
+
+  /** A hardware interrupt (IRQ or NMI): the shared sequence with B = 0, as a whole step. */
+  private interrupt(vector: number): number {
+    this.enterInterrupt(vector, false);
+    this.cycles += INTERRUPT_CYCLES;
+    return INTERRUPT_CYCLES;
   }
 
   /**

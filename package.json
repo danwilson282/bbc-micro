@@ -26,7 +26,8 @@
     "demo:times10": "tsx scripts/demo-times10.ts",
     "demo:fill": "tsx scripts/demo-fill.ts",
     "demo:stack": "tsx scripts/demo-stack.ts",
-    "demo:multiply": "tsx scripts/demo-multiply.ts"
+    "demo:multiply": "tsx scripts/demo-multiply.ts",
+    "demo:interrupts": "tsx scripts/demo-interrupts.ts"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

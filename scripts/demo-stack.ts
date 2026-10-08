@@ -43,7 +43,7 @@ let total = 0;
 for (;;) {
   const pc = cpu.regs.pc;
   if (bus.read(pc) === 0x00) {
-    console.log(`  &${hex16(pc)}  ${(sourceAt.get(pc) ?? 'BRK').padEnd(17)}  stop: BRK is Stage 17`);
+    console.log(`  &${hex16(pc)}  ${(sourceAt.get(pc) ?? 'BRK').padEnd(17)}  stop: Run stops before a BRK`);
     break;
   }
   const cycles = cpu.step();

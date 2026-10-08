@@ -74,7 +74,7 @@ for (;;) {
   }
 }
 flush();
-console.log(`  &${hex16(cpu.regs.pc)}  ${sourceAt.get(cpu.regs.pc) ?? 'BRK'}: stop (BRK is Stage 17)`);
+console.log(`  &${hex16(cpu.regs.pc)}  ${sourceAt.get(cpu.regs.pc) ?? 'BRK'}: stop (Run stops before a BRK, like a breakpoint)`);
 console.log('');
 console.log(`${String(instructions)} instructions, ${String(total)} cycles.`);
 console.log('');

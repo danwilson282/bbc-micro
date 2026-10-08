@@ -20,7 +20,7 @@ function sec(cpu: Cpu6502): number {
   return 0;
 }
 
-/** CLI: I = 0. IRQs may interrupt again. Nothing raises an IRQ until Stage 17. */
+/** CLI: I = 0. IRQs may interrupt again: a line already held low is answered before the next instruction. */
 function cli(cpu: Cpu6502): number {
   cpu.regs.i = false;
   return 0;

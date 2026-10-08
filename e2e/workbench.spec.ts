@@ -67,12 +67,13 @@ test('a poke from the console updates the panel', async ({ page }) => {
   await expect(byte(page, '7C10')).toHaveClass(/changed/);
 });
 
-test('Registers, Stack and Memory sit under the screen; the other panels stay in the workbench column', async ({ page }) => {
+test('Registers, Interrupts, Stack and Memory sit under the screen; the other panels stay in the workbench column', async ({ page }) => {
   const under = page.locator('#under-screen > section.panel');
-  await expect(under).toHaveCount(3);
+  await expect(under).toHaveCount(4);
   await expect(under.nth(0)).toHaveAttribute('aria-label', 'Registers');
-  await expect(under.nth(1)).toHaveAttribute('aria-label', 'Stack');
-  await expect(under.nth(2)).toHaveAttribute('aria-label', 'Memory');
+  await expect(under.nth(1)).toHaveAttribute('aria-label', 'Interrupts');
+  await expect(under.nth(2)).toHaveAttribute('aria-label', 'Stack');
+  await expect(under.nth(3)).toHaveAttribute('aria-label', 'Memory');
   const screen = await page.locator('#screen').boundingBox();
   const registers = await page.getByRole('region', { name: 'Registers' }).boundingBox();
   expect(screen && registers && registers.y >= screen.y + screen.height).toBe(true);
