@@ -502,7 +502,54 @@ two:    LDA #2
 
 const TRACE_EXAMPLE: Example = { id: 'trace', title: 'Stage 18: disassembler & trace', source: TRACE_SOURCE };
 
+/**
+ * Stage 21: the BBC memory map. Each part of the map answers differently:
+ * RAM keeps a write, ROM loses it, SHEILA's chips (placeholders for now)
+ * see register numbers, and empty addresses return the floating bus.
+ */
+export const MEMORY_MAP_SOURCE = `; Stage 21: the BBC memory map. Press Run (it stops at the BRK), then
+; read the Memory map panel's I/O log, and the results at &80-&84:
+;   &80  &48  RAM kept what was written
+;   &81  &00  the MOS ROM didn't: a ROM has no write line
+;   &82  &FE  System VIA reg 4 is a placeholder, so the bus floats:
+;             the last byte on it was &FE, from fetching "LDA &FE44"
+;   &83  &FD  JIM: nothing connected, so &FD, the same way
+;   &84  &80  the sideways ROM socket is empty (until Stage 22)
+
+result  = &80
+
+        *= &0400
+start:  LDA #&48
+        STA &3000         ; RAM
+        LDA #0            ; forget it...
+        LDA &3000         ; ...and read it back
+        STA result
+        LDA #&48
+        STA &C000         ; MOS ROM: the write is lost
+        LDA &C000
+        STA result+1
+        LDA #&7F
+        STA &FE4E         ; System VIA reg 14 (IER)
+        STA &FE5E         ; the same register again, through its mirror
+        LDA &FE44         ; System VIA reg 4 (T1C-L)
+        STA result+2
+        LDA &FD00         ; JIM
+        STA result+3
+        LDA &8000         ; the empty sideways socket
+        STA result+4
+        LDA #&0C
+        STA &FE30         ; ROMSEL: "page in ROM 12" (Stage 22 makes it work)
+        LDA #&0D
+        STA &FE00         ; CRTC: select register 13...
+        LDA #&00
+        STA &FE01         ; ...and write it
+        BRK               ; Run stops here
+`;
+
+const MEMORY_MAP_EXAMPLE: Example = { id: 'memory-map', title: 'Stage 21: the BBC memory map (Run me)', source: MEMORY_MAP_SOURCE };
+
 export const EXAMPLES: readonly Example[] = [
+  MEMORY_MAP_EXAMPLE,
   TRACE_EXAMPLE,
   INTERRUPTS_EXAMPLE,
   SUBROUTINES_EXAMPLE,
@@ -520,5 +567,5 @@ export const EXAMPLES: readonly Example[] = [
 
 /** The example with this id, or the current stage's if there's none. */
 export function findExample(id: string | null): Example {
-  return EXAMPLES.find((example) => example.id === id) ?? TRACE_EXAMPLE;
+  return EXAMPLES.find((example) => example.id === id) ?? MEMORY_MAP_EXAMPLE;
 }

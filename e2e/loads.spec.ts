@@ -64,7 +64,7 @@ test('the page-crossing LDA &7B08,Y takes 5 cycles', async ({ page }) => {
 });
 
 test('poking the operand of LDA #&00 changes what it loads, and the listing says "edited"', async ({ page }) => {
-  const memory = page.getByRole('region', { name: 'Memory' });
+  const memory = page.getByRole('region', { name: 'Memory', exact: true });
   await memory.locator('td.byte[data-address="0401"]').click();
   const input = memory.locator('input.byte-edit');
   await input.fill('FF');

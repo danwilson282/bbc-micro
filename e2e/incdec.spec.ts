@@ -46,7 +46,7 @@ test('INX wraps X from &FF to &00: Z lights, N goes out, C stays off', async ({ 
 test('INC on memory takes 5 cycles and writes twice: the old value, then the new', async ({ page }) => {
   await step(page, 11); // up to the second INC count: &FF → &00
   await expect(registersPanel(page).getByRole('status')).toHaveText('Ran 1 (5 cycles), 2 writes');
-  await expect(page.getByRole('region', { name: 'Memory' }).locator('[data-field="writes"]')).toHaveText(
+  await expect(page.getByRole('region', { name: 'Memory', exact: true }).locator('[data-field="writes"]')).toHaveText(
     'Wrote: &0080 ← &FF, &0080 ← &00',
   );
   await expect(flag(page, 'Z')).toHaveClass(ON);
@@ -56,7 +56,7 @@ test('INC on memory takes 5 cycles and writes twice: the old value, then the new
 test('DEC &nnnn,X takes 7 cycles even across a page boundary', async ({ page }) => {
   await step(page, 15);
   await expect(registersPanel(page).getByRole('status')).toHaveText('Ran 1 (7 cycles), 2 writes');
-  await expect(page.getByRole('region', { name: 'Memory' }).locator('[data-field="writes"]')).toHaveText(
+  await expect(page.getByRole('region', { name: 'Memory', exact: true }).locator('[data-field="writes"]')).toHaveText(
     'Wrote: &7C00 ← &49, &7C00 ← &48',
   );
 });

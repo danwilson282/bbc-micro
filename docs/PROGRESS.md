@@ -2,7 +2,7 @@
 
 Tracks where the build is up to. The `/start-stage` and `/finish-stage` skills keep this file up to date. For what each stage involves, see [`BUILD-PLAN.md`](./BUILD-PLAN.md).
 
-**Current stage:** 21 — Memory map & I/O dispatch (not started)
+**Current stage:** 22 — ROMs & sideways paging (not started)
 
 **Status values:**
 - `not started`
@@ -48,7 +48,7 @@ Tracks where the build is up to. The `/start-stage` and `/finish-stage` skills k
 
 | # | Stage | Status | Seen? | Branch | Doc | Notes |
 |---|---|---|---|---|---|---|
-| 21 | Memory map & I/O dispatch | not started | | `stage/21-memory-map` | [doc](./stages/21-memory-map.md) | |
+| 21 | Memory map & I/O dispatch | done | ✅ | `stage/21-memory-map` | [doc](./stages/21-memory-map.md) | `src/memory/bbc-memory-map.ts` (RAM 32K, empty sideways socket, MOS ROM image starting at &FF and filled through `poke`, CPU writes to ROM ignored; FRED/JIM nothing connected). `IoDevice` = `read`/`write`/`peek` by register offset (no `tick` yet). `sheila.ts`: 12-slot table (registers × mirrors, `describeIoAddress` → "System VIA reg 14 (IER), mirror of &FE4E"), three 256-entry dispatch tables built in the constructor. `PlaceholderDevice` in every slot (reads float). **Floating bus** modelled as the last byte on the bus (`LDA &FE44` → &FE). `IoLog` ring buffer (256) + per-slot read/write counts. Side-effect-free `peek` (settles the Stage 02 item). The browser playground now runs on the map (`playgroundTarget(PlaygroundMemory)`; `TestBus` gains `peek`/`poke`; `installProgram` skips &FC00-&FEFF, loads via `pokeWriter`). New **Memory map** panel (region bar + table with Go, SHEILA table with counts, I/O log with Clear). New default example `memory-map` (`48 00 FE FD 80` at &80-&84, 7 logged accesses). `demo:memmap` (also prints the hidden MOS credits at &FC00-&FEFF from `os12.rom`). `e2e/memory-map.spec.ts`; `disassembly.spec.ts` now opens `?program=trace`; e2e `name: 'Memory'` lookups now `exact`. |
 | 22 | ROMs & sideways paging | not started | | `stage/22-roms-sideways` | [doc](./stages/22-roms-sideways.md) | |
 | 23 | First steps into the MOS | not started | | `stage/23-mos-first-steps` | [doc](./stages/23-mos-first-steps.md) | |
 
@@ -129,7 +129,7 @@ Pick from the menu in BUILD-PLAN.md §8 once Part 11 is done, and add a row here
 Things to come back to: questions raised during a stage, known inaccuracies, ideas.
 
 - `typescript-eslint` supports TypeScript `<6.1.0`. Watch for this if TypeScript is upgraded.
-- Side-effect-free `peek(address)` for debug views: `hexdump` goes through `read()`, which would trigger device side effects on SHEILA. Needed once the workbench shows I/O memory (Stage 21+). (Stage 02) The workbench side is done: panels use `DebugTarget.peek` (Stage 03). The memory map still needs a real `peek`.
+- ~~Side-effect-free `peek(address)` for debug views.~~ Done in Stage 21: `BbcMemoryMap.peek` and `IoDevice.peek`. (`hexdump` still uses `read()`, but only ever on a `TestBus`.) (Stage 02)
 - Workbench `refresh()` rebuilds the whole table. Measure it once it runs every frame (Stage 30), and switch to text-only updates if it's slow. (Stage 03)
 - Dummy bus reads (e.g. the page-crossing read in `abs,X`, NOP's second cycle, and reset's three stack reads (Stage 04)) aren't modelled by the instruction-stepped core. Revisit with the cycle-exact extras in Part 12. (Stage 02)
 - **Addressing-mode explorer rework** (Stage 05 review): the panel was hard to follow. It should become a cycle-by-cycle table with a **Next cycle** button (one bus read per row, with the Memory panel outlining each byte), spell out "effective address" instead of "EA" (which clashes with the NOP byte `&EA`), and have a **Put it in memory** button so its bytes aren't hypothetical. Good moment: Stage 06, when `LDA` can really be stepped. (Deferred again at Stage 06 to keep the stage small.)
@@ -161,5 +161,9 @@ Things to come back to: questions raised during a stage, known inaccuracies, ide
 - Under Jest, reaching globals (`Number.isInteger`, `Array.isArray`, `Math.*`) in a tight loop is slow (the sandboxed global object). It cost 5× in `parseCases` until hoisted. Worth remembering for Stage 20's benchmark: measure under `tsx`/the browser, not Jest. (Stage 19)
 - Dormann's `6502_interrupt_test` (IRQ/NMI sequencing) isn't run: it needs a "feedback register" device that raises IRQ/NMI when the test writes to it. It could reuse the Stage 17 doorbell idea. Part 12, or sooner if interrupt bugs appear. (Stage 20)
 - Hot path: never create a function (closure) inside `step()`/`tick()` or a per-step wrapper. Measured at 11× slower in Stage 20, far worse than allocating objects. Worth a line in CLAUDE.md's hot-path rule if you agree. (Stage 20)
+- **Floating bus** (Stage 21): reads that no chip answers return the last byte on the data bus (NMOS open bus). The principle is sound, but it isn't confirmed for every empty Model B address (FRED, JIM, empty sockets, write-only chips like the Video ULA). Check against hardware notes if any software depends on it. (Stage 21)
+- SHEILA mirroring inside each slot assumes each chip sees only its own register-select lines. That's confirmed for the VIAs by common use, but not checked against the circuit diagram for the others. The `&FE18` (Econet ID/INTOFF) and `&FE20` read (INTON) side effects aren't modelled (Econet is out of scope). (Stage 21)
+- The 1 MHz bus cycle stretching for FRED, JIM and the slow SHEILA chips isn't modelled. Part 12 cycle-exact extras. (Stage 21)
+- The Stage 17 doorbell wraps the map, so `&FC00` accesses don't reach the I/O log, and peeking `&FC00` shows the floating bus. It goes away with the playground in Part 5. (Stage 21)
 - Undocumented `SBC #` duplicate at `&EB` isn't implemented. Part 12 extras. (Stage 10)
 - Undocumented NMOS opcodes that also load registers (`LAX` `&A7`/`&AF`/…) aren't implemented. They belong with the optional extras in Part 12. (Stage 06)

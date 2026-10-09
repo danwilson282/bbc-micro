@@ -55,7 +55,7 @@ test('square calling multiply leaves two return addresses on the stack', async (
 test('Run stops at the BRK with 143, 144 and 30000 at &90-&95', async ({ page }) => {
   await registersPanel(page).getByRole('button', { name: 'Run until BRK' }).click();
   await expect(registersPanel(page).getByRole('status')).toContainText('Stopped at BRK (&0422) after 202 instructions, 640 cycles');
-  const memory = page.getByRole('region', { name: 'Memory' });
+  const memory = page.getByRole('region', { name: 'Memory', exact: true });
   await memory.getByRole('textbox', { name: 'Go to address' }).fill('&0000');
   await memory.getByRole('button', { name: 'Go to address' }).click();
   const bytes = ['8F', '00', '90', '00', '30', '75'];

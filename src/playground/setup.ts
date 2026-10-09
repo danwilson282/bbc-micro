@@ -7,6 +7,7 @@
 
 import { RESET_VECTOR } from '../cpu/cpu6502';
 import type { Bus } from '../memory/bus';
+import { FRED_START, MOS_TOP_PAGE } from '../memory/memory-regions';
 import { hi, lo } from '../util/bits';
 import { loadListing, type ListingLine } from './listing';
 
@@ -45,7 +46,8 @@ export function loadExplorerPointers(bus: Pick<Bus, 'write'>): void {
 }
 
 /**
- * A clean playground with a program in it: all 64K zeroed, the playground
+ * A clean playground with a program in it: all 64K zeroed (except the I/O
+ * pages &FC00-&FEFF), the playground
  * data and explorer pointers, NOPs through the program page, then the
  * program's bytes, and the reset vector pointing at entry.
  *
@@ -55,11 +57,28 @@ export function loadExplorerPointers(bus: Pick<Bus, 'write'>): void {
  * Programs that use interrupts put their own vectors at &FFFA-&FFFF.
  */
 export function installProgram(bus: Pick<Bus, 'write'>, lines: readonly ListingLine[], entry: number): void {
-  for (let address = 0; address < 0x10000; address++) bus.write(address, 0x00);
+  // Clear everything except the I/O pages, which aren't memory (Stage 21):
+  // writing &00 to a chip's registers is an action, not a clean-up.
+  for (let address = 0; address < 0x10000; address++) {
+    if (address < FRED_START || address >= MOS_TOP_PAGE) bus.write(address, 0x00);
+  }
   loadPlaygroundData(bus);
   loadExplorerPointers(bus);
   for (let address = PROGRAM_PAGE; address < PROGRAM_PAGE_END; address++) bus.write(address, NOP);
   loadListing(bus, lines);
   bus.write(RESET_VECTOR, lo(entry));
   bus.write(RESET_VECTOR + 1, hi(entry));
+}
+
+/**
+ * A loader's write, for installProgram on a BbcMemoryMap: each byte goes in
+ * through poke(), so vectors at &FFFA-&FFFF land in the MOS ROM image. The
+ * CPU's write() to ROM would be lost (Stage 21).
+ */
+export function pokeWriter(memory: { poke(address: number, value: number): void }): Pick<Bus, 'write'> {
+  return {
+    write: (address, value) => {
+      memory.poke(address, value);
+    },
+  };
 }

@@ -37,7 +37,7 @@ test('BNE back to fill is taken (3 cycles) while Y has not wrapped', async ({ pa
 });
 
 test('Run stops at the BRK with the screen full of "Z", and the cycle counter tells the whole story', async ({ page }) => {
-  const memory = page.getByRole('region', { name: 'Memory' });
+  const memory = page.getByRole('region', { name: 'Memory', exact: true });
   await memory.getByRole('textbox', { name: 'Go to address' }).fill('&7C00');
   await memory.getByRole('button', { name: 'Go to address' }).click();
 

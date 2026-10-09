@@ -2,8 +2,8 @@
 //
 // There's no address decoding, no ROM and no I/O. It's the CPU's playground in
 // Part 2, where we only care that instructions read and write the right
-// addresses. Stage 21 replaces it with the real BBC memory map, behind the same
-// Bus interface.
+// addresses. From Stage 21 the workbench playground runs on the real BBC memory
+// map instead; the CPU tests keep this one, because they want a flat 64K.
 
 import type { Bus } from './bus';
 import { Ram } from './ram';
@@ -19,6 +19,16 @@ export class TestBus implements Bus {
   /** Write cycle: value & 0xff (8 data lines) to address & 0xffff. */
   write(address: number, value: number): void {
     this.ram.write(address & 0xffff, value & 0xff);
+  }
+
+  /** A flat bus has no side effects, so peek is just read. Lets a TestBus stand in wherever a memory map is used. */
+  peek(address: number): number {
+    return this.read(address);
+  }
+
+  /** And poke is just write. */
+  poke(address: number, value: number): void {
+    this.write(address, value);
   }
 
   /** Writes bytes in order from address, wrapping from &FFFF to &0000. For tests and demos. */

@@ -5,7 +5,7 @@ function registersPanel(page: Page): ReturnType<Page['getByRole']> {
 }
 
 function memoryPanel(page: Page): ReturnType<Page['getByRole']> {
-  return page.getByRole('region', { name: 'Memory' });
+  return page.getByRole('region', { name: 'Memory', exact: true });
 }
 
 function byte(page: Page, address: string): ReturnType<Page['locator']> {

@@ -28,7 +28,7 @@ test('Step runs TSX: PC advances by 1 and 2 cycles pass', async ({ page }) => {
   await expect(register(page, 'PC')).toHaveText('&0401');
   await expect(registersPanel(page).locator('tr[data-register="PC"]')).toHaveClass(/changed/);
   await expect(registersPanel(page).locator('[data-field="cycles"]')).toContainText('9 cycles');
-  const memory = page.getByRole('region', { name: 'Memory' });
+  const memory = page.getByRole('region', { name: 'Memory', exact: true });
   await expect(memory.locator('td.byte.pc')).toHaveAttribute('data-address', '0401');
 });
 

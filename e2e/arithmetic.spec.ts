@@ -52,5 +52,5 @@ test('the 16-bit subtraction borrows, then stores &012C low byte first', async (
   await expect(flag(page, 'C')).not.toHaveClass(ON);
   await step(page, 4); // STA diff, LDA sum+1, SBC #&03, STA diff+1
   await expect(flag(page, 'C')).toHaveClass(ON);
-  await expect(page.getByRole('region', { name: 'Memory' }).locator('[data-field="writes"]')).toHaveText('Wrote: &0083 ← &01');
+  await expect(page.getByRole('region', { name: 'Memory', exact: true }).locator('[data-field="writes"]')).toHaveText('Wrote: &0083 ← &01');
 });

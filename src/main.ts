@@ -1,10 +1,10 @@
-// Browser entry point. Builds the Part 2 "CPU playground" (a 6502 on a flat
-// 64K TestBus) and mounts the workbench beside the screen canvas.
+// Browser entry point. Builds the "CPU playground" (a 6502 on the BBC memory
+// map, since Stage 21) and mounts the workbench beside the screen canvas.
 
-import { TestBus } from './memory/test-bus';
+import { BbcMemoryMap } from './memory/bbc-memory-map';
 import type { ListingLine } from './playground/listing';
 import { EXAMPLES, findExample } from './playground/examples';
-import { PROGRAM_PAGE, installProgram } from './playground/setup';
+import { PROGRAM_PAGE, installProgram, pokeWriter } from './playground/setup';
 import { TRACE_HEADER, formatTraceLine } from './cpu/trace';
 import { hex16, hex8 } from './util/bits';
 import { createAddressingPanel } from './web/workbench/addressing-panel';
@@ -15,6 +15,7 @@ import { labelsFromSymbols } from './web/workbench/disassembly-view-model';
 import { createInterruptsPanel } from './web/workbench/interrupts-panel';
 import { playgroundTarget } from './web/workbench/debug-target';
 import { createListingPanel } from './web/workbench/listing-panel';
+import { createMemoryMapPanel } from './web/workbench/memory-map-panel';
 import { createMemoryPanel } from './web/workbench/memory-panel';
 import { createWorkbench } from './web/workbench/panel';
 import { createRegistersPanel } from './web/workbench/registers-panel';
@@ -33,9 +34,10 @@ if (!underScreen) throw new Error('Missing #under-screen element');
 // earlier stage's instead.
 const initial = findExample(new URLSearchParams(window.location.search).get('program'));
 
-const bus = new TestBus();
+// Every SHEILA chip is a placeholder for now (Stage 21); ROMs come in Stage 22.
+const bus = new BbcMemoryMap();
 // The target puts a WriteRecorder between the CPU and the bus (Stage 07).
-const target = playgroundTarget(bus);
+const target = playgroundTarget(bus, 'CPU playground (6502 on the BBC memory map)');
 let listing: readonly ListingLine[] = [];
 // Address → name, from the last assembly, so the Disassembly panel can say "JSR one".
 let labels: ReadonlyMap<number, string> = new Map();
@@ -63,9 +65,11 @@ const assembler = createAssemblerPanel({
     registers.stop();
     listing = assembly.lines;
     labels = labelsFromSymbols(assembly.symbols);
-    installProgram(bus, assembly.lines, entry);
+    // Through poke, so the vectors at &FFFA-&FFFF land in the MOS ROM image.
+    installProgram(pokeWriter(bus), assembly.lines, entry);
     target.reset();
     target.writes.clear();
+    bus.clearIoHistory();
     memory.goTo(entry);
     refreshAll();
   },
@@ -77,6 +81,18 @@ workbench.add(memory, underScreen);
 workbench.add(assembler);
 workbench.add(createListingPanel(target, () => listing));
 workbench.add(createDisassemblyPanel(target, () => labels));
+workbench.add(
+  createMemoryMapPanel(bus, {
+    pc: () => target.registers.pc,
+    onGo: (address) => {
+      memory.goTo(address);
+    },
+    onClear: () => {
+      bus.clearIoHistory();
+      refreshAll();
+    },
+  }),
+);
 workbench.add(createAddressingPanel(target));
 workbench.add(createConverterPanel());
 assembler.assembleAndRun();
@@ -100,6 +116,7 @@ Object.assign(window, {
       return cycles;
     },
     cpu: target.cpu,
+    map: bus,
     trace: (count = 20): string => [TRACE_HEADER, ...target.trace.recent(count).map((entry) => formatTraceLine(entry, labels))].join('\n'),
     irq: (): void => {
       target.ringIrq();
@@ -109,6 +126,6 @@ Object.assign(window, {
       target.pulseNmi();
       workbench.refreshAll();
     },
-    help: `workbench.poke(0x${hex16(PROGRAM_PAGE + 1)}, 0xff), workbench.step(), workbench.peek(addr), workbench.goTo(addr), workbench.trace(20), workbench.irq(), workbench.nmi(), workbench.cpu.regs`,
+    help: `workbench.poke(0x${hex16(PROGRAM_PAGE + 1)}, 0xff), workbench.step(), workbench.peek(addr), workbench.goTo(addr), workbench.trace(20), workbench.map.ioLog.recent(), workbench.irq(), workbench.nmi(), workbench.cpu.regs`,
   },
 });

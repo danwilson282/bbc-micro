@@ -46,7 +46,7 @@ test('&80 + &80 = &60 in decimal, but Z lights', async ({ page }) => {
 
 test('the score borrows down to 0999, then &98 + &01 + 1 = &00 with Z dark and N lit', async ({ page }) => {
   await step(page, 17); // up to STA score+1
-  await expect(page.getByRole('region', { name: 'Memory' }).locator('[data-field="writes"]')).toHaveText('Wrote: &0081 ← &09');
+  await expect(page.getByRole('region', { name: 'Memory', exact: true }).locator('[data-field="writes"]')).toHaveText('Wrote: &0081 ← &09');
   await step(page, 2); // LDA #&98, ADC #&01
   await expect(register(page, 'A')).toHaveText('&00');
   await expect(flag(page, 'Z')).not.toHaveClass(ON);

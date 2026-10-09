@@ -18,7 +18,7 @@ async function step(page: Page, times: number): Promise<void> {
 
 /** A byte in the Memory panel, after going to &0000. */
 async function zeroPage(page: Page, address: number): Promise<ReturnType<Page['locator']>> {
-  const memory = page.getByRole('region', { name: 'Memory' });
+  const memory = page.getByRole('region', { name: 'Memory', exact: true });
   await memory.getByRole('textbox', { name: 'Go to address' }).fill('&0000');
   await memory.getByRole('button', { name: 'Go to address' }).click();
   return memory.locator(`td.byte[data-address="${address.toString(16).toUpperCase().padStart(4, '0')}"]`);

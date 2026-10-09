@@ -2,11 +2,13 @@ import { assemble, formatError } from '../asm/assembler';
 import { Cpu6502, UnimplementedOpcodeError } from '../cpu/cpu6502';
 import { disassemble } from '../cpu/disassembler';
 import { Tracer, formatTraceLine } from '../cpu/trace';
+import { BbcMemoryMap } from '../memory/bbc-memory-map';
+import { describeIoAddress } from '../memory/sheila';
 import { TestBus } from '../memory/test-bus';
-import { ARITHMETIC_SOURCE, DECIMAL_SOURCE, EXAMPLES, FILL_SOURCE, INCDEC_SOURCE, INTERRUPTS_SOURCE, LABELS_SOURCE, LOGIC_SOURCE, SHIFTS_SOURCE, STACK_SOURCE, SUBROUTINES_SOURCE, TRACE_SOURCE, findExample } from './examples';
+import { ARITHMETIC_SOURCE, DECIMAL_SOURCE, EXAMPLES, FILL_SOURCE, INCDEC_SOURCE, INTERRUPTS_SOURCE, LABELS_SOURCE, LOGIC_SOURCE, SHIFTS_SOURCE, STACK_SOURCE, SUBROUTINES_SOURCE, TRACE_SOURCE, MEMORY_MAP_SOURCE, findExample } from './examples';
 import { Doorbell } from './doorbell';
 import { LOADS_PROGRAM } from './loads-program';
-import { installProgram } from './setup';
+import { installProgram, pokeWriter } from './setup';
 import { STORES_PROGRAM } from './stores-program';
 
 function assembled(source: string): Extract<ReturnType<typeof assemble>, { ok: true }> {
@@ -722,13 +724,44 @@ describe('the Stage 18 trace example', () => {
   });
 });
 
+describe('the Stage 21 memory-map example', () => {
+  /** Installs it on the BBC memory map, as the browser does, and runs it to the BRK. */
+  function run(): { cpu: Cpu6502; map: BbcMemoryMap } {
+    const map = new BbcMemoryMap();
+    installProgram(pokeWriter(map), assembled(MEMORY_MAP_SOURCE).lines, 0x0400);
+    const cpu = new Cpu6502(map);
+    cpu.reset();
+    map.clearIoHistory();
+    while (map.peek(cpu.regs.pc) !== 0x00) cpu.step();
+    return { cpu, map };
+  }
+
+  it('RAM keeps &48, the MOS ROM loses it, and the empty places float: &48 &00 &FE &FD &80 at &80-&84', () => {
+    const { map } = run();
+    expect([0x80, 0x81, 0x82, 0x83, 0x84].map((a) => map.peek(a))).toEqual([0x48, 0x00, 0xfe, 0xfd, 0x80]);
+  });
+
+  it('logs its seven I/O accesses, in order, with the device and register each reached', () => {
+    const { map } = run();
+    expect(map.ioLog.recent().map((e) => `${e.write ? 'W' : 'R'} ${describeIoAddress(e.address).text}`)).toEqual([
+      'W System VIA reg 14 (IER)',
+      'W System VIA reg 14 (IER), mirror of &FE4E',
+      'R System VIA reg 4 (T1C-L)',
+      'R JIM (1 MHz bus: nothing connected)',
+      'W ROMSEL (paged ROM select)',
+      'W CRTC reg 0 (address register)',
+      'W CRTC reg 1 (register data)',
+    ]);
+  });
+});
+
 describe('the examples', () => {
   it.each(EXAMPLES.map((e) => [e.id, e] as const))('%s assembles without errors', (_id, example) => {
     expect(assemble(example.source).ok).toBe(true);
   });
 
   it('falls back to the first example for an unknown or missing id', () => {
-    expect(findExample('nope').id).toBe('trace');
-    expect(findExample(null).id).toBe('trace');
+    expect(findExample('nope').id).toBe('memory-map');
+    expect(findExample(null).id).toBe('memory-map');
   });
 });
