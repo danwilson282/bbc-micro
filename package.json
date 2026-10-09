@@ -31,7 +31,8 @@
     "demo:trace": "tsx scripts/demo-trace.ts",
     "demo:singlestep": "tsx scripts/demo-singlestep.ts",
     "fetch-fixtures": "bash scripts/fetch-test-fixtures.sh",
-    "demo:functional": "tsx scripts/demo-functional.ts"
+    "demo:functional": "tsx scripts/demo-functional.ts",
+    "demo:memmap": "tsx scripts/demo-memory-map.ts"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

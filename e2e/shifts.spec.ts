@@ -60,7 +60,7 @@ test('LSR halves, and the remainder lands in C', async ({ page }) => {
 test('ASL on memory takes 5 cycles and writes twice, like INC', async ({ page }) => {
   await step(page, 11); // ASL num
   await expect(registersPanel(page).getByRole('status')).toHaveText('Ran 1 (5 cycles), 2 writes');
-  await expect(page.getByRole('region', { name: 'Memory' }).locator('[data-field="writes"]')).toHaveText(
+  await expect(page.getByRole('region', { name: 'Memory', exact: true }).locator('[data-field="writes"]')).toHaveText(
     'Wrote: &0080 ← &17, &0080 ← &2E',
   );
 });

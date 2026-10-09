@@ -19,6 +19,13 @@
         --error: #b3261e;
         --flag-on: #2e7d32;
         --flag-on-fg: #ffffff;
+        /* Memory map regions (Stage 21). */
+        --region-ram: #c8e6c9;
+        --region-sideways: #ffe0b2;
+        --region-mos: #bbdefb;
+        --region-fred: #e1bee7;
+        --region-jim: #f8bbd0;
+        --region-sheila: #ffcdd2;
         color-scheme: light;
       }
       @media (prefers-color-scheme: dark) {
@@ -34,6 +41,12 @@
           --error: #ff8a80;
           --flag-on: #66bb6a;
           --flag-on-fg: #0b1f0c;
+          --region-ram: #1f3d22;
+          --region-sideways: #4a3313;
+          --region-mos: #17324d;
+          --region-fred: #3d2342;
+          --region-jim: #4a1f30;
+          --region-sheila: #4d1f1f;
           color-scheme: dark;
         }
       }
@@ -575,6 +588,89 @@
       }
       .vector-table td {
         padding: 1px 10px 1px 3px;
+      }
+      /* Memory map panel (Stage 21). */
+      .map-bar {
+        display: flex;
+        gap: 2px;
+        margin: 0 0 8px;
+        font-size: 0.75rem;
+      }
+      .map-block {
+        flex-basis: 0;
+        min-width: 3.6em;
+        padding: 6px 4px;
+        border-radius: 3px;
+        text-align: center;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .map-block.pc {
+        outline: 2px solid var(--accent);
+        outline-offset: -2px;
+        font-weight: 600;
+      }
+      .region-ram { --region: var(--region-ram); }
+      .region-sideways { --region: var(--region-sideways); }
+      .region-mos { --region: var(--region-mos); }
+      .region-fred { --region: var(--region-fred); }
+      .region-jim { --region: var(--region-jim); }
+      .region-sheila { --region: var(--region-sheila); }
+      .map-block,
+      .map-regions td.swatch {
+        background: var(--region);
+      }
+      .map-table {
+        border-collapse: collapse;
+        font-size: 0.85rem;
+      }
+      .map-table th {
+        text-align: left;
+        color: var(--muted);
+        font-weight: normal;
+        padding: 1px 10px 1px 2px;
+      }
+      .map-table td {
+        padding: 2px 10px 2px 3px;
+        vertical-align: top;
+      }
+      .map-table td.mono,
+      .map-table td.count,
+      .map-table td.direction {
+        font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+        white-space: nowrap;
+      }
+      .map-table td.count {
+        text-align: right;
+      }
+      .map-regions td.swatch {
+        width: 0.9em;
+        border-radius: 3px;
+      }
+      .map-regions td.detail,
+      .map-slots td.placeholder,
+      .map-note {
+        color: var(--muted);
+      }
+      .map-regions tr.pc td.name {
+        color: var(--accent);
+        font-weight: 600;
+      }
+      .map-slots tr.used td {
+        background: var(--changed);
+      }
+      .map-log tr.write td.direction {
+        color: var(--written);
+        font-weight: 600;
+      }
+      .map-heading {
+        margin: 12px 0 4px;
+        font-size: 0.85rem;
+      }
+      .map-note {
+        margin: 0 0 4px;
+        font-size: 0.8rem;
       }
     </style>
   </head>

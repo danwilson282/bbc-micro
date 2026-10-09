@@ -13,6 +13,7 @@
 import { Cpu6502, type InterruptKind } from '../../cpu/cpu6502';
 import { Tracer } from '../../cpu/trace';
 import type { Registers } from '../../cpu/registers';
+import type { Bus } from '../../memory/bus';
 import type { TestBus } from '../../memory/test-bus';
 import { WriteRecorder, type WriteLog } from '../../memory/write-recorder';
 import { Doorbell } from '../../playground/doorbell';
@@ -39,6 +40,12 @@ export function testBusTarget(bus: TestBus, name = 'CPU playground (64K TestBus)
     },
   };
 }
+
+/**
+ * What the playground's CPU runs on: a Bus for the CPU, plus peek and poke for
+ * the panels. A BbcMemoryMap (Stage 21, the browser) or a TestBus (tests, demos).
+ */
+export type PlaygroundMemory = Bus & Pick<DebugTarget, 'peek' | 'poke'>;
 
 /**
  * A target with a CPU in it. step() and reset() go through the target, not
@@ -84,23 +91,30 @@ export interface TracedTarget extends CpuTarget {
 }
 
 /**
- * The Part 2 playground: a 6502 on a flat 64K TestBus, with a WriteRecorder
- * between them so the workbench can see what the CPU wrote, and a doorbell
- * at &FC00 for the IRQ button to ring (Stage 17), and a tracer that notes
- * each step just before it runs (Stage 18).
+ * The playground: a 6502 on some memory (the BBC memory map in the browser
+ * since Stage 21, a flat TestBus in most tests), with a WriteRecorder between
+ * them so the workbench can see what the CPU wrote, and a doorbell at &FC00
+ * for the IRQ button to ring (Stage 17), and a tracer that notes each step
+ * just before it runs (Stage 18).
  *
- *   Cpu6502 ──▶ WriteRecorder ──▶ Doorbell ──▶ TestBus ◀── peek / poke
- *                                                  ▲
- *                                       Tracer ────┘ (peeks the bytes at PC)
+ *   Cpu6502 ──▶ WriteRecorder ──▶ Doorbell ──▶ memory ◀── peek / poke
+ *                                                ▲
+ *                                     Tracer ────┘ (peeks the bytes at PC)
  *
- * peek and poke go straight to the TestBus, so the debugger's own writes are
+ * peek and poke go straight to the memory, so the debugger's own writes are
  * never mistaken for the CPU's. Returns the CPU too, for the console handle.
  */
-export function playgroundTarget(bus: TestBus, name = 'CPU playground (6502 on a 64K TestBus)'): InterruptTarget & TracedTarget & { readonly cpu: Cpu6502 } {
-  const doorbell = new Doorbell(bus);
+export function playgroundTarget(memory: PlaygroundMemory, name = 'CPU playground (6502 on a 64K TestBus)'): InterruptTarget & TracedTarget & { readonly cpu: Cpu6502 } {
+  const doorbell = new Doorbell(memory);
   const recorder = new WriteRecorder(doorbell);
   const cpu = new Cpu6502(recorder);
-  const base = testBusTarget(bus, name);
+  const base: DebugTarget = {
+    name,
+    peek: (address) => memory.peek(address & 0xffff),
+    poke: (address, value) => {
+      memory.poke(address & 0xffff, value & 0xff);
+    },
+  };
   const trace = new Tracer((address) => base.peek(address));
   // After anything that might change the doorbell, copy its line to the CPU's
   // /IRQ pin. Part 5's machine does the same after ticking its devices (BUILD-PLAN §3).

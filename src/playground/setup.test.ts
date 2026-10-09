@@ -1,5 +1,7 @@
+import { BbcMemoryMap } from '../memory/bbc-memory-map';
+import type { IoDevice } from '../memory/io-device';
 import { TestBus } from '../memory/test-bus';
-import { installProgram } from './setup';
+import { installProgram, pokeWriter } from './setup';
 
 describe('installProgram', () => {
   const lines = [{ address: 0x0400, bytes: [0xa9, 0x41], source: 'LDA #&41', comment: '' }];
@@ -25,5 +27,20 @@ describe('installProgram', () => {
     expect(bus.read(0x7c00)).toBe(0x48); // "H"
     expect([bus.read(0x70), bus.read(0x71)]).toEqual([0x00, 0x7c]);
     expect([bus.read(0x30ff), bus.read(0x3000)]).toEqual([0x00, 0x04]);
+  });
+
+  it('on the BBC memory map, through pokeWriter, puts the reset vector into the MOS ROM image', () => {
+    const map = new BbcMemoryMap();
+    installProgram(pokeWriter(map), lines, 0x0412);
+    expect([map.read(0xfffc), map.read(0xfffd)]).toEqual([0x12, 0x04]);
+    expect(map.read(0x0400)).toBe(0xa9);
+  });
+
+  it('leaves the I/O pages alone: no device register is written while clearing memory', () => {
+    const writes: number[] = [];
+    const spy: IoDevice = { read: () => 0, peek: () => 0, write: (offset) => writes.push(offset) };
+    const map = new BbcMemoryMap({ devices: { systemVia: spy } });
+    installProgram(pokeWriter(map), lines, 0x0400);
+    expect(writes).toEqual([]);
   });
 });

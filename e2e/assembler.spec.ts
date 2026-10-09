@@ -40,7 +40,7 @@ test('opens on the labels example, already assembled, with PC at &0400', async (
 
 test('the labels example writes "BBC" to row 2 of the screen', async ({ page }) => {
   await step(page, 13);
-  const memory = page.getByRole('region', { name: 'Memory' });
+  const memory = page.getByRole('region', { name: 'Memory', exact: true });
   await memory.getByRole('textbox', { name: 'Go to address' }).fill('&7C50');
   await memory.getByRole('button', { name: 'Go to address' }).click();
   await expect(memory.locator('td.byte[data-address="7C50"]')).toHaveText('42');

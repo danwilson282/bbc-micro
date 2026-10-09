@@ -9,9 +9,9 @@ async function step(page: Page, times: number): Promise<void> {
   for (let i = 0; i < times; i++) await button.click();
 }
 
-// Stage 18's trace example is the playground's default.
+// Stage 18's trace example (the default until Stage 21).
 test.beforeEach(async ({ page }) => {
-  await page.goto('/');
+  await page.goto('/?program=trace');
 });
 
 test('opens on the trace example, decoding forwards from PC = &0400 with labels', async ({ page }) => {
