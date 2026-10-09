@@ -2,7 +2,7 @@
 
 Tracks where the build is up to. The `/start-stage` and `/finish-stage` skills keep this file up to date. For what each stage involves, see [`BUILD-PLAN.md`](./BUILD-PLAN.md).
 
-**Current stage:** 22 — ROMs & sideways paging (not started)
+**Current stage:** 23 — First steps into the MOS (not started)
 
 **Status values:**
 - `not started`
@@ -49,7 +49,7 @@ Tracks where the build is up to. The `/start-stage` and `/finish-stage` skills k
 | # | Stage | Status | Seen? | Branch | Doc | Notes |
 |---|---|---|---|---|---|---|
 | 21 | Memory map & I/O dispatch | done | ✅ | `stage/21-memory-map` | [doc](./stages/21-memory-map.md) | `src/memory/bbc-memory-map.ts` (RAM 32K, empty sideways socket, MOS ROM image starting at &FF and filled through `poke`, CPU writes to ROM ignored; FRED/JIM nothing connected). `IoDevice` = `read`/`write`/`peek` by register offset (no `tick` yet). `sheila.ts`: 12-slot table (registers × mirrors, `describeIoAddress` → "System VIA reg 14 (IER), mirror of &FE4E"), three 256-entry dispatch tables built in the constructor. `PlaceholderDevice` in every slot (reads float). **Floating bus** modelled as the last byte on the bus (`LDA &FE44` → &FE). `IoLog` ring buffer (256) + per-slot read/write counts. Side-effect-free `peek` (settles the Stage 02 item). The browser playground now runs on the map (`playgroundTarget(PlaygroundMemory)`; `TestBus` gains `peek`/`poke`; `installProgram` skips &FC00-&FEFF, loads via `pokeWriter`). New **Memory map** panel (region bar + table with Go, SHEILA table with counts, I/O log with Clear). New default example `memory-map` (`48 00 FE FD 80` at &80-&84, 7 logged accesses). `demo:memmap` (also prints the hidden MOS credits at &FC00-&FEFF from `os12.rom`). `e2e/memory-map.spec.ts`; `disassembly.spec.ts` now opens `?program=trace`; e2e `name: 'Memory'` lookups now `exact`. |
-| 22 | ROMs & sideways paging | not started | | `stage/22-roms-sideways` | [doc](./stages/22-roms-sideways.md) | |
+| 22 | ROMs & sideways paging | done | ✅ | `stage/22-roms-sideways` | [doc](./stages/22-roms-sideways.md) | `rom-select.ts` (`RomSelect` IoDevice: keeps `value & &0F`, write only so reads float, `onSelect` callback). `BbcMemoryMap`: 16 sideways slots + a `paged` reference swapped on ROMSEL writes (one lookup per `&8000`-`&BFFF` read); `loadMos`, `loadSidewaysRom`, `removeSidewaysRom`, `sidewaysRom`, `pagedRom`; `poke` writes the paged image; `romsel` can't be overridden any more (`PluggableSlotId`). `rom-header.ts` (`parseRomHeader(peek)` with the MOS's `&00 ( C )` check, `describeRomType`, `buildRomImage` for fake ROMs). `rom-image.ts` (`toRomImage`: 16K, or 8K mirrored). `standard-roms.ts` (MOS, BASIC → 15, DFS → 14; our choice). Node `rom-files.ts`, browser `web/rom-fetch.ts` (rejects Vite's 200 `index.html` fallback for missing files, seen with curl). `with-roms.ts` skip helper. `demo:roms` (16-slot header table, a 6502 scan like the MOS's, vectors, BASIC's entry code). Found while demoing: BASIC's `BEQ` runs through `&8003` (no service entry). No `dfs.rom` here, so its test skips. Memory map panel shows ROMSEL as emulated; example comments updated. |
 | 23 | First steps into the MOS | not started | | `stage/23-mos-first-steps` | [doc](./stages/23-mos-first-steps.md) | |
 
 ## Part 4: The 6522 VIA
@@ -142,6 +142,9 @@ Things to come back to: questions raised during a stage, known inaccuracies, ide
 - ~~Invalid-BCD results follow Clark's tutorial. Cross-check them against the real-hardware data in Stage 19.~~ Done in Stage 19: all 4,173 (`ADC #`) and 4,180 (`SBC #`) invalid-BCD cases match SingleStepTests, flags included. (Stage 11)
 - ~~`readOperand` (logic.ts) and `arithmetic()` (arithmetic.ts) are the same factory.~~ Done in Stage 14: `instructions/read-operand.ts`.
 - Run runs 40,000 cycles per *browser* frame, so it's ~1.2× real speed on a 60 Hz display (more on 120 Hz). Stage 30's run loop should pace by wall-clock time. (Stage 14)
+- We model 16 independent sideways slots. A stock Model B's four sockets probably mirror (only ROMSEL bits 0-1 decoded, so each ROM answers 4 numbers); unconfirmed against the circuit diagram. Revisit if anything depends on it. (Stage 22)
+- The browser ROM loader (`fetchStandardRoms`) isn't wired into the workbench yet: the playground keeps empty slots so its examples are unchanged. Use it when the browser runs the real machine (Stage 30). (Stage 22)
+- `dfs.rom` isn't in `roms/` yet. It's needed by Part 11 (DFS), and its header test skips until then. (Stage 22)
 - NMOS quirk: a taken branch that doesn't cross a page delays IRQ/NMI recognition by one instruction. Explained but not modelled in Stage 17; Part 12 cycle-exact extras. (Stage 14)
 - NMOS quirk: `PLP`, `CLI` and `SEI` change I one instruction late as far as IRQ recognition goes (`RTI` doesn't). Explained but not modelled in Stage 17 (ours takes an IRQ straight after `CLI`); Part 12 cycle-exact extras. (Stage 15)
 - Interrupt hijacking (an NMI during a BRK's or an IRQ's first cycles takes over the sequence: `&FFFA` with B = 1, and the BRK is lost) can't happen with interrupts only between whole instructions. Part 12. BRK's and RTI's dummy reads aren't modelled either. (Stage 17)
