@@ -514,7 +514,7 @@ export const MEMORY_MAP_SOURCE = `; Stage 21: the BBC memory map. Press Run (it 
 ;   &82  &FE  System VIA reg 4 is a placeholder, so the bus floats:
 ;             the last byte on it was &FE, from fetching "LDA &FE44"
 ;   &83  &FD  JIM: nothing connected, so &FD, the same way
-;   &84  &80  the sideways ROM socket is empty (until Stage 22)
+;   &84  &80  sideways ROM slot 0 (ROMSEL starts at 0) is empty: it floats too
 
 result  = &80
 
@@ -535,10 +535,10 @@ start:  LDA #&48
         STA result+2
         LDA &FD00         ; JIM
         STA result+3
-        LDA &8000         ; the empty sideways socket
+        LDA &8000         ; sideways slot 0: empty in the playground
         STA result+4
         LDA #&0C
-        STA &FE30         ; ROMSEL: "page in ROM 12" (Stage 22 makes it work)
+        STA &FE30         ; ROMSEL: page in ROM 12 (also empty here)
         LDA #&0D
         STA &FE00         ; CRTC: select register 13...
         LDA #&00

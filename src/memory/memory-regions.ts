@@ -42,8 +42,8 @@ export interface MemoryRegion {
 /** The map in address order. The MOS ROM appears twice, either side of the I/O pages. */
 export const MEMORY_REGIONS: readonly MemoryRegion[] = [
   { id: 'ram', start: RAM_START, end: SIDEWAYS_START - 1, name: 'RAM', detail: 'zero page, stack, MOS workspace, your program, and screen memory at the top' },
-  { id: 'sideways', start: SIDEWAYS_START, end: MOS_START - 1, name: 'Sideways ROM', detail: 'one of 16 paged ROMs, chosen by ROMSEL at &FE30 (Stage 22); an empty socket for now' },
-  { id: 'mos', start: MOS_START, end: FRED_START - 1, name: 'MOS ROM', detail: 'the operating system, MOS 1.20 (Stage 22 loads it)' },
+  { id: 'sideways', start: SIDEWAYS_START, end: MOS_START - 1, name: 'Sideways ROM', detail: 'one of 16 paged ROMs (BASIC, DFS, ...), chosen by ROMSEL at &FE30; an empty slot floats' },
+  { id: 'mos', start: MOS_START, end: FRED_START - 1, name: 'MOS ROM', detail: 'the operating system, MOS 1.20: always there, never paged' },
   { id: 'fred', start: FRED_START, end: JIM_START - 1, name: 'FRED', detail: '1 MHz bus: add-on hardware (nothing connected)' },
   { id: 'jim', start: JIM_START, end: SHEILA_START - 1, name: 'JIM', detail: '1 MHz bus: paged expansion memory (nothing connected)' },
   { id: 'sheila', start: SHEILA_START, end: MOS_TOP_PAGE - 1, name: 'SHEILA', detail: "the Model B's own I/O chips: video, VIAs, disc, ..." },

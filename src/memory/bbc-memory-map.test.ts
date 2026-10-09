@@ -145,7 +145,6 @@ describe('BbcMemoryMap: SHEILA dispatch', () => {
     ['serialUla', 0xfe10, 0], ['serialUla', 0xfe17, 0],
     ['econetId', 0xfe18, 0],
     ['videoUla', 0xfe20, 0], ['videoUla', 0xfe21, 1], ['videoUla', 0xfe2f, 1],
-    ['romsel', 0xfe30, 0], ['romsel', 0xfe3f, 0],
     ['fdc', 0xfe80, 0], ['fdc', 0xfe84, 4], ['fdc', 0xfe9c, 4],
     ['adlc', 0xfea0, 0], ['adlc', 0xfebf, 3],
     ['adc', 0xfec0, 0], ['adc', 0xfec2, 2],
@@ -157,13 +156,15 @@ describe('BbcMemoryMap: SHEILA dispatch', () => {
     expect(spy.calls).toEqual([`write ${String(register)} 90`]);
   });
 
-  it('every one of the 256 SHEILA offsets reaches exactly one device', () => {
-    const spies = new Map(SHEILA_SLOTS.map((slot) => [slot.id, new SpyDevice()]));
+  it('every one of the 256 SHEILA offsets reaches exactly one device (ROMSEL is the map\'s own latch)', () => {
+    const others = SHEILA_SLOTS.filter((slot) => slot.id !== 'romsel');
+    const spies = new Map(others.map((slot) => [slot.id, new SpyDevice()]));
     const map = new BbcMemoryMap({ devices: Object.fromEntries(spies) });
-    for (let o = 0; o < 0x100; o++) map.write(0xfe00 + o, 0x00);
+    for (let o = 0; o < 0x100; o++) map.write(0xfe00 + o, o);
     const total = [...spies.values()].reduce((sum, spy) => sum + spy.calls.length, 0);
-    expect(total).toBe(256);
-    for (const slot of SHEILA_SLOTS) expect(spies.get(slot.id)?.calls).toHaveLength(slot.size);
+    expect(total).toBe(256 - 16);
+    for (const slot of others) expect(spies.get(slot.id)?.calls).toHaveLength(slot.size);
+    expect(map.pagedRom).toBe(0x0f); // the last ROMSEL write was &3F, to &FE3F
   });
 
   it('a placeholder ignores writes and floats on reads: LDA &FE44 reads &FE, the high byte just fetched', () => {
@@ -269,5 +270,138 @@ describe('BbcMemoryMap: the I/O log and counts', () => {
     a.write(0xfe40, 0);
     expect(b.read(0x1234)).toBe(0x00);
     expect(b.ioLog.count).toBe(0);
+  });
+});
+
+/** A 16K image whose every byte is `fill`, so slots can be told apart. */
+function romFilledWith(fill: number): Uint8Array {
+  return new Uint8Array(0x4000).fill(fill);
+}
+
+/** Puts `code` at &0400 and points the reset vector there. */
+function cpuRunning(map: BbcMemoryMap, code: readonly number[]): Cpu6502 {
+  code.forEach((b, i) => {
+    map.write(0x0400 + i, b);
+  });
+  map.poke(0xfffc, 0x00);
+  map.poke(0xfffd, 0x04);
+  const cpu = new Cpu6502(map);
+  cpu.reset();
+  return cpu;
+}
+
+describe('BbcMemoryMap: ROMs and sideways paging', () => {
+  it('loadMos puts a 16K image at &C000-&FFFF: file offset &3FFC is the reset vector at &FFFC', () => {
+    const map = new BbcMemoryMap();
+    const mos = new Uint8Array(0x4000);
+    mos[0x0000] = 0x4c;
+    mos[0x3ffc] = 0xcd;
+    mos[0x3ffd] = 0xd9;
+    map.loadMos(mos);
+    expect([map.read(0xc000), map.read(0xfffc), map.read(0xfffd)]).toEqual([0x4c, 0xcd, 0xd9]);
+  });
+
+  it('starts with ROMSEL at 0 and all 16 slots empty', () => {
+    const map = new BbcMemoryMap();
+    expect(map.pagedRom).toBe(0);
+    for (let slot = 0; slot < 16; slot++) expect(map.sidewaysRom(slot)).toBeUndefined();
+  });
+
+  it('a write to &FE30 pages in that slot: &8000-&BFFF then reads its ROM', () => {
+    const map = new BbcMemoryMap();
+    map.loadSidewaysRom(15, romFilledWith(0xbb));
+    map.loadSidewaysRom(14, romFilledWith(0xdd));
+    map.write(0xfe30, 15);
+    expect([map.read(0x8000), map.read(0xbfff)]).toEqual([0xbb, 0xbb]);
+    map.write(0xfe30, 14);
+    expect([map.read(0x8000), map.read(0xbfff)]).toEqual([0xdd, 0xdd]);
+    expect(map.pagedRom).toBe(14);
+  });
+
+  it('every mirror of ROMSEL (&FE30-&FE3F) pages, and only the low 4 bits count: &FE3F ← &4F selects ROM 15', () => {
+    const map = new BbcMemoryMap();
+    map.loadSidewaysRom(15, romFilledWith(0xbb));
+    map.write(0xfe3f, 0x4f);
+    expect(map.pagedRom).toBe(15);
+    expect(map.read(0x8123)).toBe(0xbb);
+  });
+
+  it('a slot with no ROM floats, even when other slots are full', () => {
+    const map = new BbcMemoryMap();
+    map.loadSidewaysRom(15, romFilledWith(0xbb));
+    map.write(0xfe30, 3);
+    map.write(0x0070, 0x5a);
+    expect(map.read(0x8000)).toBe(0x5a);
+  });
+
+  it('reading ROMSEL floats: the CPU cannot ask which ROM is paged in', () => {
+    const map = new BbcMemoryMap();
+    map.write(0xfe30, 0x0c);
+    map.write(0x0070, 0x77);
+    expect(map.read(0xfe30)).toBe(0x77);
+    expect(map.pagedRom).toBe(0x0c);
+  });
+
+  it('the CPU cannot write to a paged ROM: the image is unchanged', () => {
+    const map = new BbcMemoryMap();
+    const rom = romFilledWith(0xbb);
+    map.loadSidewaysRom(15, rom);
+    map.write(0xfe30, 15);
+    map.write(0x8000, 0x00);
+    expect(map.read(0x8000)).toBe(0xbb);
+    expect(rom[0]).toBe(0xbb);
+  });
+
+  it('peek sees the paged slot without side effects; poke writes into the paged image, as a tool would', () => {
+    const map = new BbcMemoryMap();
+    map.loadSidewaysRom(15, romFilledWith(0xbb));
+    map.write(0xfe30, 15);
+    expect(map.peek(0x8000)).toBe(0xbb);
+    map.poke(0x8000, 0x12);
+    expect(map.peek(0x8000)).toBe(0x12);
+    expect(map.sidewaysRom(15)?.[0]).toBe(0x12);
+  });
+
+  it('loading a ROM into the slot that is already paged in takes effect at once', () => {
+    const map = new BbcMemoryMap();
+    map.write(0xfe30, 15);
+    map.loadSidewaysRom(15, romFilledWith(0xbb));
+    expect(map.read(0x8000)).toBe(0xbb);
+    map.removeSidewaysRom(15);
+    map.write(0x0070, 0x5a);
+    expect(map.read(0x8000)).toBe(0x5a);
+  });
+
+  it('rejects a slot outside 0-15 and an image that is not 16K', () => {
+    const map = new BbcMemoryMap();
+    expect(() => {
+      map.loadSidewaysRom(16, romFilledWith(0));
+    }).toThrow(RangeError);
+    expect(() => {
+      map.loadSidewaysRom(-1, romFilledWith(0));
+    }).toThrow(RangeError);
+    expect(() => {
+      map.loadSidewaysRom(0, new Uint8Array(0x2000));
+    }).toThrow(RangeError);
+    expect(() => {
+      map.loadMos(new Uint8Array(100));
+    }).toThrow(RangeError);
+  });
+
+  it('the CPU sees the new ROM on the very next instruction: STA &FE30 then LDA &8000', () => {
+    const map = new BbcMemoryMap();
+    map.loadSidewaysRom(14, romFilledWith(0xdd));
+    // LDA #&0E : STA &FE30 : LDA &8000
+    const cpu = cpuRunning(map, [0xa9, 0x0e, 0x8d, 0x30, 0xfe, 0xad, 0x00, 0x80]);
+    cpu.step();
+    cpu.step();
+    cpu.step();
+    expect(cpu.regs.a).toBe(0xdd);
+  });
+
+  it('the paging is logged like any other I/O write', () => {
+    const map = new BbcMemoryMap();
+    map.write(0xfe30, 0x0f);
+    expect(map.ioLog.recent()).toEqual([{ index: 1, address: 0xfe30, value: 0x0f, write: true }]);
   });
 });
