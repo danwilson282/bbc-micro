@@ -1,6 +1,7 @@
 // Browser entry point. Builds the "CPU playground" (a 6502 on the BBC memory
 // map, since Stage 21) and mounts the workbench beside the screen canvas.
 
+import { Via6522 } from './devices/via6522';
 import { BbcMemoryMap } from './memory/bbc-memory-map';
 import type { ListingLine } from './playground/listing';
 import { EXAMPLES, findExample } from './playground/examples';
@@ -20,6 +21,8 @@ import { createMemoryPanel } from './web/workbench/memory-panel';
 import { createWorkbench } from './web/workbench/panel';
 import { createRegistersPanel } from './web/workbench/registers-panel';
 import { createStackPanel } from './web/workbench/stack-panel';
+import { createViaPanel } from './web/workbench/via-panel';
+import { SYSTEM_VIA_BASE, USER_VIA_BASE } from './web/workbench/via-view-model';
 
 const canvas = document.querySelector<HTMLCanvasElement>('#screen');
 if (!canvas) throw new Error('Missing #screen canvas');
@@ -34,8 +37,11 @@ if (!underScreen) throw new Error('Missing #under-screen element');
 // earlier stage's instead.
 const initial = findExample(new URLSearchParams(window.location.search).get('program'));
 
-// Every SHEILA chip is a placeholder for now (Stage 21); ROMs come in Stage 22.
-const bus = new BbcMemoryMap();
+// The two 6522 VIAs are real since Stage 24, with nothing wired to their pins
+// yet. Every other SHEILA chip is still a placeholder (Stage 21).
+const systemVia = new Via6522();
+const userVia = new Via6522();
+const bus = new BbcMemoryMap({ devices: { systemVia, userVia } });
 // The target puts a WriteRecorder between the CPU and the bus (Stage 07).
 const target = playgroundTarget(bus, 'CPU playground (6502 on the BBC memory map)');
 let listing: readonly ListingLine[] = [];
@@ -67,6 +73,10 @@ const assembler = createAssemblerPanel({
     labels = labelsFromSymbols(assembly.symbols);
     // Through poke, so the vectors at &FFFA-&FFFF land in the MOS ROM image.
     installProgram(pokeWriter(bus), assembly.lines, entry);
+    // A fresh playground is a power-on, which resets the VIAs. The Reset
+    // button is like BREAK: it resets the CPU and leaves them alone (Stage 23).
+    systemVia.reset();
+    userVia.reset();
     target.reset();
     target.writes.clear();
     bus.clearIoHistory();
@@ -93,6 +103,15 @@ workbench.add(
     },
   }),
 );
+workbench.add(
+  createViaPanel(
+    [
+      { name: 'System VIA', base: SYSTEM_VIA_BASE, via: systemVia },
+      { name: 'User VIA', base: USER_VIA_BASE, via: userVia },
+    ],
+    { initial: 1, onChange: refreshAll },
+  ),
+);
 workbench.add(createAddressingPanel(target));
 workbench.add(createConverterPanel());
 assembler.assembleAndRun();
@@ -117,6 +136,8 @@ Object.assign(window, {
     },
     cpu: target.cpu,
     map: bus,
+    systemVia,
+    userVia,
     trace: (count = 20): string => [TRACE_HEADER, ...target.trace.recent(count).map((entry) => formatTraceLine(entry, labels))].join('\n'),
     irq: (): void => {
       target.ringIrq();
@@ -126,6 +147,6 @@ Object.assign(window, {
       target.pulseNmi();
       workbench.refreshAll();
     },
-    help: `workbench.poke(0x${hex16(PROGRAM_PAGE + 1)}, 0xff), workbench.step(), workbench.peek(addr), workbench.goTo(addr), workbench.trace(20), workbench.map.ioLog.recent(), workbench.irq(), workbench.nmi(), workbench.cpu.regs`,
+    help: `workbench.poke(0x${hex16(PROGRAM_PAGE + 1)}, 0xff), workbench.step(), workbench.peek(addr), workbench.goTo(addr), workbench.trace(20), workbench.map.ioLog.recent(), workbench.userVia.pins('b'), workbench.irq(), workbench.nmi(), workbench.cpu.regs`,
   },
 });
