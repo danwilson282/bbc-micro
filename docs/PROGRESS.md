@@ -2,7 +2,7 @@
 
 Tracks where the build is up to. The `/start-stage` and `/finish-stage` skills keep this file up to date. For what each stage involves, see [`BUILD-PLAN.md`](./BUILD-PLAN.md).
 
-**Current stage:** 24 — VIA ports & registers (not started)
+**Current stage:** 25 — VIA timers (not started)
 
 **Status values:**
 - `not started`
@@ -56,7 +56,7 @@ Tracks where the build is up to. The `/start-stage` and `/finish-stage` skills k
 
 | # | Stage | Status | Seen? | Branch | Doc | Notes |
 |---|---|---|---|---|---|---|
-| 24 | VIA ports & registers | not started | | `stage/24-via-ports` | [doc](./stages/24-via-ports.md) | |
+| 24 | VIA ports & registers | done | ✅ | `stage/24-via-ports` | [doc](./stages/24-via-ports.md) | `src/devices/via6522.ts` (ORA/ORB, DDRA/DDRB, IRA = pins on every line, IRB = ORB on outputs + pins on inputs, regs 1 and 15 share ORA; datasheet-named register constants; `reset()` per the RES pin; regs &4-&E are **read-back stubs** until Stages 25/26). Pin model: `outside` byte per port, 0 bits pull low; `pins = ((OR & DDR) \| ~DDR) & outside` (inputs float high). New **VIA** panel (picker System/User, 16 registers with stub status, per-port bit grids with pull-low buttons). Browser playground map now has two real VIAs; Assemble & Run resets them (power-on), Reset doesn't (BREAK). New default example `via-ports` (results &F5 &0F &3F, then port B counts &00-&FF in ~6.5 s via `INC &FE60`). Stage 21 example now floats on `&FE80` (8271) instead of `&FE44`; `memory-map.spec.ts` opens `?program=memory-map`. `e2e/via.spec.ts`. MOS runner unchanged (VIAs join the machine in Stage 27). |
 | 25 | VIA timers | not started | | `stage/25-via-timers` | [doc](./stages/25-via-timers.md) | |
 | 26 | VIA interrupts & control lines | not started | | `stage/26-via-interrupts` | [doc](./stages/26-via-interrupts.md) | |
 
@@ -173,3 +173,6 @@ Things to come back to: questions raised during a stage, known inaccuracies, ide
 - **BREAK vs power-on** (Stage 23): only power-on resets the VIAs; the MOS tells them apart by reading IER. Stage 27's `reset()` needs two flavours, and BREAK must leave the VIAs alone. (Stage 23)
 - `lastLap` starts a lap at the least-run instruction (ties: lowest address). A trace window that starts mid-lap can make it pick a later anchor (Part 5 starts at `defaultREM`, not `rdchWait`). Cosmetic. (Stage 23)
 - Unnamed routines still show as hex in call chains (`&CCF5` VDU dispatch `JMP (&035D)`, `&F068` `JMP (KEYV)`, `&E577`, BASIC's `&BC02`). Name them when a later stage reads them. (Stage 23)
+- Floating VIA inputs read 1 in our model (no line pulled low). Believed right for the Model B's user port, not checked against the circuit diagram's pull-ups. The outside can only pull a line *low*; forcing a VIA-driven 0 high isn't modelled. (Stage 24)
+- Nothing is told when a VIA output changes: the panel polls `pins()`. Stage 28's addressable latch needs a port B change callback (or to read `pins('b')` on each write). (Stage 24)
+- VIA panel redraws the whole grid every frame during Run, so element screenshots can race the redraw (seen with the Playwright MCP). Same family as the Stage 03 `refresh()` item. (Stage 24)

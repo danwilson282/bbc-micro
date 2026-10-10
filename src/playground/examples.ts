@@ -504,15 +504,16 @@ const TRACE_EXAMPLE: Example = { id: 'trace', title: 'Stage 18: disassembler & t
 
 /**
  * Stage 21: the BBC memory map. Each part of the map answers differently:
- * RAM keeps a write, ROM loses it, SHEILA's chips (placeholders for now)
- * see register numbers, and empty addresses return the floating bus.
+ * RAM keeps a write, ROM loses it, SHEILA's chips see register numbers, and
+ * empty addresses return the floating bus. (Since Stage 24 the VIAs are real,
+ * so the floating read goes to the 8271 FDC's slot instead of T1C-L.)
  */
 export const MEMORY_MAP_SOURCE = `; Stage 21: the BBC memory map. Press Run (it stops at the BRK), then
 ; read the Memory map panel's I/O log, and the results at &80-&84:
 ;   &80  &48  RAM kept what was written
 ;   &81  &00  the MOS ROM didn't: a ROM has no write line
-;   &82  &FE  System VIA reg 4 is a placeholder, so the bus floats:
-;             the last byte on it was &FE, from fetching "LDA &FE44"
+;   &82  &FE  the 8271 FDC is a placeholder, so the bus floats:
+;             the last byte on it was &FE, from fetching "LDA &FE80"
 ;   &83  &FD  JIM: nothing connected, so &FD, the same way
 ;   &84  &80  sideways ROM slot 0 (ROMSEL starts at 0) is empty: it floats too
 
@@ -531,7 +532,7 @@ start:  LDA #&48
         LDA #&7F
         STA &FE4E         ; System VIA reg 14 (IER)
         STA &FE5E         ; the same register again, through its mirror
-        LDA &FE44         ; System VIA reg 4 (T1C-L)
+        LDA &FE80         ; 8271 FDC reg 0 (status): a placeholder until Part 11
         STA result+2
         LDA &FD00         ; JIM
         STA result+3
@@ -548,7 +549,63 @@ start:  LDA #&48
 
 const MEMORY_MAP_EXAMPLE: Example = { id: 'memory-map', title: 'Stage 21: the BBC memory map (Run me)', source: MEMORY_MAP_SOURCE };
 
+/**
+ * Stage 24: the 6522's ports, on the User VIA. The first part leaves its
+ * results at &80-&82; then Run makes port B count in binary, read-modify-write
+ * on ORB, which works because IRB reads ORB back for output lines.
+ */
+export const VIA_PORTS_SOURCE = `; Stage 24: the VIA's ports, on the User VIA (&FE60-&FE6F).
+; Step the first part with the VIA panel open (pick User VIA), and watch
+; DDRB decide which ORB bits reach the pins. Results:
+;   &80  &F5  IRB with DDRB=&0F, ORB=&A5: 0101 from ORB (outputs),
+;             1111 from the pins above (inputs, nothing pulling: high)
+;   &81  &0F  a DDR reads back what was written
+;   &82  &3F  IRA with DDRA=&F0, ORA=&3C: port A reads the pins
+; Then Run: port B counts &00 to &FF in binary (about 6 seconds) and stops.
+; Try pulling an output line low in the panel while it counts: the pin
+; drops, but IRB still reads ORB, so INC carries on counting regardless.
+
+uvia    = &FE60
+orb     = uvia            ; write ORB, read IRB
+ora     = uvia + 1        ; write ORA, read IRA (with handshake)
+ddrb    = uvia + 2
+ddra    = uvia + 3
+ora_nh  = uvia + 15       ; ORA / IRA, no handshake
+result  = &80
+
+        *= &0400
+start:  LDA #&A5
+        STA orb           ; ORB = &A5, but every line is still an input
+        LDA #&0F
+        STA ddrb          ; PB0-PB3 become outputs: they drive 0101
+        LDA orb           ; IRB: ORB's bits on outputs, pins on inputs
+        STA result        ; &F5
+        LDA ddrb
+        STA result+1      ; &0F
+        LDA #&F0
+        STA ddra          ; PA4-PA7 outputs, PA0-PA3 inputs
+        LDA #&3C
+        STA ora_nh        ; ORA = &3C
+        LDA ora           ; IRA: the pins, 0011 driven + 1111 floating
+        STA result+2      ; &3F
+        LDA #&FF
+        STA ddrb          ; port B: all outputs
+        LDA #0
+        STA orb
+count:  LDY #40           ; wait 40 x 256 x 5 cycles: about 26 ms
+wait:   DEX
+        BNE wait
+        DEY
+        BNE wait
+        INC orb           ; reads IRB (= ORB, all outputs), writes ORB + 1
+        BNE count         ; until it wraps round to &00
+        BRK               ; Run stops here
+`;
+
+const VIA_PORTS_EXAMPLE: Example = { id: 'via-ports', title: 'Stage 24: VIA ports (Step, then Run)', source: VIA_PORTS_SOURCE };
+
 export const EXAMPLES: readonly Example[] = [
+  VIA_PORTS_EXAMPLE,
   MEMORY_MAP_EXAMPLE,
   TRACE_EXAMPLE,
   INTERRUPTS_EXAMPLE,
@@ -567,5 +624,5 @@ export const EXAMPLES: readonly Example[] = [
 
 /** The example with this id, or the current stage's if there's none. */
 export function findExample(id: string | null): Example {
-  return EXAMPLES.find((example) => example.id === id) ?? MEMORY_MAP_EXAMPLE;
+  return EXAMPLES.find((example) => example.id === id) ?? VIA_PORTS_EXAMPLE;
 }

@@ -2,10 +2,11 @@ import { assemble, formatError } from '../asm/assembler';
 import { Cpu6502, UnimplementedOpcodeError } from '../cpu/cpu6502';
 import { disassemble } from '../cpu/disassembler';
 import { Tracer, formatTraceLine } from '../cpu/trace';
+import { VIA_ORB, Via6522 } from '../devices/via6522';
 import { BbcMemoryMap } from '../memory/bbc-memory-map';
 import { describeIoAddress } from '../memory/sheila';
 import { TestBus } from '../memory/test-bus';
-import { ARITHMETIC_SOURCE, DECIMAL_SOURCE, EXAMPLES, FILL_SOURCE, INCDEC_SOURCE, INTERRUPTS_SOURCE, LABELS_SOURCE, LOGIC_SOURCE, SHIFTS_SOURCE, STACK_SOURCE, SUBROUTINES_SOURCE, TRACE_SOURCE, MEMORY_MAP_SOURCE, findExample } from './examples';
+import { ARITHMETIC_SOURCE, DECIMAL_SOURCE, EXAMPLES, FILL_SOURCE, INCDEC_SOURCE, INTERRUPTS_SOURCE, LABELS_SOURCE, LOGIC_SOURCE, SHIFTS_SOURCE, STACK_SOURCE, SUBROUTINES_SOURCE, TRACE_SOURCE, MEMORY_MAP_SOURCE, VIA_PORTS_SOURCE, findExample } from './examples';
 import { Doorbell } from './doorbell';
 import { LOADS_PROGRAM } from './loads-program';
 import { installProgram, pokeWriter } from './setup';
@@ -746,12 +747,56 @@ describe('the Stage 21 memory-map example', () => {
     expect(map.ioLog.recent().map((e) => `${e.write ? 'W' : 'R'} ${describeIoAddress(e.address).text}`)).toEqual([
       'W System VIA reg 14 (IER)',
       'W System VIA reg 14 (IER), mirror of &FE4E',
-      'R System VIA reg 4 (T1C-L)',
+      'R 8271 FDC reg 0 (status / command)',
       'R JIM (1 MHz bus: nothing connected)',
       'W ROMSEL (paged ROM select)',
       'W CRTC reg 0 (address register)',
       'W CRTC reg 1 (register data)',
     ]);
+  });
+});
+
+describe('the Stage 24 VIA ports example', () => {
+  /** On the BBC memory map with a real User VIA, as in the browser. Stops before the BRK, or at a step limit. */
+  function start(): { cpu: Cpu6502; map: BbcMemoryMap; userVia: Via6522 } {
+    const userVia = new Via6522();
+    const map = new BbcMemoryMap({ devices: { userVia } });
+    installProgram(pokeWriter(map), assembled(VIA_PORTS_SOURCE).lines, 0x0400);
+    const cpu = new Cpu6502(map);
+    cpu.reset();
+    return { cpu, map, userVia };
+  }
+
+  function runToBrk(cpu: Cpu6502, map: BbcMemoryMap, onStep?: () => void): void {
+    for (let i = 0; i < 10_000_000 && map.peek(cpu.regs.pc) !== 0x00; i++) {
+      cpu.step();
+      onStep?.();
+    }
+  }
+
+  it('leaves IRB = &F5, DDRB = &0F and IRA = &3F at &80-&82', () => {
+    const { cpu, map } = start();
+    runToBrk(cpu, map);
+    expect([0x80, 0x81, 0x82].map((a) => map.peek(a))).toEqual([0xf5, 0x0f, 0x3f]);
+  });
+
+  it('counts ORB through all 256 values, about 6.5 emulated seconds, and stops with port B back at &00', () => {
+    const { cpu, map, userVia } = start();
+    const seen = new Set<number>();
+    runToBrk(cpu, map, () => seen.add(userVia.outputRegister('b')));
+    expect(seen.size).toBe(256);
+    expect(userVia.pins('b')).toBe(0x00);
+    expect(cpu.cycles / 2_000_000).toBeGreaterThan(6);
+    expect(cpu.cycles / 2_000_000).toBeLessThan(7);
+  });
+
+  it('still counts with PB7 pulled low: INC reads IRB, which is ORB on output lines', () => {
+    const { cpu, map, userVia } = start();
+    userVia.setOutside('b', 0x7f);
+    const seen = new Set<number>();
+    runToBrk(cpu, map, () => seen.add(userVia.outputRegister('b')));
+    expect(seen.size).toBe(256);
+    expect(userVia.peek(VIA_ORB)).toBe(0x00);
   });
 });
 
@@ -761,7 +806,7 @@ describe('the examples', () => {
   });
 
   it('falls back to the first example for an unknown or missing id', () => {
-    expect(findExample('nope').id).toBe('memory-map');
-    expect(findExample(null).id).toBe('memory-map');
+    expect(findExample('nope').id).toBe('via-ports');
+    expect(findExample(null).id).toBe('via-ports');
   });
 });

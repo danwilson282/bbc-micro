@@ -4,9 +4,9 @@ function mapPanel(page: Page): ReturnType<Page['getByRole']> {
   return page.getByRole('region', { name: 'Memory map' });
 }
 
-// Stage 21's memory-map example is the playground's default.
+// Stage 21's memory-map example (the default until Stage 24).
 test.beforeEach(async ({ page }) => {
-  await page.goto('/');
+  await page.goto('/?program=memory-map');
 });
 
 test('shows the seven regions of the Model B map, with PC in RAM, and an empty I/O log', async ({ page }) => {
@@ -24,14 +24,14 @@ test('Run logs each I/O access with its device and register, and counts them per
   await expect(panel.locator('.map-log tbody td.text')).toHaveText([
     'System VIA reg 14 (IER)',
     'System VIA reg 14 (IER), mirror of &FE4E',
-    'System VIA reg 4 (T1C-L)',
+    '8271 FDC reg 0 (status / command)',
     'JIM (1 MHz bus: nothing connected)',
     'ROMSEL (paged ROM select)',
     'CRTC reg 0 (address register)',
     'CRTC reg 1 (register data)',
   ]);
-  const via = panel.locator('tr[data-slot="systemVia"] td.count');
-  await expect(via).toHaveText(['1', '2']);
+  await expect(panel.locator('tr[data-slot="systemVia"] td.count')).toHaveText(['0', '2']);
+  await expect(panel.locator('tr[data-slot="fdc"] td.count')).toHaveText(['1', '0']);
   // The results: RAM kept &48, ROM lost it, and the floating reads at &82-&84.
   const memory = page.getByRole('region', { name: 'Memory', exact: true });
   await memory.getByRole('textbox', { name: 'Go to address' }).fill('&0080');
