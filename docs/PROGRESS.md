@@ -2,7 +2,7 @@
 
 Tracks where the build is up to. The `/start-stage` and `/finish-stage` skills keep this file up to date. For what each stage involves, see [`BUILD-PLAN.md`](./BUILD-PLAN.md).
 
-**Current stage:** 25 — VIA timers (not started)
+**Current stage:** 26 — VIA interrupts & control lines (not started)
 
 **Status values:**
 - `not started`
@@ -57,7 +57,7 @@ Tracks where the build is up to. The `/start-stage` and `/finish-stage` skills k
 | # | Stage | Status | Seen? | Branch | Doc | Notes |
 |---|---|---|---|---|---|---|
 | 24 | VIA ports & registers | done | ✅ | `stage/24-via-ports` | [doc](./stages/24-via-ports.md) | `src/devices/via6522.ts` (ORA/ORB, DDRA/DDRB, IRA = pins on every line, IRB = ORB on outputs + pins on inputs, regs 1 and 15 share ORA; datasheet-named register constants; `reset()` per the RES pin; regs &4-&E are **read-back stubs** until Stages 25/26). Pin model: `outside` byte per port, 0 bits pull low; `pins = ((OR & DDR) \| ~DDR) & outside` (inputs float high). New **VIA** panel (picker System/User, 16 registers with stub status, per-port bit grids with pull-low buttons). Browser playground map now has two real VIAs; Assemble & Run resets them (power-on), Reset doesn't (BREAK). New default example `via-ports` (results &F5 &0F &3F, then port B counts &00-&FF in ~6.5 s via `INC &FE60`). Stage 21 example now floats on `&FE80` (8271) instead of `&FE44`; `memory-map.spec.ts` opens `?program=memory-map`. `e2e/via.spec.ts`. MOS runner unchanged (VIAs join the machine in Stage 27). |
-| 25 | VIA timers | not started | | `stage/25-via-timers` | [doc](./stages/25-via-timers.md) | |
+| 25 | VIA timers | done | ✅ | `stage/25-via-timers` | [doc](./stages/25-via-timers.md) | `via6522.ts`: T1 (one-shot/free-run, latches vs counter, reload, PB7 pulse/square wave overriding DDRB), T2 (one-shot, no reload; pulse-count mode holds, not built), real ACR, IFR bits 6/5 with their read/write clears and write-1-to-clear (bit 7/IER/IRQ still Stage 26). `tick(cpuCycles)` halves to the 1 MHz VIA clock with a carried `phase`; `clockOnce()` per VIA cycle. **Counter loads in the cycle after a T1C-H/T2C-H write** (changed after `demo:timers` showed timeouts one cycle early vs the datasheet diagram). `devices/clocked.ts`; `playgroundTarget(…, devices)` ticks after step and reset. VIA panel Timers table (bar, latch, mode, armed, flag), `T1` on PB7. New default example `via-timers` (T2 stopwatch 126 µs at `&82`; T1 50 ms free-run, `BIT`/`BVC` poll, 100 ticks at `&80` in 5 s). `demo:timers`. `e2e/via-timers.spec.ts`; `via.spec.ts` opens `?program=via-ports`. Found: a torn 16-bit counter read (`&FE03` = 508 µs) in the first draft of the example. |
 | 26 | VIA interrupts & control lines | not started | | `stage/26-via-interrupts` | [doc](./stages/26-via-interrupts.md) | |
 
 ## Part 5: Assembling the machine
@@ -176,3 +176,8 @@ Things to come back to: questions raised during a stage, known inaccuracies, ide
 - Floating VIA inputs read 1 in our model (no line pulled low). Believed right for the Model B's user port, not checked against the circuit diagram's pull-ups. The outside can only pull a line *low*; forcing a VIA-driven 0 high isn't modelled. (Stage 24)
 - Nothing is told when a VIA output changes: the panel polls `pins()`. Stage 28's addressable latch needs a port B change callback (or to read `pins('b')` on each write). (Stage 24)
 - VIA panel redraws the whole grid every frame during Run, so element screenshots can race the redraw (seen with the Playwright MCP). Same family as the Stage 03 `refresh()` item. (Stage 24)
+- VIA timer loads/reads are seen at the end of the instruction (the store's cycles are ticked after its write), so right after `STA &FE65` we show N−1 where the chip shows N. Periods are exact. Part 12: tick devices up to the access cycle before each I/O read/write. (Stage 25)
+- T1 in one-shot mode reloads from the latch after timing out (only the flag/PB7 don't retrigger). The datasheet says it "continues to decrement"; we follow the common reading. Unconfirmed on hardware. (Stage 25)
+- Writing T1L-H clears IFR bit 6 in our VIA (the datasheet's "write T1 high" read broadly). And ACR bit 7 drives PB7 regardless of DDRB bit 7. Both unconfirmed. (Stage 25)
+- T2 pulse counting (ACR bit 5, PB6 falling edges) isn't built: T2 holds. The MOS sets it on the System VIA (ACR `&60`); harmless while nothing drives PB6 (speech). (Stage 25)
+- VIAs power up with `&0000` counters/latches, not random ones. (Stage 25)

@@ -3,6 +3,8 @@
 //
 //   - The register table: all 16, with what a CPU read would return now.
 //     Registers that are still stubs are greyed, with the stage that builds them.
+//   - The timers (Stage 25): T1 and T2's counters, with a bar draining as they
+//     count down, their latches, modes and IFR flags.
 //   - A bit grid per port, PA7 … PA0 and PB7 … PB0: the DDR bit (out/in), the
 //     output register, the outside world, the pin, and what the CPU reads.
 //     Each "outside" cell is a button: click it to pull that line low (or let go).
@@ -11,7 +13,7 @@
 
 import { button } from './dom';
 import type { Panel } from './panel';
-import { buildViaView, toggleOutsideBit, type ViaChoice, type ViaLine, type ViaOutside, type ViaPortView } from './via-view-model';
+import { buildViaView, toggleOutsideBit, type ViaChoice, type ViaLine, type ViaOutside, type ViaPortView, type ViaTimerRow } from './via-view-model';
 
 export interface ViaPanelChoice extends ViaChoice {
   readonly via: ViaChoice['via'] & ViaOutside;
@@ -49,6 +51,14 @@ export function createViaPanel(choices: readonly ViaPanelChoice[], options: ViaP
   registers.createTHead().insertRow().append(th('Reg'), th('Address'), th('Name'), th('Reads'), th('Binary'), th(''));
   const registerBody = registers.createTBody();
 
+  const timers = document.createElement('table');
+  timers.className = 'via-table via-timers';
+  timers.createCaption().textContent = 'Timers (1 count = 1 µs: the VIAs run at 1 MHz)';
+  timers.createTHead().insertRow().append(th('Timer'), th('Counter'), th(''), th('Latch'), th('Mode'), th('Armed'), th('IFR flag'));
+  const timerBody = timers.createTBody();
+  const ifrLine = document.createElement('p');
+  ifrLine.className = 'via-ifr';
+
   const ports = document.createElement('div');
   ports.className = 'via-ports';
 
@@ -56,7 +66,26 @@ export function createViaPanel(choices: readonly ViaPanelChoice[], options: ViaP
   note.className = 'via-note';
   note.textContent = 'Nothing is wired to the pins yet. Click an "outside" bit to pull that line low, as a switch to ground would.';
 
-  element.append(picker, registers, ports, note);
+  element.append(picker, registers, timers, ifrLine, ports, note);
+
+  function timerRow(t: ViaTimerRow): void {
+    const tr = timerBody.insertRow();
+    tr.dataset.timer = t.name;
+    cell(tr, t.name);
+    cell(tr, `${t.counter} = ${t.decimal}`, 'mono counter');
+    const barCell = tr.insertCell();
+    const bar = document.createElement('div');
+    bar.className = 'via-timer-bar';
+    bar.setAttribute('aria-hidden', 'true');
+    const fill = document.createElement('div');
+    fill.style.width = `${(t.fraction * 100).toFixed(1)}%`;
+    bar.append(fill);
+    barCell.append(bar);
+    cell(tr, t.latch, 'mono latch');
+    cell(tr, t.pb7 === '' ? t.mode : `${t.mode}; ${t.pb7}`, 'mode');
+    cell(tr, t.armed ? 'yes' : 'no', 'armed');
+    cell(tr, `bit ${String(t.flagBit)} = ${t.flag ? '1' : '0'}`, t.flag ? 'ifr-flag set' : 'ifr-flag');
+  }
 
   function portGrid(view: ViaPortView, via: ViaOutside): HTMLElement {
     const table = document.createElement('table');
@@ -91,8 +120,9 @@ export function createViaPanel(choices: readonly ViaPanelChoice[], options: ViaP
       hexCell.textContent = hexValue;
     };
 
-    bitRow(view.ddrName, 'ddr', view.hex.ddr, (l) => (l.isOutput ? 'out' : 'in'));
-    bitRow(view.orName, 'or', view.hex.or, (l) => String(l.or), (l) => (l.isOutput ? '' : 'unused'));
+    // A line Timer 1 drives (PB7 with ACR bit 7) shows "T1" and the timer's level.
+    bitRow(view.ddrName, 'ddr', view.hex.ddr, (l) => (l.timer1 ? 'T1' : l.isOutput ? 'out' : 'in'), (l) => (l.timer1 ? 'timer' : ''));
+    bitRow(view.orName, 'or', view.hex.or, (l) => String(l.or), (l) => (l.timer1 ? 'timer' : l.isOutput ? '' : 'unused'));
 
     // The outside row: one button per line.
     const outsideRow = body.insertRow();
@@ -143,8 +173,12 @@ export function createViaPanel(choices: readonly ViaPanelChoice[], options: ViaP
       cell(tr, r.name);
       cell(tr, r.value, 'mono value');
       cell(tr, r.binary, 'mono');
-      cell(tr, r.isStub ? r.status : '', 'status');
+      cell(tr, r.status === 'built' ? '' : r.status, 'status');
     }
+
+    timerBody.replaceChildren();
+    for (const t of view.timers) timerRow(t);
+    ifrLine.textContent = `IFR reads ${view.ifr}: bit 6 = T1 ran out, bit 5 = T2 ran out. Read T1C-L / T2C-L, or write a 1 to the bit, to clear it. (Bit 7 and IER: Stage 26.)`;
 
     ports.replaceChildren(...view.ports.map((pv) => portGrid(pv, choice.via)));
   }

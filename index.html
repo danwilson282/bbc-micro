@@ -744,6 +744,40 @@
         border-color: var(--accent);
         color: var(--panel);
       }
+      .via-timers caption {
+        text-align: left;
+        font-weight: 600;
+        padding: 4px 0 2px;
+      }
+      .via-timers td.counter {
+        min-width: 9em;
+      }
+      .via-timers td.mode,
+      .via-timers td.ifr-flag {
+        font-size: 0.8rem;
+      }
+      .via-timers td.ifr-flag.set {
+        color: var(--accent);
+        font-weight: 600;
+      }
+      .via-timer-bar {
+        width: 80px;
+        height: 8px;
+        border: 1px solid var(--muted);
+      }
+      .via-timer-bar > div {
+        height: 100%;
+        background: var(--written);
+      }
+      .via-ifr {
+        margin: 0 0 8px;
+        font-size: 0.8rem;
+        color: var(--muted);
+      }
+      .via-port td.bit.timer {
+        background: color-mix(in srgb, var(--accent) 18%, transparent);
+        font-weight: 600;
+      }
       .via-note {
         margin: 0;
         font-size: 0.8rem;

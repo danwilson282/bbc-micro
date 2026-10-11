@@ -9,9 +9,9 @@ import {
   VIA_ORB,
   VIA_PCR,
   VIA_SR,
-  VIA_T1C_L,
   VIA_T1L_H,
-  VIA_T2C_H,
+  VIA_T1L_L,
+  VIA_T2C_L,
   Via6522,
 } from './via6522';
 
@@ -30,16 +30,16 @@ describe('Via6522 after reset', () => {
     expect(via.pins('b')).toBe(0xff);
   });
 
-  it('/RES clears ORA, ORB, DDRA, DDRB, ACR, PCR and IER but keeps the timer registers and SR (6522 datasheet, RES)', () => {
+  it('/RES clears ORA, ORB, DDRA, DDRB, ACR, PCR and IER but keeps the timer latches and SR (6522 datasheet, RES)', () => {
     const via = new Via6522();
-    for (const reg of [VIA_ORB, VIA_ORA, VIA_DDRB, VIA_DDRA, VIA_ACR, VIA_PCR, VIA_IER, VIA_T1C_L, VIA_T1L_H, VIA_T2C_H, VIA_SR]) via.write(reg, 0x5a);
+    for (const reg of [VIA_ORB, VIA_ORA, VIA_DDRB, VIA_DDRA, VIA_ACR, VIA_PCR, VIA_IER, VIA_T1L_L, VIA_T1L_H, VIA_T2C_L, VIA_SR]) via.write(reg, 0x5a);
     via.reset();
     expect(via.outputRegister('a')).toBe(0x00);
     expect(via.outputRegister('b')).toBe(0x00);
     expect(via.dataDirection('a')).toBe(0x00);
     expect(via.dataDirection('b')).toBe(0x00);
     expect([VIA_ACR, VIA_PCR, VIA_IER].map((r) => via.read(r))).toEqual([0x00, 0x00, 0x00]);
-    expect([VIA_T1C_L, VIA_T1L_H, VIA_T2C_H, VIA_SR].map((r) => via.read(r))).toEqual([0x5a, 0x5a, 0x5a, 0x5a]);
+    expect([VIA_T1L_L, VIA_T1L_H, VIA_SR].map((r) => via.read(r))).toEqual([0x5a, 0x5a, 0x5a]);
   });
 
   it('/RES does not change what the outside world is doing to the pins', () => {
@@ -142,16 +142,16 @@ describe('Via6522 reading port A (IRA)', () => {
   });
 });
 
-describe('Via6522 registers not built yet (timers, SR, ACR, PCR, IFR, IER)', () => {
-  it.each([4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14])('register %i stores a write and reads it back (a stub until Stages 25 and 26)', (reg) => {
+describe('Via6522 registers not built yet (SR, PCR, IER)', () => {
+  it.each([VIA_SR, VIA_PCR, VIA_IER])('register %i stores a write and reads it back (a stub until Stage 26, or for good)', (reg) => {
     const via = new Via6522();
     via.write(reg, 0x3c);
     expect(via.read(reg)).toBe(0x3c);
   });
 
-  it('writing them leaves the ports alone', () => {
+  it('writing registers &4-&E leaves the ports alone', () => {
     const via = new Via6522();
-    for (let reg = 4; reg <= 14; reg++) via.write(reg, 0xff);
+    for (let reg = 4; reg <= 14; reg++) if (reg !== VIA_ACR) via.write(reg, 0xff);
     expect(via.dataDirection('a')).toBe(0x00);
     expect(via.dataDirection('b')).toBe(0x00);
     expect(via.outputRegister('a')).toBe(0x00);

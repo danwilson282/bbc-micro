@@ -604,7 +604,77 @@ wait:   DEX
 
 const VIA_PORTS_EXAMPLE: Example = { id: 'via-ports', title: 'Stage 24: VIA ports (Step, then Run)', source: VIA_PORTS_SOURCE };
 
+/**
+ * Stage 25: the 6522's timers, on the User VIA. The first part uses T2 as a
+ * stopwatch (results at &81-&83); then Run sets T1 free-running at 50 ms with
+ * PB7 as a square wave, and polls IFR bit 6 with BIT to count 100 timeouts at &80.
+ */
+export const VIA_TIMERS_SOURCE = `; Stage 25: the VIA's timers, on the User VIA (&FE60-&FE6F).
+; Open the VIA panel (User VIA). Step the first part and watch the Timers
+; table, then Run. One count = 1 microsecond: the VIAs run at 1 MHz.
+;   &81      &34  T1C-L's write went to the latch: T1L-L reads it back
+;   &82/&83  &7E &00: the delay loop took 126 microseconds, timed by T2
+; Then Run: T1 free-runs with a 50 ms period, driving PB7 as a square wave
+; (watch PB7 flash in the port B grid). Each time it runs out, the program
+; clears the flag and adds 1 to &80: 100 ticks = 5 seconds, then BRK.
+
+uvia    = &FE60
+t1cl    = uvia + 4        ; write: T1 low latch. read: T1 counter low, clears IFR bit 6
+t1ch    = uvia + 5        ; write: T1 high latch, then latches -> counter: go
+t1ll    = uvia + 6        ; T1 low latch
+t1lh    = uvia + 7        ; T1 high latch (no load)
+t2cl    = uvia + 8        ; write: T2 low latch. read: T2 counter low, clears IFR bit 5
+t2ch    = uvia + 9        ; write: T2 high byte + latch -> counter: go
+acr     = uvia + 11       ; bit 7: T1 drives PB7. bit 6: T1 free-runs
+ifr     = uvia + 13       ; bit 6: T1 ran out. bit 5: T2 ran out
+ticks   = &80
+latch   = &81
+elapsed = &82
+
+        *= &0400
+start:  LDA #&34
+        STA t1cl          ; writes the T1 low LATCH, not the counter
+        LDA t1ll
+        STA latch         ; &34: the latch reads back through register 6
+
+; T2 as a stopwatch: start it at &FFFF, wait, see how far it has counted.
+        LDA #&FF
+        STA t2cl          ; T2 low latch = &FF
+        STA t2ch          ; counter = &FFFF, and it starts
+        LDX #50
+delay:  DEX               ; 50 times round: about 250 CPU cycles
+        BNE delay
+        LDA t2cl          ; the counter, low byte first (see the doc's Gotchas
+                          ; for what goes wrong if it crosses &xx00 in between)
+        EOR #&FF          ; &FFFF - counter = microseconds gone
+        STA elapsed
+        LDA t2ch
+        EOR #&FF
+        STA elapsed+1
+
+; T1 free-running: a period of N+2 cycles, so 50,000 us needs N = 49,998 = &C34E.
+        LDA #&C0
+        STA acr           ; ACR = &C0: T1 free-runs and drives PB7
+        LDA #&4E
+        STA t1ll          ; low latch = &4E
+        LDA #&C3
+        STA t1ch          ; high latch = &C3, counter = &C34E: go
+        LDA #0
+        STA ticks
+wait:   BIT ifr           ; BIT copies bit 6 of IFR into V
+        BVC wait          ; until T1 runs out
+        LDA t1cl          ; reading T1C-L clears IFR bit 6
+        INC ticks
+        LDA ticks
+        CMP #100
+        BNE wait
+        BRK               ; Run stops here: 100 x 50 ms = 5 seconds
+`;
+
+const VIA_TIMERS_EXAMPLE: Example = { id: 'via-timers', title: 'Stage 25: VIA timers (Step, then Run)', source: VIA_TIMERS_SOURCE };
+
 export const EXAMPLES: readonly Example[] = [
+  VIA_TIMERS_EXAMPLE,
   VIA_PORTS_EXAMPLE,
   MEMORY_MAP_EXAMPLE,
   TRACE_EXAMPLE,
@@ -624,5 +694,5 @@ export const EXAMPLES: readonly Example[] = [
 
 /** The example with this id, or the current stage's if there's none. */
 export function findExample(id: string | null): Example {
-  return EXAMPLES.find((example) => example.id === id) ?? VIA_PORTS_EXAMPLE;
+  return EXAMPLES.find((example) => example.id === id) ?? VIA_TIMERS_EXAMPLE;
 }

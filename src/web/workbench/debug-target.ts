@@ -12,6 +12,7 @@
 
 import { Cpu6502, type InterruptKind } from '../../cpu/cpu6502';
 import { Tracer } from '../../cpu/trace';
+import type { Clocked } from '../../devices/clocked';
 import type { Registers } from '../../cpu/registers';
 import type { Bus } from '../../memory/bus';
 import type { TestBus } from '../../memory/test-bus';
@@ -95,7 +96,8 @@ export interface TracedTarget extends CpuTarget {
  * since Stage 21, a flat TestBus in most tests), with a WriteRecorder between
  * them so the workbench can see what the CPU wrote, and a doorbell at &FC00
  * for the IRQ button to ring (Stage 17), and a tracer that notes each step
- * just before it runs (Stage 18).
+ * just before it runs (Stage 18), and any clocked devices (the VIAs, Stage 25)
+ * ticked by each step's cycles.
  *
  *   Cpu6502 ──▶ WriteRecorder ──▶ Doorbell ──▶ memory ◀── peek / poke
  *                                                ▲
@@ -104,7 +106,11 @@ export interface TracedTarget extends CpuTarget {
  * peek and poke go straight to the memory, so the debugger's own writes are
  * never mistaken for the CPU's. Returns the CPU too, for the console handle.
  */
-export function playgroundTarget(memory: PlaygroundMemory, name = 'CPU playground (6502 on a 64K TestBus)'): InterruptTarget & TracedTarget & { readonly cpu: Cpu6502 } {
+export function playgroundTarget(
+  memory: PlaygroundMemory,
+  name = 'CPU playground (6502 on a 64K TestBus)',
+  devices: readonly Clocked[] = [],
+): InterruptTarget & TracedTarget & { readonly cpu: Cpu6502 } {
   const doorbell = new Doorbell(memory);
   const recorder = new WriteRecorder(doorbell);
   const cpu = new Cpu6502(recorder);
@@ -121,6 +127,10 @@ export function playgroundTarget(memory: PlaygroundMemory, name = 'CPU playgroun
   const syncIrq = (): void => {
     cpu.irq = doorbell.ringing;
   };
+  // Time passes for the devices too: an indexed loop, so nothing is allocated per step.
+  const tickDevices = (cycles: number): void => {
+    for (let i = 0; i < devices.length; i++) devices[i]?.tick(cycles);
+  };
   return {
     ...base,
     cpu,
@@ -132,15 +142,19 @@ export function playgroundTarget(memory: PlaygroundMemory, name = 'CPU playgroun
     step: () => {
       trace.record(cpu);
       const cycles = cpu.step();
+      tickDevices(cycles);
       syncIrq();
       return cycles;
     },
-    // /RES reaches the devices too: the doorbell goes quiet. The trace starts again.
+    // /RES reaches the doorbell, which goes quiet (the VIAs' own /RES is the
+    // power-on's job: Stage 23). Its 7 cycles still pass. The trace starts again.
     reset: () => {
       trace.clear();
       doorbell.reset();
       syncIrq();
-      return cpu.reset();
+      const cycles = cpu.reset();
+      tickDevices(cycles);
+      return cycles;
     },
     writes: recorder,
     get pendingInterrupt() {

@@ -42,8 +42,9 @@ const initial = findExample(new URLSearchParams(window.location.search).get('pro
 const systemVia = new Via6522();
 const userVia = new Via6522();
 const bus = new BbcMemoryMap({ devices: { systemVia, userVia } });
-// The target puts a WriteRecorder between the CPU and the bus (Stage 07).
-const target = playgroundTarget(bus, 'CPU playground (6502 on the BBC memory map)');
+// The target puts a WriteRecorder between the CPU and the bus (Stage 07),
+// and ticks both VIAs after every step so their timers run (Stage 25).
+const target = playgroundTarget(bus, 'CPU playground (6502 on the BBC memory map)', [systemVia, userVia]);
 let listing: readonly ListingLine[] = [];
 // Address → name, from the last assembly, so the Disassembly panel can say "JSR one".
 let labels: ReadonlyMap<number, string> = new Map();

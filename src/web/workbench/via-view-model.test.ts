@@ -1,4 +1,4 @@
-import { VIA_DDRA, VIA_DDRB, VIA_ORA, VIA_ORB, Via6522 } from '../../devices/via6522';
+import { ACR_T1_FREE_RUN, ACR_T1_PB7_OUTPUT, ACR_T2_PULSE_COUNT, VIA_ACR, VIA_DDRA, VIA_DDRB, VIA_ORA, VIA_ORB, VIA_T1C_H, VIA_T1C_L, VIA_T2C_H, VIA_T2C_L, Via6522 } from '../../devices/via6522';
 import { USER_VIA_BASE, buildViaView, toggleOutsideBit } from './via-view-model';
 
 function userVia(): Via6522 {
@@ -26,13 +26,60 @@ describe('buildViaView: registers', () => {
   it('says which registers are built and which are stubs, and for which stage', () => {
     const view = buildViaView({ name: 'User VIA', base: USER_VIA_BASE, via: userVia() });
     const status = view.registers.map((r) => r.status);
-    expect(status.slice(0, 4)).toEqual(['built', 'built', 'built', 'built']);
+    expect(status.slice(0, 10)).toEqual(Array.from({ length: 10 }, () => 'built'));
     expect(status[15]).toBe('built');
-    expect(status[4]).toBe('stub until Stage 25');
-    expect(status[11]).toBe('stub until Stage 25');
-    expect(status[13]).toBe('stub until Stage 26');
+    expect(status[11]).toBe('bits 7-5 built; input latching in Stage 26');
+    expect(status[13]).toBe('timer bits 6 and 5 built; the rest in Stage 26');
+    expect(status[12]).toBe('stub until Stage 26');
+    expect(status[14]).toBe('stub until Stage 26');
     expect(status[10]).toBe('stub (shift register not planned)');
-    expect(view.registers.filter((r) => r.isStub)).toHaveLength(11);
+    expect(view.registers.filter((r) => r.isStub).map((r) => r.number)).toEqual([10, 12, 14]);
+  });
+});
+
+describe('buildViaView: timers', () => {
+  it('shows T1 free-running from the latch, with its counter in hex and decimal', () => {
+    const via = userVia();
+    via.write(VIA_ACR, ACR_T1_FREE_RUN);
+    via.write(VIA_T1C_L, 0x0e);
+    via.write(VIA_T1C_H, 0x27);
+    via.tick(2 * (1 + 0x070e)); // the load cycle, then 1,806 counts: &270E → &2000
+    const t1 = buildViaView({ name: 'User VIA', base: USER_VIA_BASE, via }).timers[0];
+    expect(t1).toMatchObject({ name: 'T1', counter: '&2000', decimal: '8,192', latch: '&270E', mode: 'free-running', armed: true, flag: false, flagBit: 6 });
+    expect(t1.fraction).toBeCloseTo(0x2000 / 0x270e);
+  });
+
+  it('shows T1 one-shot, its flag once it has run out, and what it does to PB7', () => {
+    const via = userVia();
+    via.write(VIA_ACR, ACR_T1_PB7_OUTPUT);
+    via.write(VIA_T1C_L, 0x02);
+    via.write(VIA_T1C_H, 0x00);
+    via.tick(2); // the load cycle
+    let t1 = buildViaView({ name: 'User VIA', base: USER_VIA_BASE, via }).timers[0];
+    expect(t1).toMatchObject({ mode: 'one-shot', armed: true, flag: false, pb7: 'PB7 = 0 (low until it runs out)' });
+    via.tick(6);
+    t1 = buildViaView({ name: 'User VIA', base: USER_VIA_BASE, via }).timers[0];
+    expect(t1).toMatchObject({ counter: '&FFFF', armed: false, flag: true, pb7: 'PB7 = 1 (low until it runs out)' });
+  });
+
+  it('shows T2 with its one latch byte, and pulse-counting mode as not built', () => {
+    const via = userVia();
+    via.write(VIA_T2C_L, 0x34);
+    via.write(VIA_T2C_H, 0x12);
+    via.tick(2); // the load cycle
+    let t2 = buildViaView({ name: 'User VIA', base: USER_VIA_BASE, via }).timers[1];
+    expect(t2).toMatchObject({ name: 'T2', counter: '&1234', latch: '&xx34', mode: 'one-shot', armed: true, flagBit: 5, pb7: '' });
+    via.write(VIA_ACR, ACR_T2_PULSE_COUNT);
+    t2 = buildViaView({ name: 'User VIA', base: USER_VIA_BASE, via }).timers[1];
+    expect(t2.mode).toBe('counts PB6 pulses (not built: holds)');
+  });
+
+  it('marks PB7 in the port B grid as driven by T1, an output whatever DDRB says', () => {
+    const via = userVia();
+    via.write(VIA_ACR, ACR_T1_PB7_OUTPUT);
+    via.write(VIA_T1C_H, 0x10);
+    const pb7 = buildViaView({ name: 'User VIA', base: USER_VIA_BASE, via }).ports[1].lines[0];
+    expect(pb7).toMatchObject({ name: 'PB7', isOutput: true, timer1: true, or: 0, pin: 0, read: 0 });
   });
 });
 
