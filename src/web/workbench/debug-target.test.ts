@@ -90,3 +90,39 @@ describe('the playground target: trace', () => {
     expect(target.trace.recorded).toBe(0);
   });
 });
+
+describe('the playground target: clocked devices (Stage 25)', () => {
+  /** A device that adds up the CPU cycles it has been ticked by. */
+  function counter(): { tick(cycles: number): void; total: number } {
+    return {
+      total: 0,
+      tick(cycles: number) {
+        this.total += cycles;
+      },
+    };
+  }
+
+  it('after each step, every clocked device is ticked by the cycles that step took', () => {
+    const bus = new TestBus();
+    bus.load(0xfffc, [0x00, 0x04]);
+    bus.load(0x0400, [NOP, 0xad, 0x00, 0x20]); // NOP (2 cycles), LDA &2000 (4 cycles)
+    const a = counter();
+    const b = counter();
+    const target = playgroundTarget(bus, 'test', [a, b]);
+    target.reset();
+    a.total = 0;
+    b.total = 0;
+    expect(target.step()).toBe(2);
+    expect(target.step()).toBe(4);
+    expect(a.total).toBe(6);
+    expect(b.total).toBe(6);
+  });
+
+  it('reset ticks them too: its 7 cycles are real time', () => {
+    const bus = new TestBus();
+    const a = counter();
+    const target = playgroundTarget(bus, 'test', [a]);
+    expect(target.reset()).toBe(7);
+    expect(a.total).toBe(7);
+  });
+});

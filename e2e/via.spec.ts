@@ -8,9 +8,9 @@ function portRow(page: Page, port: 'a' | 'b', row: string): ReturnType<Page['loc
   return viaPanel(page).locator(`.via-port[data-port="${port}"] tr[data-row="${row}"] td`);
 }
 
-// Stage 24's VIA ports example is the playground's default.
+// Stage 24's VIA ports example (the default until Stage 25).
 test.beforeEach(async ({ page }) => {
-  await page.goto('/');
+  await page.goto('/?program=via-ports');
 });
 
 test('opens on the User VIA after reset: every line an input, reading &FF', async ({ page }) => {

@@ -2,11 +2,11 @@ import { assemble, formatError } from '../asm/assembler';
 import { Cpu6502, UnimplementedOpcodeError } from '../cpu/cpu6502';
 import { disassemble } from '../cpu/disassembler';
 import { Tracer, formatTraceLine } from '../cpu/trace';
-import { VIA_ORB, Via6522 } from '../devices/via6522';
+import { IFR_T2, VIA_IFR, VIA_ORB, Via6522 } from '../devices/via6522';
 import { BbcMemoryMap } from '../memory/bbc-memory-map';
 import { describeIoAddress } from '../memory/sheila';
 import { TestBus } from '../memory/test-bus';
-import { ARITHMETIC_SOURCE, DECIMAL_SOURCE, EXAMPLES, FILL_SOURCE, INCDEC_SOURCE, INTERRUPTS_SOURCE, LABELS_SOURCE, LOGIC_SOURCE, SHIFTS_SOURCE, STACK_SOURCE, SUBROUTINES_SOURCE, TRACE_SOURCE, MEMORY_MAP_SOURCE, VIA_PORTS_SOURCE, findExample } from './examples';
+import { ARITHMETIC_SOURCE, DECIMAL_SOURCE, EXAMPLES, FILL_SOURCE, INCDEC_SOURCE, INTERRUPTS_SOURCE, LABELS_SOURCE, LOGIC_SOURCE, SHIFTS_SOURCE, STACK_SOURCE, SUBROUTINES_SOURCE, TRACE_SOURCE, MEMORY_MAP_SOURCE, VIA_PORTS_SOURCE, VIA_TIMERS_SOURCE, findExample } from './examples';
 import { Doorbell } from './doorbell';
 import { LOADS_PROGRAM } from './loads-program';
 import { installProgram, pokeWriter } from './setup';
@@ -800,13 +800,71 @@ describe('the Stage 24 VIA ports example', () => {
   });
 });
 
+describe('the Stage 25 VIA timers example', () => {
+  /** On the BBC memory map with a real User VIA, ticked after every step as the browser playground does. */
+  function start(): { cpu: Cpu6502; map: BbcMemoryMap; userVia: Via6522; step: () => void } {
+    const userVia = new Via6522();
+    const map = new BbcMemoryMap({ devices: { userVia } });
+    installProgram(pokeWriter(map), assembled(VIA_TIMERS_SOURCE).lines, 0x0400);
+    const cpu = new Cpu6502(map);
+    userVia.tick(cpu.reset());
+    const step = (): void => {
+      userVia.tick(cpu.step());
+    };
+    return { cpu, map, userVia, step };
+  }
+
+  function runToBrk(cpu: Cpu6502, map: BbcMemoryMap, step: () => void, onStep?: () => void): void {
+    for (let i = 0; i < 20_000_000 && map.peek(cpu.regs.pc) !== 0x00; i++) {
+      step();
+      onStep?.();
+    }
+  }
+
+  it('reads the T1 low latch back as &34, and times the 50-round delay loop with T2: 126 µs', () => {
+    const { cpu, map, step } = start();
+    runToBrk(cpu, map, step);
+    expect(map.peek(0x81)).toBe(0x34);
+    // From the T2C-H write to the read in LDA t2cl: LDX (2) + 49 x 5 + 4 (the delay) + LDA's 4 = 255 CPU
+    // cycles = 127.5 µs, and the first VIA cycle is the load, so about 126.5 counts.
+    expect(map.peek(0x82) | (map.peek(0x83) << 8)).toBe(126);
+  });
+
+  it('counts 100 T1 timeouts at &80, one every 50 ms, so the run takes about 5 emulated seconds', () => {
+    const { cpu, map, step } = start();
+    runToBrk(cpu, map, step);
+    expect(map.peek(0x80)).toBe(100);
+    expect(cpu.cycles / 2_000_000).toBeGreaterThan(4.99);
+    expect(cpu.cycles / 2_000_000).toBeLessThan(5.01);
+  });
+
+  it('PB7 is a square wave: it changes level at every timeout, 100 times in all', () => {
+    const { cpu, map, userVia, step } = start();
+    let changes = 0;
+    let last = userVia.pins('b') & 0x80;
+    runToBrk(cpu, map, step, () => {
+      const now = userVia.pins('b') & 0x80;
+      if (now !== last) changes++;
+      last = now;
+    });
+    // One extra change: PB7 goes low when T1C-H is written.
+    expect(changes).toBe(101);
+  });
+
+  it('T2, started at &FFFF and never re-armed, has run out once and set IFR bit 5', () => {
+    const { cpu, map, userVia, step } = start();
+    runToBrk(cpu, map, step);
+    expect(userVia.peek(VIA_IFR) & IFR_T2).toBe(IFR_T2);
+  });
+});
+
 describe('the examples', () => {
   it.each(EXAMPLES.map((e) => [e.id, e] as const))('%s assembles without errors', (_id, example) => {
     expect(assemble(example.source).ok).toBe(true);
   });
 
   it('falls back to the first example for an unknown or missing id', () => {
-    expect(findExample('nope').id).toBe('via-ports');
-    expect(findExample(null).id).toBe('via-ports');
+    expect(findExample('nope').id).toBe('via-timers');
+    expect(findExample(null).id).toBe('via-timers');
   });
 });
