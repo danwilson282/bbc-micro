@@ -1,4 +1,5 @@
 import { IRQ_VECTOR, RESET_VECTOR } from '../cpu/cpu6502';
+import { describeHardwareWrite } from '../devices/hardware-log';
 import { Via6522 } from '../devices/via6522';
 import { loadStandardRoms } from '../memory/rom-files';
 import { withRoms } from '../memory/with-roms';
@@ -233,6 +234,93 @@ describe('BbcModelB: the frame budget', () => {
   });
 });
 
+describe('BbcModelB: the System VIA\'s pins, the IC32 latch and the keyboard (Stage 28)', () => {
+  it('at power-on PB0-PB3 float high (&F: address 7, data 1), so latch bit 7 is set before any instruction runs', () => {
+    const m = new BbcModelB();
+    m.powerOn();
+    expect(m.latch.value).toBe(0x80);
+  });
+
+  it('DDRB = &0F, then ORB = &0B on &FE40: the pins carry address 3, data 1, and latch bit 3 is set', () => {
+    const m = machineWith(JMP_LOOP);
+    m.map.write(0xfe42, 0x0f); // the lines become outputs driving ORB (&00): bit 0 := 0
+    m.map.write(0xfe40, 0x0b);
+    expect(m.latch.bit(3)).toBe(1);
+    expect(m.latch.value).toBe(0x88); // bit 7 from power-on, bit 3 now
+  });
+
+  it('a DDRB write alone moves the latch: PB0-PB3 go from floating &F to ORB\'s &0, so bit 0 (sound write enable) goes low', () => {
+    const m = machineWith(JMP_LOOP);
+    m.hardwareLog.clear();
+    m.map.write(0xfe42, 0x0f);
+    expect(m.hardwareLog.recent().map(describeHardwareWrite)).toEqual(['latch: sound WE on (bit 0 = 0)']);
+  });
+
+  it('the keyboard answers on PA7: with the link on column 9 closed and autoscan off, key &09 reads &89', () => {
+    const m = machineWith(JMP_LOOP);
+    m.keyboard.links = 0xfe;
+    m.map.write(0xfe42, 0x0f);
+    m.map.write(0xfe40, 0x03); // latch bit 3 := 0: autoscan off
+    m.map.write(0xfe43, 0x7f); // DDRA: PA7 an input
+    m.map.write(0xfe4f, 0x09);
+    expect(m.map.read(0xfe4f)).toBe(0x89);
+    m.map.write(0xfe4f, 0x08); // the link on column 8 is open
+    expect(m.map.read(0xfe4f)).toBe(0x08);
+  });
+
+  it('no real key is down: SHIFT (&00) and CTRL (&01) read with PA7 low, where Stage 27 read them "down"', () => {
+    const m = machineWith(JMP_LOOP);
+    m.map.write(0xfe42, 0x0f);
+    m.map.write(0xfe40, 0x03);
+    m.map.write(0xfe43, 0x7f);
+    m.map.write(0xfe4f, 0x00);
+    expect(m.map.read(0xfe4f)).toBe(0x00);
+    m.map.write(0xfe4f, 0x01);
+    expect(m.map.read(0xfe4f)).toBe(0x01);
+  });
+
+  it('with autoscan on (&0B: latch bit 3 = 1) the keyboard isn\'t answering the CPU: even a closed link reads PA7 low', () => {
+    const m = machineWith(JMP_LOOP);
+    m.keyboard.links = 0xfe;
+    m.map.write(0xfe42, 0x0f);
+    m.map.write(0xfe43, 0x7f);
+    m.map.write(0xfe4f, 0x09);
+    m.map.write(0xfe40, 0x0b);
+    expect(m.map.read(0xfe4f)).toBe(0x09);
+    m.map.write(0xfe40, 0x03); // autoscan off: now it answers
+    expect(m.map.read(0xfe4f)).toBe(0x89);
+  });
+
+  it('the keyboard drives only PA7: a line someone else pulls low (a VIA panel button) stays low', () => {
+    const m = machineWith(JMP_LOOP);
+    m.systemVia.setOutside('a', 0xfe); // PA0 pulled low
+    m.map.write(0xfe43, 0x00);
+    expect(m.systemVia.outside('a')).toBe(0x7e); // PA0 still pulled; PA7 low from the keyboard
+  });
+
+  it('the CRTC and Video ULA slots hold the stubs: &FE00/&FE01 and &FE20/&FE21 writes are kept and logged with the cycle count', () => {
+    const m = machineWith([0xa9, 0x00, 0x8d, 0x00, 0xfe, 0xa9, 0x3f, 0x8d, 0x01, 0xfe, 0xa9, 0x4b, 0x8d, 0x20, 0xfe, ...JMP_LOOP.map((b, i) => (i === 1 ? 0x0f : b))]);
+    // LDA #0 : STA &FE00 : LDA #&3F : STA &FE01 : LDA #&4B : STA &FE20 : JMP &040F
+    m.hardwareLog.clear();
+    const start = m.cycles;
+    for (let i = 0; i < 6; i++) m.step();
+    expect(m.map.devices.crtc).toBe(m.crtc);
+    expect(m.map.devices.videoUla).toBe(m.videoUla);
+    expect(m.crtc.register(0)).toBe(0x3f);
+    expect(m.videoUla.control).toBe(0x4b);
+    expect(m.hardwareLog.recent().map((w) => [w.cycles - start, describeHardwareWrite(w)])).toEqual([
+      [8, 'CRTC R0=&3F (horizontal total)'], // LDA 2 + STA 4 + LDA 2: the STA &FE01 starts at cycle 8
+      [14, 'ULA ctrl=&4B'],
+    ]);
+  });
+
+  it('the Video ULA is write-only: reading &FE20 sees the floating bus', () => {
+    const m = machineWith([0xad, 0x20, 0xfe, ...JMP_LOOP.map((b, i) => (i === 1 ? 0x03 : b))]); // LDA &FE20
+    m.step();
+    expect(m.registers.a).toBe(0xfe); // the operand's high byte, the last thing on the bus
+  });
+});
+
 describe('BbcModelB: with MOS 1.20', () => {
   /** A powered-on machine with the ROMs from roms/, run for some frames. */
   function booted(frames: number, setUp: (m: BbcModelB) => void = () => undefined): BbcModelB {
@@ -251,39 +339,62 @@ describe('BbcModelB: with MOS 1.20', () => {
     expect([m.peek(SYSTEM_VIA_IER), m.peek(0xfe4b), m.peek(0xfe4c)]).toEqual([0xf2, 0x60, 0x04]);
   });
 
-  withRoms('roms/os12.rom')('then waits with I = 1 while the System VIA\'s T1 holds /IRQ: the 100 Hz tick, unanswered', () => {
-    const m = booted(75);
-    expect(m.irqHolders).toEqual(['System VIA']);
-    expect(m.peek(SYSTEM_VIA_IFR) & 0xc0).toBe(0xc0);
-    expect(m.registers.i).toBe(true);
+  /** Row n of the MODE 7 screen at &7C00, as text. */
+  function mode7Row(m: BbcModelB, n: number): string {
+    let text = '';
+    for (let col = 0; col < 40; col++) text += String.fromCharCode(m.peek(0x7c00 + n * 40 + col) & 0x7f);
+    return text.trimEnd();
+  }
+
+  withRoms('roms/os12.rom')('reads the keyboard links into &028F: all open (the stub\'s default) is &FF, so MODE 7', () => {
+    const m = booted(40);
+    expect(m.peek(0x028f)).toBe(0xff);
+    expect(m.peek(0x0355)).toBe(7); // the current MODE
   });
 
-  withRoms('roms/os12.rom')('a BREAK after that is not a power-on (the VIAs kept IER &F2); with PA7 floating, "CTRL held" makes it CTRL+BREAK', () => {
+  withRoms('roms/os12.rom')('closing the links on columns 9 and 8 (links &FC) makes the MOS start in MODE 4', () => {
+    const m = booted(40, (machine) => {
+      machine.keyboard.links = 0xfc;
+    });
+    expect(m.peek(0x028f)).toBe(0xfc);
+    expect(m.peek(0x0355)).toBe(4);
+  });
+
+  withRoms('roms/os12.rom')('sets MODE 7 up on the stubs: Video ULA control &4B, CRTC R0 = &3F (64 characters a line), R1 = &28 (40 shown), start address &2800', () => {
+    const m = booted(40);
+    expect(m.videoUla.control).toBe(0x4b);
+    expect(m.crtc.registers().slice(0, 2)).toEqual([0x3f, 0x28]);
+    expect([m.crtc.register(12), m.crtc.register(13)]).toEqual([0x28, 0x00]);
+  });
+
+  withRoms('roms/os12.rom')('names it all in the hardware log, starting with the latch bit 7 that PB3-PB0 floating high set at power-on', () => {
+    const m = new BbcModelB();
+    loadStandardRoms(m.map);
+    m.hardwareLog.clear();
+    m.powerOn();
+    for (let i = 0; i < 40; i++) m.runFrame();
+    const text = m.hardwareLog.recent().map(describeHardwareWrite);
+    expect(text[0]).toBe('latch: Shift Lock LED off (bit 7 = 1)');
+    expect(text).toContain('ULA ctrl=&4B');
+    expect(text).toContain('CRTC R0=&3F (horizontal total)');
+    expect(text).toContain('latch: keyboard autoscan on (bit 3 = 1)');
+  });
+
+  withRoms('roms/os12.rom')('leaves the latch as the MOS wants it: &AF, sound off, autoscan on, Caps Lock LED on, MODE 7\'s screen size', () => {
+    const m = booted(40);
+    expect(m.latch.value).toBe(0xaf);
+  });
+
+  withRoms('roms/os12.rom')('a BREAK after that is not a power-on (the VIAs kept IER &F2), and with CTRL not held it\'s a soft BREAK', () => {
     const m = booted(25);
     m.reset();
     for (let i = 0; i < 25; i++) m.runFrame();
-    expect(m.peek(0x028d)).toBe(2); // hard BREAK
+    expect(m.peek(0x028d)).toBe(0); // soft BREAK (Stage 27, with PA7 floating, saw 2: CTRL+BREAK)
   });
 
-  withRoms('roms/os12.rom')('with PA7 held low (no key down), the same BREAK is a soft BREAK', () => {
-    const m = booted(25, (machine) => {
-      machine.systemVia.setOutside('a', 0x7f);
-    });
-    m.reset();
-    for (let i = 0; i < 25; i++) m.runFrame();
-    expect(m.peek(0x028d)).toBe(0); // soft BREAK
-  });
-
-  withRoms('roms/os12.rom', 'roms/basic2.rom')('experiment: with PA7 held low (no key down), it prints the banner and then storms on the floating ACIA', () => {
-    const m = booted(100, (machine) => {
-      machine.systemVia.setOutside('a', 0x7f);
-    });
-    const row = (n: number): string => {
-      let text = '';
-      for (let col = 0; col < 40; col++) text += String.fromCharCode(m.peek(0x7c00 + n * 40 + col) & 0x7f);
-      return text.trimEnd();
-    };
-    expect([row(1), row(3)]).toEqual(['BBC Computer 32K', 'BASIC']);
+  withRoms('roms/os12.rom', 'roms/basic2.rom')('prints the banner, then storms on the floating ACIA, which still claims every IRQ (Stage 29\'s problem)', () => {
+    const m = booted(100);
+    expect([mode7Row(m, 1), mode7Row(m, 3)]).toEqual(['BBC Computer 32K', 'BASIC']);
     // The storm: every step now is inside the IRQ handler, and the System VIA still holds the line.
     expect(m.irqHolders).toEqual(['System VIA']);
     const irqs = m.trace.recent(m.trace.length).filter((e) => e.kind === 'irq').length;

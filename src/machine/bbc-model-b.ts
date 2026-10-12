@@ -17,17 +17,32 @@
 // Two resets, because the MOS tells them apart (Stage 23): powerOn() resets
 // every chip, and reset() is the BREAK key, which resets only the CPU.
 //
+// Stage 28 plugs in the parts the MOS talks to while it starts up, built
+// just well enough: the IC32 latch on the System VIA's PB0-PB3, a keyboard
+// stub on its port A, and storage stubs for the CRTC and Video ULA. They
+// report what they're told to the hardware log, by name.
+//
+//   System VIA PB0-PB3 ──▶ IC32 latch ──▶ bit 3: keyboard enable ─┐
+//   System VIA PA0-PA6 ──▶ keyboard stub ◀────────────────────────┘
+//                               └──▶ PA7: "that key is down"
+//
 // step() and runCycles() are the hot path: no objects, closures or arrays
 // are made in them, and the device lists are walked with indexed loops.
 
 import { Cpu6502, type InterruptKind } from '../cpu/cpu6502';
 import type { Registers } from '../cpu/registers';
 import { Tracer } from '../cpu/trace';
+import { AddressableLatch, LATCH_KEYBOARD_ENABLE } from '../devices/addressable-latch';
 import type { Clocked } from '../devices/clocked';
+import { HardwareLog, type CycleClock } from '../devices/hardware-log';
 import type { IrqSource } from '../devices/irq-source';
-import { Via6522 } from '../devices/via6522';
+import { CrtcStub } from '../devices/stubs/crtc-stub';
+import { KeyboardStub } from '../devices/stubs/keyboard-stub';
+import { VideoUlaStub } from '../devices/stubs/video-ula-stub';
+import { Via6522, type PinListener, type ViaPort } from '../devices/via6522';
 import { BbcMemoryMap } from '../memory/bbc-memory-map';
 import type { IoDevice } from '../memory/io-device';
+import type { DataBus } from '../memory/placeholder-device';
 import { WriteRecorder, type WriteLog } from '../memory/write-recorder';
 
 /** One 50 Hz PAL frame of the 2 MHz 6502: 2,000,000 / 50 (BUILD-PLAN §3). */
@@ -36,6 +51,12 @@ export const CYCLES_PER_FRAME = 40_000;
 /** What irqHolders calls the two VIAs. */
 export const SYSTEM_VIA_NAME = 'System VIA';
 export const USER_VIA_NAME = 'User VIA';
+
+/** Enough for a boot's worth of CRTC, ULA and latch writes. */
+export const HARDWARE_LOG_CAPACITY = 4096;
+
+/** PA7: the keyboard's "that key is down" line (Advanced User Guide, System VIA port A). */
+const PA7 = 0x80;
 
 /**
  * A card on the 1 MHz bus: it answers FRED (&FC00-&FCFF), can pull /IRQ
@@ -47,10 +68,18 @@ export interface OneMhzBusCard extends IoDevice, IrqSource {
   reset(): void;
 }
 
-export class BbcModelB {
+export class BbcModelB implements PinListener, DataBus, CycleClock {
   readonly name: string;
   readonly systemVia = new Via6522();
   readonly userVia = new Via6522();
+  /** What the CRTC, Video ULA and latch were told, by name (Stage 28). */
+  readonly hardwareLog: HardwareLog;
+  /** IC32, on the System VIA's PB0-PB3. */
+  readonly latch: AddressableLatch;
+  /** Stubs until their stages: the keyboard (Part 7), CRTC (Stage 37), Video ULA (Stage 40). */
+  readonly keyboard = new KeyboardStub();
+  readonly crtc: CrtcStub;
+  readonly videoUla: VideoUlaStub;
   readonly map: BbcMemoryMap;
   readonly cpu: Cpu6502;
   /** The last 1,024 steps, each recorded just before it ran. */
@@ -71,9 +100,19 @@ export class BbcModelB {
 
   constructor(name = 'BBC Model B') {
     this.name = name;
-    this.map = new BbcMemoryMap({ devices: { systemVia: this.systemVia, userVia: this.userVia } });
+    // The log asks this machine the time (its cycles), and the ULA asks it for the floating bus.
+    this.hardwareLog = new HardwareLog(this, HARDWARE_LOG_CAPACITY);
+    this.latch = new AddressableLatch(this.hardwareLog);
+    this.crtc = new CrtcStub(this.hardwareLog);
+    this.videoUla = new VideoUlaStub(this, this.hardwareLog);
+    this.map = new BbcMemoryMap({
+      devices: { systemVia: this.systemVia, userVia: this.userVia, crtc: this.crtc, videoUla: this.videoUla },
+    });
     this.recorder = new WriteRecorder(this.map);
     this.cpu = new Cpu6502(this.recorder);
+    // Now the CPU exists to count cycles, wire the System VIA's pins to the latch and keyboard.
+    this.systemVia.connectPins(this);
+    this.latchFollowsPins();
     this.trace = new Tracer((address) => this.map.peek(address));
     this.clocked = [this.systemVia, this.userVia];
     this.irqSources = [this.systemVia, this.userVia];
@@ -139,8 +178,10 @@ export class BbcModelB {
    * is left as it is: clearing it is the MOS's job. Returns the CPU's 7 cycles.
    */
   powerOn(): number {
+    this.latch.reset();
     this.systemVia.reset();
     this.userVia.reset();
+    this.latchFollowsPins();
     return this.reset();
   }
 
@@ -165,6 +206,46 @@ export class BbcModelB {
   pulseNmi(): void {
     this.cpu.setNmi(true);
     this.cpu.setNmi(false);
+  }
+
+  // ── The System VIA's pins ──────────────────────────────────────────────
+
+  /**
+   * The System VIA calls this when its pins change. Port B's low four lines
+   * are IC32's inputs. Either port may change the keyboard's answer: port A
+   * carries the key number, and latch bit 3 says whether the CPU is asking.
+   */
+  pinsChanged(port: ViaPort, pins: number): void {
+    if (port === 'b') this.latch.drive(pins);
+    this.answerKeyboard();
+  }
+
+  /**
+   * The latch sees PB0-PB3 as they are now, whether or not they just
+   * changed: at power-on they float high (&F), so bit 7 is set before the
+   * MOS runs at all.
+   */
+  private latchFollowsPins(): void {
+    this.latch.drive(this.systemVia.pins('b'));
+    this.answerKeyboard();
+  }
+
+  /**
+   * The keyboard drives PA7: high if the key on PA0-PA6 is down. Only PA7:
+   * the other lines keep whatever else pulls them (a VIA panel button).
+   * Setting it calls pinsChanged again; the key number is the same, so the
+   * answer is too, and it settles.
+   */
+  private answerKeyboard(): void {
+    const autoscan = this.latch.bit(LATCH_KEYBOARD_ENABLE) === 1;
+    const down = this.keyboard.pa7(this.systemVia.pins('a'), autoscan) === 1;
+    const others = this.systemVia.outside('a') & ~PA7 & 0xff;
+    this.systemVia.setOutside('a', down ? others | PA7 : others);
+  }
+
+  /** The last byte on the data bus: what a read nobody answers sees. */
+  get dataBus(): number {
+    return this.map.dataBus;
   }
 
   // ── The IRQ line ───────────────────────────────────────────────────────
