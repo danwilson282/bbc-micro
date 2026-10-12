@@ -1,5 +1,7 @@
 // MODE 7's screen memory as a live 40 × 25 grid of text, laid over the
-// canvas until Stage 31 draws real teletext there.
+// canvas. Since Stage 31 the canvas shows the real dots and this grid is
+// transparent: it's the screen's text for screen readers, Playwright and
+// copy-paste. It shows the SAA5050's characters (&23 as £).
 //
 // One text node per row, built once. draw() runs after every BBC frame (50 a
 // second), so it remembers the code each cell last showed and only rebuilds
@@ -12,13 +14,16 @@
 // Which bytes: the CRTC's start address (R12/R13), so it follows the MOS's
 // hardware scrolling and wraps inside &7C00-&7FFF (see mode7-text.ts).
 
-import { MODE7_COLUMNS, MODE7_ROWS, mode7CellAddress, mode7DisplayCode } from '../video/mode7-text';
+import { MODE7_COLUMNS, MODE7_ROWS, mode7CellAddress } from '../video/mode7-text';
+import { teletextCharacter } from '../video/saa5050-font';
 
 const CELLS = MODE7_COLUMNS * MODE7_ROWS;
-/** Not a code mode7DisplayCode can return, so the first draw writes every row. */
+/** The SAA5050 sees 7 bits (bit 7 isn't wired). */
+const CODE_MASK = 0x7f;
+/** Not a 7-bit code, so the first draw writes every row. */
 const NOTHING_SHOWN = 0xff;
-/** The 128 one-character strings, made once. */
-const CHARACTERS: readonly string[] = Array.from({ length: 128 }, (_, code) => String.fromCharCode(code));
+/** What each of the 128 codes shows, made once. */
+const CHARACTERS: readonly string[] = Array.from({ length: 128 }, (_, code) => teletextCharacter(code));
 
 export interface TextScreen {
   readonly element: HTMLElement;
@@ -51,7 +56,7 @@ export function createTextScreen(): TextScreen {
         const first = row * MODE7_COLUMNS;
         let changed = false;
         for (let i = first; i < first + MODE7_COLUMNS; i++) {
-          const code = mode7DisplayCode(peek(mode7CellAddress(start, i)));
+          const code = peek(mode7CellAddress(start, i)) & CODE_MASK;
           if (code !== shown[i]) {
             shown[i] = code;
             changed = true;

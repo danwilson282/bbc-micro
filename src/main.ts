@@ -8,7 +8,8 @@
 //   /?machine=mos&paused   the same, but powered on and left paused at the
 //                     reset vector, to step through the MOS from its first instruction
 //
-// Either way, MODE 7's screen memory shows as text over the canvas.
+// Either way, MODE 7's screen memory is drawn on the canvas as SAA5050
+// teletext dots (Stage 31), with its text in a transparent layer on top.
 
 import { BbcModelB } from './machine/bbc-model-b';
 import { MOS_LABELS } from './mos/mos-labels';
@@ -16,6 +17,7 @@ import { Doorbell } from './playground/doorbell';
 import { fetchStandardRoms } from './web/rom-fetch';
 import { createFrameLoop } from './web/frame-loop';
 import { createRunControls } from './web/run-controls';
+import { createScreenCanvas } from './web/screen-canvas';
 import { createTextScreen } from './web/text-screen';
 import { mode7StartAddress } from './video/mode7-text';
 import type { ListingLine } from './playground/listing';
@@ -40,7 +42,9 @@ import { createViaPanel } from './web/workbench/via-panel';
 import { SYSTEM_VIA_BASE, USER_VIA_BASE } from './web/workbench/via-view-model';
 
 const screenFrame = document.querySelector<HTMLElement>('.screen-frame');
-if (!screenFrame?.querySelector('#screen')) throw new Error('Missing #screen canvas in .screen-frame');
+// instanceof narrows querySelector's Element to the canvas, so no cast is needed.
+const screenElement = screenFrame?.querySelector('#screen');
+if (!screenFrame || !(screenElement instanceof HTMLCanvasElement)) throw new Error('Missing #screen canvas in .screen-frame');
 const host = document.querySelector<HTMLElement>('#workbench');
 if (!host) throw new Error('Missing #workbench element');
 // Registers, Stack and Memory sit under the screen; the other panels go in the workbench column.
@@ -76,11 +80,16 @@ let labels: ReadonlyMap<number, string> = mosMode ? MOS_LABELS : new Map();
 const workbench = createWorkbench(host, target.name);
 
 // The screen: MODE 7's 1,000 bytes from wherever the CRTC's R12/R13 say it
-// starts (the MOS scrolls by moving that), as text over the canvas.
+// starts (the MOS scrolls by moving that), drawn as teletext dots on the
+// canvas (Stage 31), with the same cells as invisible text on top.
+const screenCanvas = createScreenCanvas(screenElement);
 const textScreen = createTextScreen();
 screenFrame.append(textScreen.element);
+const peekScreen = (address: number): number => machine.peek(address);
 const drawScreen = (): void => {
-  textScreen.draw((address) => machine.peek(address), mode7StartAddress(machine.crtc.register(12), machine.crtc.register(13)));
+  const start = mode7StartAddress(machine.crtc.register(12), machine.crtc.register(13));
+  screenCanvas.draw(peekScreen, start);
+  textScreen.draw(peekScreen, start);
 };
 
 const refreshAll = (): void => {
@@ -294,6 +303,7 @@ Object.assign(window, {
       return cycles;
     },
     machine,
+    screen: screenCanvas,
     loop,
     pause,
     run,

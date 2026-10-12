@@ -49,10 +49,12 @@ describe('mode7Text: MODE 7 screen memory read as text', () => {
     expect(mode7Text((a) => mem[a] ?? 0)[0]?.[0]).toBe('A');
   });
 
-  it('&7F (a solid block on a teletext screen) shows as a space here; Stage 31 draws it', () => {
+  it('shows the SAA5050\'s characters, not ASCII: &23 is "£", &5F is "#" and &7F is a block (Stage 31)', () => {
     const mem = memory();
-    mem[0x7c00] = 0x7f;
-    expect(mode7Text((a) => mem[a] ?? 0)[0]?.[0]).toBe(' ');
+    mem[0x7c00] = 0x23;
+    mem[0x7c01] = 0x5f;
+    mem[0x7c02] = 0x7f;
+    expect(mode7Text((a) => mem[a] ?? 0)[0]?.slice(0, 3)).toBe('£#■');
   });
 
   it('starts wherever it is told, and wraps inside &7C00-&7FFF: after the last byte comes &7C00', () => {

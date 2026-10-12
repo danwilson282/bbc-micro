@@ -74,21 +74,26 @@
         flex-direction: column;
         gap: 16px;
       }
-      /* The screen (Stage 30): the canvas, with MODE 7's text laid over it
-         until Stage 31 draws teletext on the canvas itself. Sized by the
-         canvas's 640 pixels, or narrower on a small window; the text scales
-         with it (cqw: 1% of the frame's width). */
+      /* The screen: the canvas shows MODE 7 as SAA5050 dots (Stage 31), and
+         MODE 7's text lies over it, transparent, for screen readers and
+         copy-paste. 640 pixels wide, or narrower on a small window; the
+         text scales with it (cqw: 1% of the frame's width). */
       .screen-frame {
         position: relative;
         width: 640px;
         max-width: 100%;
         container-type: inline-size;
       }
+      /* The canvas is 480 × 500 (MODE 7 in half dots × interlaced lines),
+         stretched to a 5:4 picture like the 640 × 512 one the bitmap modes
+         will draw. pixelated: each dot stays a sharp rectangle. */
       #screen {
         display: block;
         background: #000;
         width: 100%;
         height: auto;
+        aspect-ratio: 5 / 4;
+        image-rendering: pixelated;
       }
       .text-screen {
         position: absolute;
@@ -97,7 +102,8 @@
         display: grid;
         grid-template-rows: repeat(25, 1fr);
         align-items: center;
-        color: #fff;
+        /* Invisible but there: the canvas is what you see. */
+        color: transparent;
         font-family: ui-monospace, 'SF Mono', Menlo, monospace;
         /* 40 characters across the frame: a monospace character is about
            0.6em wide, so 40 × 0.6 × 4.1cqw ≈ 98% of the width. */
@@ -895,7 +901,7 @@
     <div class="layout">
       <div class="screen-column">
         <div class="screen-frame">
-          <canvas id="screen" width="640" height="512"></canvas>
+          <canvas id="screen" width="480" height="500" aria-hidden="true"></canvas>
         </div>
         <div id="under-screen"></div>
       </div>
