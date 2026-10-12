@@ -5,6 +5,9 @@
 //     Registers that are still stubs are greyed, with the stage that builds them.
 //   - The timers (Stage 25): T1 and T2's counters, with a bar draining as they
 //     count down, their latches, modes and IFR flags.
+//   - Interrupts (Stage 26): IFR bits 6-0, each with its flag, its IER enable,
+//     and whether it is the reason /IRQ is low. Then the control lines CA1-CB2:
+//     their PCR mode, level, and (for inputs) a button to pull them low.
 //   - A bit grid per port, PA7 … PA0 and PB7 … PB0: the DDR bit (out/in), the
 //     output register, the outside world, the pin, and what the CPU reads.
 //     Each "outside" cell is a button: click it to pull that line low (or let go).
@@ -13,10 +16,22 @@
 
 import { button } from './dom';
 import type { Panel } from './panel';
-import { buildViaView, toggleOutsideBit, type ViaChoice, type ViaLine, type ViaOutside, type ViaPortView, type ViaTimerRow } from './via-view-model';
+import {
+  buildViaView,
+  toggleControlLine,
+  toggleOutsideBit,
+  type ViaChoice,
+  type ViaControlLines,
+  type ViaControlLineView,
+  type ViaInterruptRow,
+  type ViaLine,
+  type ViaOutside,
+  type ViaPortView,
+  type ViaTimerRow,
+} from './via-view-model';
 
 export interface ViaPanelChoice extends ViaChoice {
-  readonly via: ViaChoice['via'] & ViaOutside;
+  readonly via: ViaChoice['via'] & ViaOutside & ViaControlLines;
 }
 
 export interface ViaPanelOptions {
@@ -59,14 +74,86 @@ export function createViaPanel(choices: readonly ViaPanelChoice[], options: ViaP
   const ifrLine = document.createElement('p');
   ifrLine.className = 'via-ifr';
 
+  const interrupts = document.createElement('table');
+  interrupts.className = 'via-table via-interrupts';
+  const interruptsCaption = interrupts.createCaption();
+  interrupts.createTHead().insertRow().append(th('Bit'), th('Source'), th('Wired to'), th('IFR flag'), th('IER enable'), th('→ IRQ'));
+  const interruptBody = interrupts.createTBody();
+
+  const controls = document.createElement('table');
+  controls.className = 'via-table via-control-lines';
+  controls.createCaption().textContent = 'Control lines (modes set by the PCR)';
+  controls.createTHead().insertRow().append(th('Line'), th('Mode'), th('Wired to'), th('Level'), th('Outside'));
+  const controlBody = controls.createTBody();
+
   const ports = document.createElement('div');
   ports.className = 'via-ports';
 
   const note = document.createElement('p');
   note.className = 'via-note';
-  note.textContent = 'Nothing is wired to the pins yet. Click an "outside" bit to pull that line low, as a switch to ground would.';
+  note.textContent = 'Nothing is wired to the pins yet. Click an "outside" bit or a control line to pull it low, as a switch to ground would.';
 
-  element.append(picker, registers, timers, ifrLine, ports, note);
+  element.append(picker, registers, timers, ifrLine, interrupts, controls, ports, note);
+
+  function interruptRow(r: ViaInterruptRow): void {
+    const tr = interruptBody.insertRow();
+    tr.dataset.source = r.name;
+    tr.classList.toggle('firing', r.firing);
+    tr.classList.toggle('stub', !r.isBuilt);
+    cell(tr, String(r.bit), 'mono');
+    cell(tr, `${r.name}: ${r.source}`);
+    cell(tr, r.wiredTo, 'wired');
+    cell(tr, String(r.flag), r.flag === 1 ? 'mono ifr-bit set' : 'mono ifr-bit');
+    cell(tr, String(r.enabled), r.enabled === 1 ? 'mono ier-bit set' : 'mono ier-bit');
+    cell(tr, r.firing ? 'yes' : '', 'firing');
+  }
+
+  // The control-line rows are built once and updated in place. During Run the
+  // panel refreshes every frame; a button rebuilt that often is replaced
+  // between mouse-down and mouse-up, and the click is lost.
+  const controlRows = (['ca1', 'ca2', 'cb1', 'cb2'] as const).map((line) => {
+    const tr = controlBody.insertRow();
+    tr.dataset.line = line.toUpperCase();
+    const name = tr.insertCell();
+    const mode = tr.insertCell();
+    const wired = tr.insertCell();
+    const level = tr.insertCell();
+    const outside = tr.insertCell();
+    const b = button('pull low', `Pull ${line.toUpperCase()} low`);
+    b.addEventListener('click', () => {
+      const choice = choices.at(current);
+      if (choice === undefined) return;
+      toggleControlLine(choice.via, line);
+      options.onChange?.();
+      refresh();
+    });
+    const driven = document.createElement('span');
+    driven.textContent = 'driven by the VIA';
+    return { name, mode, wired, level, outside, button: b, driven };
+  });
+
+  function updateControlRow(row: (typeof controlRows)[number], c: ViaControlLineView): void {
+    row.name.textContent = c.name;
+    row.name.className = 'mono';
+    row.mode.textContent = c.mode;
+    row.mode.className = 'mode';
+    row.wired.textContent = c.wiredTo;
+    row.wired.className = 'wired';
+    row.level.textContent = String(c.level);
+    row.level.className = c.level === 0 ? 'mono level low' : 'mono level';
+    if (!c.isInput) {
+      row.outside.className = 'driven';
+      if (row.outside.firstChild !== row.driven) row.outside.replaceChildren(row.driven);
+      return;
+    }
+    const pulled = c.level === 0;
+    row.button.textContent = pulled ? 'let go' : 'pull low';
+    row.button.setAttribute('aria-label', pulled ? `Let go of ${c.name}` : `Pull ${c.name} low`);
+    row.button.className = pulled ? 'via-outside pulled' : 'via-outside';
+    row.button.setAttribute('aria-pressed', String(pulled));
+    row.outside.className = '';
+    if (row.outside.firstChild !== row.button) row.outside.replaceChildren(row.button);
+  }
 
   function timerRow(t: ViaTimerRow): void {
     const tr = timerBody.insertRow();
@@ -178,7 +265,17 @@ export function createViaPanel(choices: readonly ViaPanelChoice[], options: ViaP
 
     timerBody.replaceChildren();
     for (const t of view.timers) timerRow(t);
-    ifrLine.textContent = `IFR reads ${view.ifr}: bit 6 = T1 ran out, bit 5 = T2 ran out. Read T1C-L / T2C-L, or write a 1 to the bit, to clear it. (Bit 7 and IER: Stage 26.)`;
+    ifrLine.textContent = `Read T1C-L / T2C-L, or write a 1 to the IFR bit, to clear a timer's flag.`;
+
+    interruptsCaption.textContent = `Interrupts: IFR ${view.ifr}, IER ${view.ier}. /IRQ is ${view.irq ? 'LOW: this VIA wants attention' : 'released'}`;
+    interrupts.classList.toggle('irq', view.irq);
+    interruptBody.replaceChildren();
+    for (const r of view.interrupts) interruptRow(r);
+
+    view.controlLines.forEach((c, i) => {
+      const row = controlRows.at(i);
+      if (row !== undefined) updateControlRow(row, c);
+    });
 
     ports.replaceChildren(...view.ports.map((pv) => portGrid(pv, choice.via)));
   }

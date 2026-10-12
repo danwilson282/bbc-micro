@@ -22,12 +22,13 @@ async function peek(page: Page, address: number): Promise<string> {
   }, address);
 }
 
-// Stage 25's VIA timers example is the playground's default.
+// Stage 25's VIA timers example (the default until Stage 26), on the User VIA.
 test.beforeEach(async ({ page }) => {
-  await page.goto('/');
+  await page.goto('/?program=via-timers');
+  await viaPanel(page).getByRole('button', { name: 'Show the User VIA' }).click();
 });
 
-test('opens on the timers example, with a Timers table for T1 and T2', async ({ page }) => {
+test('the timers example has a Timers table for T1 and T2', async ({ page }) => {
   await expect(page.getByRole('region', { name: 'Assembler' }).getByRole('combobox', { name: 'Example program' })).toHaveValue('via-timers');
   await expect(viaPanel(page).locator('.via-timers tbody tr')).toHaveCount(2);
   await expect(timerCell(page, 'T1', 'mode')).toHaveText('one-shot');

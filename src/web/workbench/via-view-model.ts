@@ -3,10 +3,12 @@
 //     effects) and whether each one is built yet;
 //   - a bit grid for each port: per line, its direction, the output register
 //     bit, what the outside does, the pin level, and what the CPU reads;
-//   - the two timers (Stage 25): counter, latch, mode, and flag.
+//   - the two timers (Stage 25): counter, latch, mode, and flag;
+//   - the interrupt sources (Stage 26): each IFR bit's flag and IER enable,
+//     and what the Model B wires to it; the four control lines' modes and levels.
 
-import type { ViaPort, ViaTimers } from '../../devices/via6522';
-import { IFR_T1, IFR_T2, VIA_ACR, VIA_IFR, VIA_ORA, VIA_ORB, VIA_PCR, VIA_IER, VIA_SR } from '../../devices/via6522';
+import type { ControlLine, Level, ViaPort, ViaTimers } from '../../devices/via6522';
+import { C2_MODE, IFR_T1, IFR_T2, PCR_CA1_POSITIVE, PCR_CB1_POSITIVE, VIA_ACR, VIA_IER, VIA_IFR, VIA_ORA, VIA_ORB, VIA_PCR, VIA_SR } from '../../devices/via6522';
 import { VIA_REGISTERS } from '../../memory/sheila';
 import { hex16, hex8 } from '../../util/bits';
 
@@ -23,6 +25,13 @@ export interface ViaSource {
   outside(port: ViaPort): number;
   pins(port: ViaPort): number;
   timers(): ViaTimers;
+  controlLine(line: ControlLine): Level;
+}
+
+/** The part of a Via6522 the panel's control-line buttons change. */
+export interface ViaControlLines {
+  controlLine(line: ControlLine): Level;
+  setControlLine(line: ControlLine, level: Level): void;
 }
 
 /** The part of a Via6522 the panel's "pull low" buttons change. */
@@ -113,6 +122,36 @@ export interface ViaTimerRow {
   readonly pb7: string;
 }
 
+/** One IFR/IER bit. */
+export interface ViaInterruptRow {
+  readonly bit: number;
+  /** "T1", "CA1", … */
+  readonly name: 'T1' | 'T2' | 'CB1' | 'CB2' | 'SR' | 'CA1' | 'CA2';
+  /** What sets the flag: "Timer 1 ran out", "an edge on CA1". */
+  readonly source: string;
+  /** On this Model B VIA: "vertical sync (6845 CRTC)", or "" if nothing is. */
+  readonly wiredTo: string;
+  readonly flag: Bit;
+  readonly enabled: Bit;
+  /** Flag and enable both set: this source is pulling /IRQ low. */
+  readonly firing: boolean;
+  /** The shift register isn't built, so its bit never sets. */
+  readonly isBuilt: boolean;
+}
+
+export interface ViaControlLineView {
+  readonly line: ControlLine;
+  /** "CA1". */
+  readonly name: string;
+  /** From the PCR, e.g. "input: flags a falling edge", "output: handshake". */
+  readonly mode: string;
+  readonly isInput: boolean;
+  /** The level on the line now. */
+  readonly level: Bit;
+  /** On this Model B VIA: "keyboard", "printer strobe", "user port". */
+  readonly wiredTo: string;
+}
+
 export interface ViaView {
   readonly name: string;
   /** e.g. "&FE60-&FE6F". */
@@ -124,20 +163,117 @@ export interface ViaView {
   readonly timers: readonly [ViaTimerRow, ViaTimerRow];
   /** IFR as a CPU read sees it, e.g. "&40". */
   readonly ifr: string;
+  /** IER as a CPU read sees it: bit 7 always 1, e.g. "&C2". */
+  readonly ier: string;
+  /** IFR bits 6 down to 0. */
+  readonly interrupts: readonly ViaInterruptRow[];
+  /** CA1, CA2, CB1, CB2. */
+  readonly controlLines: readonly ViaControlLineView[];
+  /** Is this VIA pulling /IRQ low? */
+  readonly irq: boolean;
+}
+
+/** What the Model B connects to each control line (Advanced User Guide; BeebWiki, System VIA / User VIA). */
+const SYSTEM_VIA_WIRING: Readonly<Record<ControlLine, string>> = {
+  ca1: 'vertical sync (6845 CRTC)',
+  ca2: 'keyboard',
+  cb1: 'ADC end of conversion',
+  cb2: 'light pen strobe',
+};
+const USER_VIA_WIRING: Readonly<Record<ControlLine, string>> = {
+  ca1: 'printer acknowledge',
+  ca2: 'printer strobe',
+  cb1: 'user port',
+  cb2: 'user port',
+};
+
+function wiringFor(base: number): Readonly<Record<ControlLine, string>> {
+  return base === SYSTEM_VIA_BASE ? SYSTEM_VIA_WIRING : USER_VIA_WIRING;
+}
+
+/** IFR bits 6-0, in the order the panel lists them. */
+const INTERRUPT_SOURCES = [
+  { bit: 6, name: 'T1', source: 'Timer 1 ran out', line: undefined },
+  { bit: 5, name: 'T2', source: 'Timer 2 ran out', line: undefined },
+  { bit: 4, name: 'CB1', source: 'an edge on CB1', line: 'cb1' },
+  { bit: 3, name: 'CB2', source: 'an edge on CB2', line: 'cb2' },
+  { bit: 2, name: 'SR', source: '8 bits shifted (not built)', line: undefined },
+  { bit: 1, name: 'CA1', source: 'an edge on CA1', line: 'ca1' },
+  { bit: 0, name: 'CA2', source: 'an edge on CA2', line: 'ca2' },
+] as const;
+
+/** The CA2/CB2 modes in words (6522 datasheet, PCR). */
+function c2ModeText(mode: number): string {
+  switch (mode) {
+    case C2_MODE.inputNegative:
+      return 'input: flags a falling edge';
+    case C2_MODE.independentNegative:
+      return 'input: flags a falling edge (independent)';
+    case C2_MODE.inputPositive:
+      return 'input: flags a rising edge';
+    case C2_MODE.independentPositive:
+      return 'input: flags a rising edge (independent)';
+    case C2_MODE.handshake:
+      return 'output: handshake';
+    case C2_MODE.pulse:
+      return 'output: pulse';
+    case C2_MODE.low:
+      return 'output: held low';
+    default:
+      return 'output: held high';
+  }
+}
+
+function controlLineViews(via: ViaSource, wiring: Readonly<Record<ControlLine, string>>): ViaControlLineView[] {
+  const pcr = via.peek(VIA_PCR);
+  const c1 = (positive: boolean): string => `input: flags a ${positive ? 'rising' : 'falling'} edge`;
+  const ca2 = (pcr >> 1) & 0b111;
+  const cb2 = (pcr >> 5) & 0b111;
+  const view = (line: ControlLine, mode: string, isInput: boolean): ViaControlLineView => ({
+    line,
+    name: line.toUpperCase(),
+    mode,
+    isInput,
+    level: via.controlLine(line),
+    wiredTo: wiring[line],
+  });
+  return [
+    view('ca1', c1((pcr & PCR_CA1_POSITIVE) !== 0), true),
+    view('ca2', c2ModeText(ca2), ca2 < C2_MODE.handshake),
+    view('cb1', c1((pcr & PCR_CB1_POSITIVE) !== 0), true),
+    view('cb2', c2ModeText(cb2), cb2 < C2_MODE.handshake),
+  ];
+}
+
+function interruptRows(via: ViaSource, wiring: Readonly<Record<ControlLine, string>>): ViaInterruptRow[] {
+  const ifr = via.peek(VIA_IFR);
+  const ier = via.peek(VIA_IER);
+  return INTERRUPT_SOURCES.map((s): ViaInterruptRow => {
+    const flag = bitOf(ifr, s.bit);
+    const enabled = bitOf(ier, s.bit);
+    return {
+      bit: s.bit,
+      name: s.name,
+      source: s.source,
+      wiredTo: s.line === undefined ? '' : wiring[s.line],
+      flag,
+      enabled,
+      firing: flag === 1 && enabled === 1,
+      isBuilt: s.name !== 'SR',
+    };
+  });
 }
 
 /** Where each register stands in this build. */
 function registerStatus(n: number): string {
   if (n === VIA_SR) return 'stub (shift register not planned)';
-  if (n === VIA_ACR) return 'bits 7-5 built; input latching in Stage 26';
-  if (n === VIA_IFR) return 'timer bits 6 and 5 built; the rest in Stage 26';
-  if (n === VIA_PCR || n === VIA_IER) return 'stub until Stage 26';
+  if (n === VIA_ACR) return 'built, except the shift register modes (bits 4-2)';
   return 'built';
 }
 
 /** The registers that are only storage. */
 function isStubRegister(n: number): boolean {
-  return n === VIA_SR || n === VIA_PCR || n === VIA_IER;
+  return n === VIA_SR;
 }
 
 /** "1111 0101". */
@@ -238,7 +374,16 @@ export function buildViaView(choice: ViaChoice): ViaView {
     ports: [portView(choice.via, 'a'), portView(choice.via, 'b')],
     timers: timerRows(choice.via),
     ifr: `&${hex8(choice.via.peek(VIA_IFR))}`,
+    ier: `&${hex8(choice.via.peek(VIA_IER))}`,
+    interrupts: interruptRows(choice.via, wiringFor(choice.base)),
+    controlLines: controlLineViews(choice.via, wiringFor(choice.base)),
+    irq: (choice.via.peek(VIA_IFR) & 0x80) !== 0,
   };
+}
+
+/** The panel's control-line button: pulls the line low, or lets it go back high. Pulling it low is a falling edge. */
+export function toggleControlLine(via: ViaControlLines, line: ControlLine): void {
+  via.setControlLine(line, via.controlLine(line) === 0 ? 1 : 0);
 }
 
 /** The panel's pull-low button: flips whether the outside pulls line `bit` low. */

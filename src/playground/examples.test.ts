@@ -2,15 +2,16 @@ import { assemble, formatError } from '../asm/assembler';
 import { Cpu6502, UnimplementedOpcodeError } from '../cpu/cpu6502';
 import { disassemble } from '../cpu/disassembler';
 import { Tracer, formatTraceLine } from '../cpu/trace';
-import { IFR_T2, VIA_IFR, VIA_ORB, Via6522 } from '../devices/via6522';
+import { IFR_T2, VIA_IER, VIA_IFR, VIA_ORB, Via6522 } from '../devices/via6522';
 import { BbcMemoryMap } from '../memory/bbc-memory-map';
 import { describeIoAddress } from '../memory/sheila';
 import { TestBus } from '../memory/test-bus';
-import { ARITHMETIC_SOURCE, DECIMAL_SOURCE, EXAMPLES, FILL_SOURCE, INCDEC_SOURCE, INTERRUPTS_SOURCE, LABELS_SOURCE, LOGIC_SOURCE, SHIFTS_SOURCE, STACK_SOURCE, SUBROUTINES_SOURCE, TRACE_SOURCE, MEMORY_MAP_SOURCE, VIA_PORTS_SOURCE, VIA_TIMERS_SOURCE, findExample } from './examples';
+import { ARITHMETIC_SOURCE, DECIMAL_SOURCE, EXAMPLES, FILL_SOURCE, INCDEC_SOURCE, INTERRUPTS_SOURCE, LABELS_SOURCE, LOGIC_SOURCE, SHIFTS_SOURCE, STACK_SOURCE, SUBROUTINES_SOURCE, TRACE_SOURCE, MEMORY_MAP_SOURCE, VIA_PORTS_SOURCE, VIA_TIMERS_SOURCE, VIA_INTERRUPTS_SOURCE, findExample } from './examples';
 import { Doorbell } from './doorbell';
 import { LOADS_PROGRAM } from './loads-program';
 import { installProgram, pokeWriter } from './setup';
 import { STORES_PROGRAM } from './stores-program';
+import { playgroundTarget } from '../web/workbench/debug-target';
 
 function assembled(source: string): Extract<ReturnType<typeof assemble>, { ok: true }> {
   const result = assemble(source);
@@ -858,13 +859,84 @@ describe('the Stage 25 VIA timers example', () => {
   });
 });
 
+describe('the Stage 26 VIA interrupts example', () => {
+  /** The browser's set-up: the BBC memory map, a System VIA ticked after each step and wired to IRQ. */
+  function start(source = VIA_INTERRUPTS_SOURCE): { target: ReturnType<typeof playgroundTarget>; map: BbcMemoryMap; systemVia: Via6522 } {
+    const systemVia = new Via6522();
+    const map = new BbcMemoryMap({ devices: { systemVia } });
+    installProgram(pokeWriter(map), assembled(source).lines, 0x0400);
+    const target = playgroundTarget(map, 'test', [systemVia], [{ name: 'System VIA', source: systemVia }]);
+    target.reset();
+    return { target, map, systemVia };
+  }
+
+  /** Runs until this many CPU cycles have passed. */
+  function runFor(target: ReturnType<typeof playgroundTarget>, cycles: number): void {
+    const end = target.cycles + cycles;
+    while (target.cycles < end) target.step();
+  }
+
+  const SECOND = 2_000_000;
+
+  it('sets the System VIA up as the MOS does: IER &C2 (T1 and CA1), T1 free-running from latch &270E', () => {
+    const { target, systemVia } = start();
+    runFor(target, 200);
+    expect(systemVia.peek(VIA_IER)).toBe(0xc2);
+    expect(systemVia.timers().t1).toMatchObject({ latch: 0x270e, freeRun: true });
+    expect(target.registers.i).toBe(false);
+  });
+
+  it('the IRQ handler counts 100 ticks a second: after 2.5 emulated seconds, &81 = 2 and &80 = 50 (±1)', () => {
+    const { target, map } = start();
+    runFor(target, 2.5 * SECOND);
+    expect(map.peek(0x81)).toBe(2);
+    expect(Math.abs(map.peek(0x80) - 50)).toBeLessThanOrEqual(1);
+  });
+
+  it('the main loop keeps running between interrupts: &84/&85 count up although it never looks at the VIA', () => {
+    const { target, map } = start();
+    runFor(target, 0.1 * SECOND);
+    const count = map.peek(0x84) | (map.peek(0x85) << 8);
+    expect(count).toBeGreaterThan(1000);
+  });
+
+  it('each falling edge on CA1 is one interrupt, counted at &82; holding it low or letting go counts nothing', () => {
+    const { target, map, systemVia } = start();
+    runFor(target, 1000);
+    systemVia.setControlLine('ca1', 0);
+    runFor(target, 1000);
+    expect(map.peek(0x82)).toBe(1);
+    runFor(target, 1000); // still low
+    systemVia.setControlLine('ca1', 1); // rising: not the active edge
+    runFor(target, 1000);
+    expect(map.peek(0x82)).toBe(1);
+    systemVia.setControlLine('ca1', 0);
+    runFor(target, 1000);
+    expect(map.peek(0x82)).toBe(2);
+    expect(target.irqLine).toBe(false);
+  });
+
+  it('without the acknowledge (LDA t1cl), IRQ never lets go: the handler runs again straight after RTI and the main loop starves', () => {
+    const broken = VIA_INTERRUPTS_SOURCE.replace('        LDA t1cl          ; acknowledge it', '        NOP               ; (acknowledge removed)');
+    expect(broken).not.toBe(VIA_INTERRUPTS_SOURCE);
+    const { target, map } = start(broken);
+    runFor(target, 0.05 * SECOND); // past the first timeout at 10 ms
+    const main = map.peek(0x84);
+    const ticks = map.peek(0x80);
+    runFor(target, 0.05 * SECOND);
+    expect(map.peek(0x84)).toBe(main); // the main loop hasn't run once
+    expect(map.peek(0x80)).not.toBe(ticks); // the handler has run many times
+    expect(target.irqLine).toBe(true);
+  });
+});
+
 describe('the examples', () => {
   it.each(EXAMPLES.map((e) => [e.id, e] as const))('%s assembles without errors', (_id, example) => {
     expect(assemble(example.source).ok).toBe(true);
   });
 
   it('falls back to the first example for an unknown or missing id', () => {
-    expect(findExample('nope').id).toBe('via-timers');
-    expect(findExample(null).id).toBe('via-timers');
+    expect(findExample('nope').id).toBe('via-interrupts');
+    expect(findExample(null).id).toBe('via-interrupts');
   });
 });

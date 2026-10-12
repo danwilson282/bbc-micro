@@ -1,4 +1,6 @@
+import { BbcMemoryMap } from '../../memory/bbc-memory-map';
 import { TestBus } from '../../memory/test-bus';
+import { IFR_CA1, IFR_T1, VIA_IER, VIA_IFR, VIA_T1C_H, VIA_T1C_L, Via6522 } from '../../devices/via6522';
 import { playgroundTarget } from './debug-target';
 
 const NOP = 0xea;
@@ -124,5 +126,79 @@ describe('the playground target: clocked devices (Stage 25)', () => {
     const target = playgroundTarget(bus, 'test', [a]);
     expect(target.reset()).toBe(7);
     expect(a.total).toBe(7);
+  });
+});
+
+describe('the playground target: VIA interrupts (Stage 26)', () => {
+  /** The playground with a real VIA ticked and wired to the IRQ line, I clear. */
+  function withVia(): { target: ReturnType<typeof playgroundTarget>; via: Via6522; bus: TestBus } {
+    const bus = new TestBus();
+    bus.load(0xfffa, [0x00, 0x06, 0x00, 0x04, 0x00, 0x07]);
+    bus.load(0x0400, [NOP, NOP, NOP, NOP, NOP, NOP, NOP, NOP]);
+    const via = new Via6522();
+    const target = playgroundTarget(bus, 'test', [via], [{ name: 'User VIA', source: via }]);
+    target.reset();
+    target.cpu.regs.i = false;
+    return { target, via, bus };
+  }
+
+  it('a flag that is set but not enabled does not reach the CPU', () => {
+    const { target, via } = withVia();
+    via.setControlLine('ca1', 0);
+    expect(target.irqLine).toBe(false);
+    expect(target.pendingInterrupt).toBeUndefined();
+  });
+
+  it("an enabled flag pulls the CPU's IRQ line low, and the next step enters the handler", () => {
+    const { target, via } = withVia();
+    via.write(VIA_IER, 0x80 | IFR_CA1);
+    via.setControlLine('ca1', 0);
+    expect(target.irqLine).toBe(true);
+    expect(target.irqHolders).toEqual(['User VIA']);
+    expect(target.pendingInterrupt).toBe('irq');
+    expect(target.step()).toBe(7);
+    expect(target.registers.pc).toBe(0x0700);
+  });
+
+  it('a timer that runs out during a step raises IRQ after that step', () => {
+    const { target, via } = withVia();
+    via.write(VIA_IER, 0x80 | IFR_T1);
+    via.write(VIA_T1C_L, 0);
+    via.write(VIA_T1C_H, 0); // load 0, then 0 → &FFFF: 2 VIA cycles = 4 CPU cycles
+    target.step(); // NOP: 2 CPU cycles, the load
+    expect(target.irqLine).toBe(false);
+    target.step(); // NOP: the timeout
+    expect(target.irqLine).toBe(true);
+    expect(target.pendingInterrupt).toBe('irq');
+  });
+
+  it('the line is a wire-OR: it stays low while the doorbell OR the VIA holds it', () => {
+    const { target, via } = withVia();
+    via.write(VIA_IER, 0x80 | IFR_CA1);
+    via.setControlLine('ca1', 0);
+    target.ringIrq();
+    expect(target.irqHolders).toEqual(['the doorbell', 'User VIA']);
+    via.write(VIA_IFR, IFR_CA1); // the VIA lets go …
+    expect(target.irqLine).toBe(true); // … but the doorbell still holds it
+    expect(target.irqHolders).toEqual(['the doorbell']);
+  });
+
+  it('the handler acknowledges the VIA with STA &FE6D, and the line is released after that step', () => {
+    const userVia = new Via6522();
+    const map = new BbcMemoryMap({ devices: { userVia } });
+    map.poke(0xfffe, 0x00); // IRQ vector → &0700 (poke: it's the MOS ROM's space)
+    map.poke(0xffff, 0x07);
+    for (const [i, byte] of [0xa9, IFR_CA1, 0x8d, 0x6d, 0xfe].entries()) map.poke(0x0700 + i, byte); // LDA #&02, STA &FE6D
+    const target = playgroundTarget(map, 'test', [userVia], [{ name: 'User VIA', source: userVia }]);
+    target.cpu.regs.pc = 0x0400;
+    target.cpu.regs.i = false;
+    userVia.write(VIA_IER, 0x80 | IFR_CA1);
+    userVia.setControlLine('ca1', 0);
+    target.step(); // into the handler (I = 1 now)
+    target.step(); // LDA #&02
+    expect(target.irqLine).toBe(true);
+    target.step(); // STA &FE6D: a 1 in bit 1 clears CA1
+    expect(target.irqLine).toBe(false);
+    expect(target.registers.pc).toBe(0x0705);
   });
 });
