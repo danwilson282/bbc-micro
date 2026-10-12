@@ -110,6 +110,28 @@ describe('BbcMemoryMap: region routing', () => {
     expect(map.read(0xfd80)).toBe(0x44);
   });
 
+  it('a card plugged into FRED gets &FC00-&FCFF as registers &00-&FF; JIM still floats', () => {
+    const card = new SpyDevice();
+    const map = new BbcMemoryMap();
+    map.plugFred(card);
+    expect(map.read(0xfc12)).toBe(0xb2); // SpyDevice reads &A0 + offset
+    map.write(0xfcff, 0x5a);
+    expect(map.peek(0xfc03)).toBe(0xa3);
+    map.poke(0xfc04, 0x66);
+    expect(card.calls).toEqual(['read 18', 'write 255 90', 'peek 3', 'write 4 102']);
+    map.write(0x1000, 0x44);
+    expect(map.read(0xfd00)).toBe(0x44);
+    expect(map.ioLog.recent(1)[0]?.address).toBe(0xfd00);
+  });
+
+  it('unplugging the FRED card (plugFred(undefined)) makes FRED float again', () => {
+    const map = new BbcMemoryMap();
+    map.plugFred(new SpyDevice());
+    map.plugFred(undefined);
+    map.write(0x1000, 0x44);
+    expect(map.read(0xfc12)).toBe(0x44);
+  });
+
   it('poke() to &FC00-&FEFF goes to I/O, not to the hidden MOS bytes underneath', () => {
     const map = new BbcMemoryMap();
     map.poke(0xfc00, 0x28); // "(" from the MOS credits; FRED has nothing to take it

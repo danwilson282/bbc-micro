@@ -35,7 +35,8 @@
     "demo:memmap": "tsx scripts/demo-memory-map.ts",
     "demo:roms": "tsx scripts/demo-roms.ts",
     "demo:mos": "tsx scripts/demo-mos.ts",
-    "demo:timers": "tsx scripts/demo-timers.ts"
+    "demo:timers": "tsx scripts/demo-timers.ts",
+    "demo:boot": "tsx scripts/demo-boot.ts"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

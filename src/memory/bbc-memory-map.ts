@@ -6,7 +6,7 @@
 //                An empty slot floats.
 //   &C000-&FBFF  MOS ROM ┐ one 16K image; the CPU's writes are lost
 //   &FF00-&FFFF  MOS ROM ┘
-//   &FC00-&FCFF  FRED    1 MHz bus, nothing connected
+//   &FC00-&FCFF  FRED    1 MHz bus: a plugged-in card (plugFred), or floats
 //   &FD00-&FDFF  JIM     1 MHz bus, nothing connected
 //   &FE00-&FEFF  SHEILA  dispatched to the chip in each slot (sheila.ts)
 //
@@ -25,7 +25,7 @@
 import type { Bus } from './bus';
 import type { IoDevice } from './io-device';
 import { IoLog } from './io-log';
-import { FRED_START, MOS_START, MOS_TOP_PAGE, RAM_SIZE, ROM_SIZE, SHEILA_START, SIDEWAYS_START } from './memory-regions';
+import { FRED_START, JIM_START, MOS_START, MOS_TOP_PAGE, RAM_SIZE, ROM_SIZE, SHEILA_START, SIDEWAYS_START } from './memory-regions';
 import { PlaceholderDevice, type DataBus } from './placeholder-device';
 import { Ram } from './ram';
 import { RomSelect } from './rom-select';
@@ -70,6 +70,8 @@ export class BbcMemoryMap implements Bus, DataBus {
   private readonly reads = new Float64Array(SHEILA_SLOTS.length);
   private readonly writes = new Float64Array(SHEILA_SLOTS.length);
   private lastByte = BLANK_ROM_BYTE;
+  /** The card on the 1 MHz bus, answering FRED (Stage 27), or undefined: FRED floats. */
+  private fred: IoDevice | undefined;
 
   constructor(options: BbcMemoryMapOptions = {}) {
     const given = options.devices ?? {};
@@ -140,6 +142,7 @@ export class BbcMemoryMap implements Bus, DataBus {
     if (a < SIDEWAYS_START) return this.ram.read(a);
     if (a < MOS_START) return this.paged?.[a - SIDEWAYS_START] ?? this.lastByte;
     if (a < FRED_START || a >= MOS_TOP_PAGE) return this.mos[a - MOS_START] ?? BLANK_ROM_BYTE;
+    if (a < JIM_START) return this.fred?.peek(a & 0xff) ?? this.lastByte;
     if (a < SHEILA_START) return this.lastByte;
     const o = a & 0xff;
     return this.sheilaDevice[o].peek(this.sheilaRegister[o] ?? 0) & 0xff;
@@ -161,7 +164,16 @@ export class BbcMemoryMap implements Bus, DataBus {
     else if (a >= SHEILA_START) {
       const o = a & 0xff;
       this.sheilaDevice[o].write(this.sheilaRegister[o] ?? 0, v);
-    }
+    } else if (a < JIM_START) this.fred?.write(a & 0xff, v);
+  }
+
+  /**
+   * Plugs a card into the 1 MHz bus (Stage 27). It answers FRED, &FC00-&FCFF,
+   * as registers &00-&FF; any decoding inside that page is the card's own.
+   * undefined unplugs it, and FRED floats again. JIM stays empty.
+   */
+  plugFred(card: IoDevice | undefined): void {
+    this.fred = card;
   }
 
   /** The slot ROMSEL last latched, 0-15. The CPU can't read this back (&FE30 is write only); tools can. */
@@ -218,8 +230,10 @@ export class BbcMemoryMap implements Bus, DataBus {
   }
 
   private readIo(a: number): number {
-    let value = this.lastByte; // FRED and JIM: nothing drives the bus
-    if (a >= SHEILA_START) {
+    let value = this.lastByte; // JIM, and FRED with no card: nothing drives the bus
+    if (a < JIM_START) {
+      if (this.fred !== undefined) value = this.fred.read(a & 0xff) & 0xff;
+    } else if (a >= SHEILA_START) {
       const o = a & 0xff;
       // Every offset has a device (a placeholder at least): the table has no gaps.
       value = this.sheilaDevice[o].read(this.sheilaRegister[o] ?? 0) & 0xff;
@@ -231,7 +245,8 @@ export class BbcMemoryMap implements Bus, DataBus {
   }
 
   private writeIo(a: number, v: number): void {
-    if (a >= SHEILA_START) {
+    if (a < JIM_START) this.fred?.write(a & 0xff, v);
+    else if (a >= SHEILA_START) {
       const o = a & 0xff;
       this.sheilaDevice[o].write(this.sheilaRegister[o] ?? 0, v);
       const slot = this.sheilaSlot[o] ?? 0;

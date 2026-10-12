@@ -7,6 +7,7 @@ import { BbcMemoryMap } from '../memory/bbc-memory-map';
 import { describeIoAddress } from '../memory/sheila';
 import { TestBus } from '../memory/test-bus';
 import { ARITHMETIC_SOURCE, DECIMAL_SOURCE, EXAMPLES, FILL_SOURCE, INCDEC_SOURCE, INTERRUPTS_SOURCE, LABELS_SOURCE, LOGIC_SOURCE, SHIFTS_SOURCE, STACK_SOURCE, SUBROUTINES_SOURCE, TRACE_SOURCE, MEMORY_MAP_SOURCE, VIA_PORTS_SOURCE, VIA_TIMERS_SOURCE, VIA_INTERRUPTS_SOURCE, findExample } from './examples';
+import { BbcModelB } from '../machine/bbc-model-b';
 import { Doorbell } from './doorbell';
 import { LOADS_PROGRAM } from './loads-program';
 import { installProgram, pokeWriter } from './setup';
@@ -571,27 +572,26 @@ describe('the Stage 17 interrupts example', () => {
   const MAIN = 0x84;
 
   /**
-   * The example installed as the playground does it: CPU → Doorbell → TestBus,
-   * with step() copying the doorbell's line to the CPU's IRQ pin afterwards.
+   * The example installed as the browser does it since Stage 27: on a
+   * BbcModelB with the doorbell plugged into its 1 MHz bus, so &FC00 is in
+   * FRED and the doorbell is on the machine's /IRQ wire-OR.
    */
-  function setUp(): { cpu: Cpu6502; bus: TestBus; bell: Doorbell; step: () => number; label: (name: string) => number } {
-    const result = assembled(INTERRUPTS_SOURCE);
-    const bus = new TestBus();
-    installProgram(bus, result.lines, 0x0400);
-    const bell = new Doorbell(bus);
-    const cpu = new Cpu6502(bell);
-    cpu.reset();
-    const step = (): number => {
-      const cycles = cpu.step();
-      cpu.irq = bell.ringing;
-      return cycles;
-    };
+  function setUp(source = INTERRUPTS_SOURCE): { cpu: Cpu6502; bus: BbcModelB; bell: Doorbell; step: () => number; label: (name: string) => number } {
+    const result = assembled(source);
+    const machine = new BbcModelB();
+    const bell = new Doorbell(machine.map);
+    machine.plugIn(bell);
+    installProgram(pokeWriter(machine), result.lines, 0x0400);
+    machine.powerOn();
+    const cpu = machine.cpu;
+    const step = (): number => machine.step();
     const label = (name: string): number => {
       const value = result.symbols.get(name);
       if (value === undefined) throw new Error(`no label ${name}`);
       return value;
     };
-    return { cpu, bus, bell, step, label };
+    // bus: the machine, read with peek (no side effects), as the old TestBus was.
+    return { cpu, bus: machine, bell, step, label };
   }
 
   /** Steps until PC is at address, or throws after a generous limit. */
@@ -605,7 +605,7 @@ describe('the Stage 17 interrupts example', () => {
 
   it('puts its vectors at &FFFA-&FFFF: NMI, RESET and IRQ/BRK', () => {
     const { bus, label } = setUp();
-    const at = (a: number): number => bus.read(a) | (bus.read(a + 1) << 8);
+    const at = (a: number): number => bus.peek(a) | (bus.peek(a + 1) << 8);
     expect([at(0xfffa), at(0xfffc), at(0xfffe)]).toEqual([label('nmi'), label('start'), label('irq')]);
     expect([label('start'), label('idle'), label('irq')]).toEqual([0x0400, 0x0406, 0x040f]);
   });
@@ -615,9 +615,9 @@ describe('the Stage 17 interrupts example', () => {
     runTo(step, cpu, 0x0404); // LDX, TXS, CLI
     expect(step()).toBe(7);
     expect(cpu.regs.pc).toBe(label('irq'));
-    expect([bus.read(0x01ff), bus.read(0x01fe), bus.read(0x01fd)]).toEqual([0x04, 0x06, 0xb0]); // N (from LDX #&FF), bit 5, B
+    expect([bus.peek(0x01ff), bus.peek(0x01fe), bus.peek(0x01fd)]).toEqual([0x04, 0x06, 0xb0]); // N (from LDX #&FF), bit 5, B
     runTo(step, cpu, label('idle'));
-    expect([bus.read(IRQS), bus.read(NMIS), bus.read(BRKS)]).toEqual([0, 0, 1]);
+    expect([bus.peek(IRQS), bus.peek(NMIS), bus.peek(BRKS)]).toEqual([0, 0, 1]);
     expect(cpu.regs.s).toBe(0xff);
     expect(cpu.regs.i).toBe(false);
   });
@@ -627,17 +627,16 @@ describe('the Stage 17 interrupts example', () => {
     runTo(step, cpu, label('idle'));
     for (let i = 0; i < 10; i++) step();
     const interrupted = cpu.regs.pc;
-    bell.ring();
-    cpu.irq = true;
+    bell.ring(); // the machine copies the line to the CPU's /IRQ pin before the step
     expect(step()).toBe(7);
-    expect(bus.read(0x01fd)).toBe(0x20); // B = 0: a real IRQ
-    expect((bus.read(0x01ff) << 8) | bus.read(0x01fe)).toBe(interrupted);
+    expect(bus.peek(0x01fd)).toBe(0x20); // B = 0: a real IRQ
+    expect((bus.peek(0x01ff) << 8) | bus.peek(0x01fe)).toBe(interrupted);
     runTo(step, cpu, interrupted);
     expect(bell.ringing).toBe(false);
-    expect([bus.read(IRQS), bus.read(NMIS), bus.read(BRKS)]).toEqual([1, 0, 1]);
-    const before = bus.read(MAIN);
+    expect([bus.peek(IRQS), bus.peek(NMIS), bus.peek(BRKS)]).toEqual([1, 0, 1]);
+    const before = bus.peek(MAIN);
     for (let i = 0; i < 9; i++) step();
-    expect(bus.read(MAIN)).not.toBe(before);
+    expect(bus.peek(MAIN)).not.toBe(before);
   });
 
   it('an NMI goes to its own handler and is counted at &81, even with I set', () => {
@@ -650,25 +649,19 @@ describe('the Stage 17 interrupts example', () => {
     expect(cpu.regs.pc).toBe(label('nmi'));
     step(); // INC nmis
     step(); // RTI
-    expect(bus.read(NMIS)).toBe(1);
+    expect(bus.peek(NMIS)).toBe(1);
     expect(cpu.regs.i).toBe(true); // RTI put back the P it interrupted
   });
 
   it('without the STA doorbell, one IRQ press runs the handler for ever and the main loop stops', () => {
     const source = INTERRUPTS_SOURCE.replace(/^ *STA doorbell.*$/m, '');
-    const result = assembled(source);
-    const bus = new TestBus();
-    installProgram(bus, result.lines, 0x0400);
-    const bell = new Doorbell(bus);
-    const cpu = new Cpu6502(bell);
-    cpu.reset();
-    for (let i = 0; i < 40; i++) cpu.step(); // through the BRK and into the main loop
+    const { bus, bell, step } = setUp(source);
+    for (let i = 0; i < 40; i++) step(); // through the BRK and into the main loop
     bell.ring();
-    cpu.irq = bell.ringing;
-    const main = bus.read(MAIN) | (bus.read(MAIN + 1) << 8);
-    for (let i = 0; i < 1000; i++) cpu.step();
-    expect(bus.read(IRQS)).toBeGreaterThan(50);
-    expect(bus.read(MAIN) | (bus.read(MAIN + 1) << 8)).toBe(main);
+    const main = bus.peek(MAIN) | (bus.peek(MAIN + 1) << 8);
+    for (let i = 0; i < 1000; i++) step();
+    expect(bus.peek(IRQS)).toBeGreaterThan(50);
+    expect(bus.peek(MAIN) | (bus.peek(MAIN + 1) << 8)).toBe(main);
   });
 });
 
