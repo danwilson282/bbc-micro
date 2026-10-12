@@ -172,7 +172,7 @@ describe('MosRunner, watching a BbcModelB (Stage 27)', () => {
     expect(machine.trace.recorded).toBe(1);
   });
 
-  withRoms(MOS)('from power-on, stalls in the CTRL+SHIFT wait: PA7 is a VIA input now, nothing drives it, so every key reads "down"', () => {
+  withRoms(MOS, BASIC)('from power-on, gets past the CTRL+SHIFT wait (the keyboard stub holds PA7 low, Stage 28) and stalls in an IRQ storm on the floating ACIA', () => {
     const machine = new BbcModelB();
     loadStandardRoms(machine.map);
     const runner = new MosRunner(machine);
@@ -180,10 +180,9 @@ describe('MosRunner, watching a BbcModelB (Stage 27)', () => {
     runner.clear();
     const result = runner.runUntilStall(20_000_000);
     expect(result.kind).toBe('stall');
-    expect(result.loop).toContain(0xf02a); // keyTest
-    expect(runner.calls.frames().map((f) => MOS_LABELS.get(f.to))).toContain('ctrlShiftWait');
-    expect(machine.peek(0x028d)).toBe(1); // but it was a power-on this time
-    expect(machine.irqHolders).toEqual(['System VIA']); // and the 100 Hz tick is waiting, with I = 1
-    expect(machine.registers.i).toBe(true);
+    expect(result.loop).toContain(0xdca2); // LDA &FE08: the ACIA status, which floats to &FE
+    expect(runner.calls.frames().map((f) => MOS_LABELS.get(f.to))).not.toContain('ctrlShiftWait');
+    expect(machine.peek(0x028d)).toBe(1); // a power-on
+    expect(machine.irqHolders).toEqual(['System VIA']); // the 100 Hz tick, never serviced
   });
 });

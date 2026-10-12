@@ -2,7 +2,7 @@
 
 Tracks where the build is up to. The `/start-stage` and `/finish-stage` skills keep this file up to date. For what each stage involves, see [`BUILD-PLAN.md`](./BUILD-PLAN.md).
 
-**Current stage:** 28 — Addressable latch & peripheral stubs (not started)
+**Current stage:** 29 — First boot (not started)
 
 **Status values:**
 - `not started`
@@ -65,7 +65,7 @@ Tracks where the build is up to. The `/start-stage` and `/finish-stage` skills k
 | # | Stage | Status | Seen? | Branch | Doc | Notes |
 |---|---|---|---|---|---|---|
 | 27 | Machine & scheduler | done | ✅ | `stage/27-machine-scheduler` | [doc](./stages/27-machine-scheduler.md) | `src/machine/bbc-model-b.ts`: CPU + `WriteRecorder` + map + System/User VIA; `step()` (sync /IRQ, trace, step, tick, sync), `runCycles(n)` with a carried **budget** (never drifts: 50 mixed frames stay within 6 cycles), `runFrame()` = 40,000, `powerOn()` (VIAs + cards + CPU) vs `reset()` = BREAK (CPU + cards only), wire-OR `irqLine`/`irqHolders`, `plugIn(card)` for the 1 MHz bus. Map gains `plugFred(card)`. **Doorbell is now a FRED card** (`IoDevice` + `IrqSource`, &FC00 only, rest floats), so its accesses reach the I/O log. `MosRunner` watches any `MosMachine` (`bareMos(map)` keeps Stage 23 unchanged). Browser (your choice: one machine): workbench target is always a `BbcModelB` (`machineTarget`); `/?machine=mos` fetches ROMs and powers on (no Assembler, MOS labels in Disassembly); Playground/MOS links in the header. `demo:boot`: power-on now detected (32K, `&028D`=1), System VIA set up (IER &F2, ACR &60, PCR &04, T1 &270E) and holding /IRQ from frame 14 with I = 1; stalls in the same CTRL+SHIFT loop because PA7 (input) floats high; BREAK → CTRL+BREAK; experiment with PA7 low reaches the banner then an **IRQ storm** on the floating ACIA (`&FE08` → &FE). `e2e/machine.spec.ts`. |
-| 28 | Addressable latch & peripheral stubs | not started | | `stage/28-latch-stubs` | [doc](./stages/28-latch-stubs.md) | |
+| 28 | Addressable latch & peripheral stubs | done | ✅ | `stage/28-latch-stubs` | [doc](./stages/28-latch-stubs.md) | VIA `PinListener`/`connectPins()` (told after writes, `/RES`, `setOutside`; not T1's PB7). `devices/addressable-latch.ts` (IC32 follows PB0-PB3 **pins**: the power-on float sets bit 7, and the MOS's DDRB write at `&DA05` pulses sound WE). `devices/hardware-log.ts` (numeric ring + `describeHardwareWrite`: `CRTC R0=&3F (horizontal total)`, `ULA ctrl=&4B`, `latch: sound WE off (bit 0 = 1)`). `devices/stubs/`: `CrtcStub` (stores R0-R17, reads &00), `VideoUlaStub` (control + palette, reads float), `KeyboardStub` (no key down; `links` laid out like `&028F`, default &FF). Machine wires them; `dataBus` and `cycles` for the stubs/log. `demo:boot` rewritten: raw vs named, boot log, stubs' contents, links → MODE 7/4/3/1/0, new stall = ACIA storm, BREAK now soft. Found: MOS writes R7=&1C (table &1B + carry from `CPY #7`, `&C95E`). ACIA left for Stage 29 (per plan). |
 | 29 | First boot | not started | | `stage/29-first-boot` | [doc](./stages/29-first-boot.md) | |
 
 ## Part 6: Mode 7 on screen
@@ -174,7 +174,7 @@ Things to come back to: questions raised during a stage, known inaccuracies, ide
 - `lastLap` starts a lap at the least-run instruction (ties: lowest address). A trace window that starts mid-lap can make it pick a later anchor (Part 5 starts at `defaultREM`, not `rdchWait`). Cosmetic. (Stage 23)
 - Unnamed routines still show as hex in call chains (`&CCF5` VDU dispatch `JMP (&035D)`, `&F068` `JMP (KEYV)`, `&E577`, BASIC's `&BC02`). Name them when a later stage reads them. (Stage 23)
 - Floating VIA inputs read 1 in our model (no line pulled low). Believed right for the Model B's user port, not checked against the circuit diagram's pull-ups. The outside can only pull a line *low*; forcing a VIA-driven 0 high isn't modelled. (Stage 24)
-- Nothing is told when a VIA output changes: the panel polls `pins()`. Stage 28's addressable latch needs a port B change callback (or to read `pins('b')` on each write). (Stage 24)
+- ~~Nothing is told when a VIA output changes.~~ Done in Stage 28: `Via6522.connectPins()`. The panel still polls `pins()`. Timer 1 toggling PB7 doesn't notify (hot path). (Stage 24)
 - VIA panel redraws the whole grid every frame during Run, so element screenshots can race the redraw (seen with the Playwright MCP). Same family as the Stage 03 `refresh()` item. (Stage 24)
 - VIA timer loads/reads are seen at the end of the instruction (the store's cycles are ticked after its write), so right after `STA &FE65` we show N−1 where the chip shows N. Periods are exact. Part 12: tick devices up to the access cycle before each I/O read/write. (Stage 25)
 - T1 in one-shot mode reloads from the latch after timing out (only the flag/PB7 don't retrigger). The datasheet says it "continues to decrement"; we follow the common reading. Unconfirmed on hardware. (Stage 25)
@@ -185,8 +185,13 @@ Things to come back to: questions raised during a stage, known inaccuracies, ide
 - Writing the PCR resets a CA2/CB2 handshake output to high only when the mode changes; the datasheet doesn't say. Input latches start at `&FF`. Both unconfirmed. (Stage 26)
 - The VIA panel's port-grid **outside** buttons are still rebuilt every frame during Run, so a click can be lost (mouse-down and mouse-up on different elements). Stage 26 fixed this for the control-line buttons by updating rows in place; do the same for the grids (same family as the Stage 03/24 refresh items). (Stage 26)
 - ~~The doorbell and the VIAs now share the playground's IRQ line; Stage 27's machine takes over the wire-OR.~~ Done in Stage 27: `BbcModelB.irqLine`/`irqHolders`; the doorbell is a 1 MHz bus card. (Stage 26)
-- **ACIA stub needed** (Stage 27): the MOS polls the 6850 first on every IRQ (`&DCA2`), and the floating `&FE` at `&FE08` claims every interrupt, so the System VIA is never serviced (IRQ storm). Stage 28/29 needs an ACIA stub whose status has bit 7 = 0, even though serial is out of scope. Its exact reset status (/DCD, /CTS pins) is unchecked. (Stage 27)
+- **ACIA stub needed** (Stage 27): the MOS polls the 6850 first on every IRQ (`&DCA2`), and the floating `&FE` at `&FE08` claims every interrupt, so the System VIA is never serviced (IRQ storm). Stage 29 needs an ACIA stub whose status has bit 7 = 0, even though serial is out of scope. Its exact reset status (/DCD, /CTS pins) is unchecked. Stage 28 left it out (not in the plan's list); with the keyboard stub, this storm is now *the* stall. (Stage 27)
 - Does the 1 MHz bus /RST follow BREAK or only power-on? We reset cards on both. Only matters for the doorbell. (Stage 27)
 - The machine always traces (1.7× cost, Stage 20). Measured at ~21 MHz under tsx. If Stage 30's frame loop needs the time, make tracing switchable. (Stage 27)
 - A synchronous 75-frame `page.evaluate` in an e2e test starved `compare-branch`'s parallel Run test past its 20 s timeout; `machine.spec.ts` uses 20 frames. That Run test is sensitive to load (~6 s alone). (Stage 27)
 - `playgroundTarget` survives only for tests and CLI demos on a flat `TestBus`. It could go once nothing needs a flat 64K. (Stage 27)
+- IC32 board details assumed, not checked against the circuit diagram: enable tied low (transparent, so the addressed bit follows the pins), and cleared at power-on (we reset it to &00; it may power up random). (Stage 28)
+- Keyboard links default to all open (`&028F` = &FF, MODE 7). How Acorn shipped them is unconfirmed. (Stage 28)
+- Keyboard stub drives PA7 low whenever autoscan is on. A real board would show the counter's column (a closed link could appear). The MOS doesn't read PA7 then; Stage 35 builds the counter. (Stage 28)
+- The keyboard now owns the System VIA's PA7: the VIA panel's PA7 pull-low button is overridden at the next pin change (PA0-PA6 buttons still work). (Stage 28)
+- CRTC stub reads give &00 (the real 6845 reads R14-R17 only); Stage 37. (Stage 28)

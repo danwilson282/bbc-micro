@@ -36,6 +36,10 @@
 // CA2/CB2 (inputs or outputs) set their flags on an edge, chosen by the PCR.
 //
 // The shift register isn't built (not planned): SR is plain storage.
+//
+// Whatever is wired to the ports can be told when their pins change (Stage
+// 28): the System VIA's port B drives the IC32 latch, and its port A carries
+// the keyboard's key number. See connectPins().
 
 import type { IoDevice } from '../memory/io-device';
 import type { IrqSource } from './irq-source';
@@ -160,6 +164,15 @@ const REGISTER_MASK = 0x0f;
 /** What the outside world does when nothing is connected: no line pulled low. */
 const NOTHING_PULLING = 0xff;
 
+/**
+ * Something wired to a VIA's port pins (Stage 28): the IC32 latch on the
+ * System VIA's PB0-PB3, the keyboard on its port A.
+ */
+export interface PinListener {
+  /** A port's pin levels changed: after a register write, a /RES, or setOutside(). */
+  pinsChanged(port: ViaPort, pins: number): void;
+}
+
 /** A snapshot of both timers, for the workbench. Not used on the hot path. */
 export interface ViaTimers {
   readonly t1: {
@@ -235,6 +248,11 @@ export class Via6522 implements IoDevice, IrqSource {
   /** CPU cycles not yet worth a whole VIA cycle: 0 or 1. */
   private phase = 0;
 
+  // What's wired to the pins (Stage 28), and the pins it was last told about.
+  private pinListener: PinListener | undefined;
+  private lastPinsA = NOTHING_PULLING;
+  private lastPinsB = NOTHING_PULLING;
+
   /** A new VIA is in its reset state: the Model B's power-on circuit always resets it. */
   constructor() {
     this.reset();
@@ -264,6 +282,24 @@ export class Via6522 implements IoDevice, IrqSource {
     this.cb2Out = 1;
     this.ca2Pulse = false;
     this.cb2Pulse = false;
+    // Every line is an input now, floating high unless the outside pulls it.
+    this.checkPins();
+  }
+
+  /**
+   * Wires something to the port pins: it's told whenever a port's levels
+   * change. One listener per VIA (it's one set of pins); undefined disconnects.
+   * It may call setOutside() from inside pinsChanged (a keyboard answering
+   * on PA7): it's then told about that change too, and the levels settle.
+   *
+   * Not told: Timer 1 toggling PB7 inside tick(). Checking the pins on every
+   * VIA cycle would cost the hot path, and on the Model B nothing listens to
+   * PB7 as an output (it's the speech chip's ready input).
+   */
+  connectPins(listener: PinListener | undefined): void {
+    this.pinListener = listener;
+    this.lastPinsA = this.pins('a');
+    this.lastPinsB = this.pins('b');
   }
 
   /**
@@ -479,6 +515,28 @@ export class Via6522 implements IoDevice, IrqSource {
         this.sr = v;
         break;
     }
+    // ORx, DDRx and ACR (PB7) writes move pins. Writes are rare next to instructions, so check after any.
+    this.checkPins();
+  }
+
+  /**
+   * Tells the listener about each port whose pins differ from last time.
+   * Port B first, then port A worked out afresh, because the listener for
+   * one may change the other (the latch's keyboard enable decides PA7).
+   */
+  private checkPins(): void {
+    const listener = this.pinListener;
+    if (listener === undefined) return;
+    const b = this.pins('b');
+    if (b !== this.lastPinsB) {
+      this.lastPinsB = b;
+      listener.pinsChanged('b', b);
+    }
+    const a = this.pins('a');
+    if (a !== this.lastPinsA) {
+      this.lastPinsA = a;
+      listener.pinsChanged('a', a);
+    }
   }
 
   /** A new PCR. A CA2/CB2 that changes mode starts with its handshake output high. */
@@ -589,6 +647,7 @@ export class Via6522 implements IoDevice, IrqSource {
   setOutside(port: ViaPort, value: number): void {
     if (port === 'a') this.outsideA = value & 0xff;
     else this.outsideB = value & 0xff;
+    this.checkPins();
   }
 
   /** The level on each line: driven by the VIA (outputs) or floating high (inputs), and pulled low by the outside. */
