@@ -132,7 +132,7 @@ export const MOS_NOTES: ReadonlyMap<number, string> = new Map<number, string>([
   [0xf02c, '... keyboard autoscan off: we ask about one key'],
   [0xf031, 'DDRA = &7F: PA0-6 out (key number), PA7 in'],
   [0xf034, 'key number on port A'],
-  [0xf037, 'bit 7 = that key is down. No VIA: the read floats'],
+  [0xf037, 'PA7 (bit 7) = that key is down'],
   [0xcae6, 'CTRL not down: carry on'],
   [0xcae8, 'CTRL and SHIFT down: halt scrolling, ask again'],
   [0xef1d, 'X = &00: SHIFT'],

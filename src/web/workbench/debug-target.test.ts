@@ -1,7 +1,10 @@
 import { BbcMemoryMap } from '../../memory/bbc-memory-map';
 import { TestBus } from '../../memory/test-bus';
 import { IFR_CA1, IFR_T1, VIA_IER, VIA_IFR, VIA_T1C_H, VIA_T1C_L, Via6522 } from '../../devices/via6522';
-import { playgroundTarget } from './debug-target';
+import { BbcModelB } from '../../machine/bbc-model-b';
+import { Doorbell } from '../../playground/doorbell';
+import { installProgram, pokeWriter } from '../../playground/setup';
+import { DOORBELL_HOLDER, machineTarget, playgroundTarget } from './debug-target';
 
 const NOP = 0xea;
 
@@ -200,5 +203,44 @@ describe('the playground target: VIA interrupts (Stage 26)', () => {
     target.step(); // STA &FE6D: a 1 in bit 1 clears CA1
     expect(target.irqLine).toBe(false);
     expect(target.registers.pc).toBe(0x0705);
+  });
+});
+
+describe('the machine target (Stage 27): the workbench on a BbcModelB', () => {
+  function machineAt0400(bytes: readonly number[]): { machine: BbcModelB; bell: Doorbell; target: ReturnType<typeof machineTarget> } {
+    const machine = new BbcModelB('test machine');
+    const bell = new Doorbell(machine.map);
+    machine.plugIn(bell);
+    installProgram(pokeWriter(machine), [{ address: 0x0400, bytes, source: '', comment: '' }], 0x0400);
+    machine.powerOn();
+    return { machine, bell, target: machineTarget(machine, bell) };
+  }
+
+  it('steps, resets and peeks the machine itself', () => {
+    const { machine, target } = machineAt0400([0xa9, 0x42, 0x85, 0x70]); // LDA #&42 : STA &70
+    expect(target.name).toBe('test machine');
+    target.step();
+    target.step();
+    expect(target.peek(0x70)).toBe(0x42);
+    expect(target.cycles).toBe(machine.cycles);
+    expect(target.trace.recorded).toBe(2);
+    expect(target.writes.recorded()).toEqual([{ address: 0x70, value: 0x42 }]);
+    target.reset();
+    expect(target.registers.pc).toBe(0x0400);
+  });
+
+  it('the IRQ button rings the doorbell card in FRED, and the machine\'s wire-OR names it', () => {
+    const { target } = machineAt0400([0x58]); // CLI
+    target.ringIrq();
+    expect(target.irqLine).toBe(true);
+    expect(target.irqHolders).toEqual([DOORBELL_HOLDER]);
+    target.step();
+    expect(target.pendingInterrupt).toBe('irq');
+  });
+
+  it('the NMI button latches an edge in the CPU', () => {
+    const { target } = machineAt0400([0xea]);
+    target.pulseNmi();
+    expect(target.nmiPending).toBe(true);
   });
 });

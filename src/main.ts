@@ -1,8 +1,14 @@
-// Browser entry point. Builds the "CPU playground" (a 6502 on the BBC memory
-// map, since Stage 21) and mounts the workbench beside the screen canvas.
+// Browser entry point. Builds the machine (a BbcModelB, since Stage 27) and
+// mounts the workbench beside the screen canvas. Two ways to use it:
+//
+//   /                 the playground: Assemble & Run puts your program in RAM,
+//                     with the reset vector pointing at it, and powers on
+//   /?machine=mos     the real ROMs from roms/, powered on into MOS 1.20
 
-import { Via6522 } from './devices/via6522';
-import { BbcMemoryMap } from './memory/bbc-memory-map';
+import { BbcModelB } from './machine/bbc-model-b';
+import { MOS_LABELS } from './mos/mos-labels';
+import { Doorbell } from './playground/doorbell';
+import { fetchStandardRoms } from './web/rom-fetch';
 import type { ListingLine } from './playground/listing';
 import { EXAMPLES, findExample } from './playground/examples';
 import { PROGRAM_PAGE, installProgram, pokeWriter } from './playground/setup';
@@ -14,7 +20,7 @@ import { createConverterPanel } from './web/workbench/converter-panel';
 import { createDisassemblyPanel } from './web/workbench/disassembly-panel';
 import { labelsFromSymbols } from './web/workbench/disassembly-view-model';
 import { createInterruptsPanel } from './web/workbench/interrupts-panel';
-import { playgroundTarget } from './web/workbench/debug-target';
+import { machineTarget } from './web/workbench/debug-target';
 import { createListingPanel } from './web/workbench/listing-panel';
 import { createMemoryMapPanel } from './web/workbench/memory-map-panel';
 import { createMemoryPanel } from './web/workbench/memory-panel';
@@ -32,39 +38,54 @@ if (!host) throw new Error('Missing #workbench element');
 const underScreen = document.querySelector<HTMLElement>('#under-screen');
 if (!underScreen) throw new Error('Missing #under-screen element');
 
+const params = new URLSearchParams(window.location.search);
+const mosMode = params.get('machine') === 'mos';
 // Programs come from the Assembler panel (Stage 08). The current stage's
 // example runs by default; ?program=stores or ?program=loads starts with an
 // earlier stage's instead.
-const initial = findExample(new URLSearchParams(window.location.search).get('program'));
+const initial = findExample(params.get('program'));
 
-// The two 6522 VIAs are real since Stage 24, with nothing wired to their pins
-// yet. Every other SHEILA chip is still a placeholder (Stage 21).
-const systemVia = new Via6522();
-const userVia = new Via6522();
-const bus = new BbcMemoryMap({ devices: { systemVia, userVia } });
-// The target puts a WriteRecorder between the CPU and the bus (Stage 07),
-// ticks both VIAs after every step so their timers run (Stage 25), and wires
-// both VIAs' /IRQ to the CPU, together with the doorbell (Stage 26).
-const target = playgroundTarget(
-  bus,
-  'CPU playground (6502 on the BBC memory map)',
-  [systemVia, userVia],
-  [
-    { name: 'System VIA', source: systemVia },
-    { name: 'User VIA', source: userVia },
-  ],
-);
+// The machine (Stage 27): CPU, memory map, both VIAs ticked after every step
+// and wired to /IRQ. Every other SHEILA chip is still a placeholder (Stage 21).
+// The Stage 17 doorbell is a card on its 1 MHz bus, so the IRQ button has
+// something to ring, in either mode.
+const machine = new BbcModelB(mosMode ? 'BBC Model B running MOS 1.20 from roms/' : 'BBC Model B, playground: your program instead of the MOS');
+const doorbell = new Doorbell(machine.map);
+machine.plugIn(doorbell);
+const target = machineTarget(machine, doorbell);
+const { map: bus, systemVia, userVia } = machine;
 let listing: readonly ListingLine[] = [];
-// Address → name, from the last assembly, so the Disassembly panel can say "JSR one".
-let labels: ReadonlyMap<number, string> = new Map();
+// Address → name, so the Disassembly panel can say "JSR one": from the last
+// assembly, or the MOS's routines and vectors.
+let labels: ReadonlyMap<number, string> = mosMode ? MOS_LABELS : new Map();
 
 const workbench = createWorkbench(host, target.name);
 const refreshAll = (): void => {
   workbench.refreshAll();
 };
 
+// The switch between the two modes, at the top of the workbench column.
+const modes = document.createElement('nav');
+modes.className = 'machine-switch';
+modes.setAttribute('aria-label', 'Machine');
+for (const [label, href, current] of [
+  ['Playground', '/', !mosMode],
+  ['MOS 1.20', '/?machine=mos', mosMode],
+] as const) {
+  const link = document.createElement('a');
+  link.href = href;
+  link.textContent = label;
+  if (current) link.setAttribute('aria-current', 'page');
+  modes.append(link);
+}
+const romStatus = document.createElement('span');
+romStatus.className = 'rom-status';
+modes.append(romStatus);
+host.prepend(modes);
+
 const memory = createMemoryPanel(target, {
-  start: PROGRAM_PAGE,
+  // MOS mode opens on page 2: the MOS's vectors and variables (&028D, the BREAK type).
+  start: mosMode ? 0x0200 : PROGRAM_PAGE,
   onPoke: refreshAll,
   pc: () => target.registers.pc,
   writes: target.writes,
@@ -82,12 +103,10 @@ const assembler = createAssemblerPanel({
     listing = assembly.lines;
     labels = labelsFromSymbols(assembly.symbols);
     // Through poke, so the vectors at &FFFA-&FFFF land in the MOS ROM image.
-    installProgram(pokeWriter(bus), assembly.lines, entry);
+    installProgram(pokeWriter(machine), assembly.lines, entry);
     // A fresh playground is a power-on, which resets the VIAs. The Reset
-    // button is like BREAK: it resets the CPU and leaves them alone (Stage 23).
-    systemVia.reset();
-    userVia.reset();
-    target.reset();
+    // button is BREAK: it resets the CPU and leaves them alone (Stage 23).
+    machine.powerOn();
     target.writes.clear();
     bus.clearIoHistory();
     memory.goTo(entry);
@@ -98,8 +117,11 @@ workbench.add(registers, underScreen);
 workbench.add(createInterruptsPanel(target, { onChange: refreshAll }), underScreen);
 workbench.add(createStackPanel(target), underScreen);
 workbench.add(memory, underScreen);
-workbench.add(assembler);
-workbench.add(createListingPanel(target, () => listing));
+// No assembler in MOS mode: assembling would overwrite the MOS's reset vector.
+if (!mosMode) {
+  workbench.add(assembler);
+  workbench.add(createListingPanel(target, () => listing));
+}
 workbench.add(createDisassemblyPanel(target, () => labels));
 workbench.add(
   createMemoryMapPanel(bus, {
@@ -125,7 +147,23 @@ workbench.add(
 );
 workbench.add(createAddressingPanel(target));
 workbench.add(createConverterPanel());
-assembler.assembleAndRun();
+
+if (mosMode) {
+  romStatus.textContent = 'loading ROMs…';
+  void fetchStandardRoms(bus).then((report) => {
+    const missing = report.missing.map((rom) => rom.file);
+    romStatus.textContent = `ROMs: ${report.loaded.map((rom) => rom.file).join(', ') || 'none'}${missing.length > 0 ? ` (missing: ${missing.join(', ')})` : ''}`;
+    if (!report.loaded.some((rom) => rom.id === 'mos')) {
+      romStatus.textContent += '. Without os12.rom there is nothing to run: put it in roms/ and reload.';
+      return;
+    }
+    machine.powerOn();
+    memory.goTo(0x0200);
+    refreshAll();
+  });
+} else {
+  assembler.assembleAndRun();
+}
 
 // A console handle for experimenting in DevTools, e.g.
 //   workbench.poke(0x0401, 0xff)   // then Reset and Step
@@ -145,8 +183,13 @@ Object.assign(window, {
       workbench.refreshAll();
       return cycles;
     },
-    cpu: target.cpu,
+    machine,
+    cpu: machine.cpu,
     map: bus,
+    powerOn: (): void => {
+      machine.powerOn();
+      workbench.refreshAll();
+    },
     systemVia,
     userVia,
     trace: (count = 20): string => [TRACE_HEADER, ...target.trace.recent(count).map((entry) => formatTraceLine(entry, labels))].join('\n'),
@@ -158,6 +201,6 @@ Object.assign(window, {
       target.pulseNmi();
       workbench.refreshAll();
     },
-    help: `workbench.poke(0x${hex16(PROGRAM_PAGE + 1)}, 0xff), workbench.step(), workbench.peek(addr), workbench.goTo(addr), workbench.trace(20), workbench.map.ioLog.recent(), workbench.userVia.pins('b'), workbench.systemVia.setControlLine('ca1', 0), workbench.irq(), workbench.nmi(), workbench.cpu.regs`,
+    help: `workbench.machine.runFrame(), workbench.powerOn(), workbench.poke(0x${hex16(PROGRAM_PAGE + 1)}, 0xff), workbench.step(), workbench.peek(addr), workbench.goTo(addr), workbench.trace(20), workbench.map.ioLog.recent(), workbench.userVia.pins('b'), workbench.systemVia.setControlLine('ca1', 0), workbench.irq(), workbench.nmi(), workbench.cpu.regs`,
   },
 });

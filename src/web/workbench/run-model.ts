@@ -15,14 +15,15 @@
 // DOM-free, so Jest tests it; registers-panel.ts does the animation frames.
 
 import { UnimplementedOpcodeError } from '../../cpu/cpu6502';
+import { CYCLES_PER_FRAME } from '../../machine/bbc-model-b';
 import { hex16 } from '../../util/bits';
 import type { CpuTarget } from './debug-target';
 import { formatCycles } from './registers-view-model';
 
 /** BRK's opcode (MCS6500 Programming Manual, Appendix B). Run stops before it. */
 export const BRK_OPCODE = 0x00;
-/** One 50 Hz PAL video frame of the Model B's 2 MHz 6502: 2,000,000 / 50. */
-export const CYCLES_PER_FRAME = 40_000;
+/** One 50 Hz frame: the machine's own constant (Stage 27), so Run and runFrame() agree. */
+export { CYCLES_PER_FRAME };
 /** Run gives up after 10 seconds of emulated time, in case a loop never ends. */
 export const RUN_CYCLE_LIMIT = 20_000_000;
 

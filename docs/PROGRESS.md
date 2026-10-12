@@ -2,7 +2,7 @@
 
 Tracks where the build is up to. The `/start-stage` and `/finish-stage` skills keep this file up to date. For what each stage involves, see [`BUILD-PLAN.md`](./BUILD-PLAN.md).
 
-**Current stage:** 27 — Machine & scheduler (not started)
+**Current stage:** 28 — Addressable latch & peripheral stubs (not started)
 
 **Status values:**
 - `not started`
@@ -64,7 +64,7 @@ Tracks where the build is up to. The `/start-stage` and `/finish-stage` skills k
 
 | # | Stage | Status | Seen? | Branch | Doc | Notes |
 |---|---|---|---|---|---|---|
-| 27 | Machine & scheduler | not started | | `stage/27-machine-scheduler` | [doc](./stages/27-machine-scheduler.md) | |
+| 27 | Machine & scheduler | done | ✅ | `stage/27-machine-scheduler` | [doc](./stages/27-machine-scheduler.md) | `src/machine/bbc-model-b.ts`: CPU + `WriteRecorder` + map + System/User VIA; `step()` (sync /IRQ, trace, step, tick, sync), `runCycles(n)` with a carried **budget** (never drifts: 50 mixed frames stay within 6 cycles), `runFrame()` = 40,000, `powerOn()` (VIAs + cards + CPU) vs `reset()` = BREAK (CPU + cards only), wire-OR `irqLine`/`irqHolders`, `plugIn(card)` for the 1 MHz bus. Map gains `plugFred(card)`. **Doorbell is now a FRED card** (`IoDevice` + `IrqSource`, &FC00 only, rest floats), so its accesses reach the I/O log. `MosRunner` watches any `MosMachine` (`bareMos(map)` keeps Stage 23 unchanged). Browser (your choice: one machine): workbench target is always a `BbcModelB` (`machineTarget`); `/?machine=mos` fetches ROMs and powers on (no Assembler, MOS labels in Disassembly); Playground/MOS links in the header. `demo:boot`: power-on now detected (32K, `&028D`=1), System VIA set up (IER &F2, ACR &60, PCR &04, T1 &270E) and holding /IRQ from frame 14 with I = 1; stalls in the same CTRL+SHIFT loop because PA7 (input) floats high; BREAK → CTRL+BREAK; experiment with PA7 low reaches the banner then an **IRQ storm** on the floating ACIA (`&FE08` → &FE). `e2e/machine.spec.ts`. |
 | 28 | Addressable latch & peripheral stubs | not started | | `stage/28-latch-stubs` | [doc](./stages/28-latch-stubs.md) | |
 | 29 | First boot | not started | | `stage/29-first-boot` | [doc](./stages/29-first-boot.md) | |
 
@@ -143,7 +143,7 @@ Things to come back to: questions raised during a stage, known inaccuracies, ide
 - ~~`readOperand` (logic.ts) and `arithmetic()` (arithmetic.ts) are the same factory.~~ Done in Stage 14: `instructions/read-operand.ts`.
 - Run runs 40,000 cycles per *browser* frame, so it's ~1.2× real speed on a 60 Hz display (more on 120 Hz). Stage 30's run loop should pace by wall-clock time. (Stage 14)
 - We model 16 independent sideways slots. A stock Model B's four sockets probably mirror (only ROMSEL bits 0-1 decoded, so each ROM answers 4 numbers); unconfirmed against the circuit diagram. Revisit if anything depends on it. (Stage 22)
-- The browser ROM loader (`fetchStandardRoms`) isn't wired into the workbench yet: the playground keeps empty slots so its examples are unchanged. Use it when the browser runs the real machine (Stage 30). (Stage 22)
+- ~~The browser ROM loader (`fetchStandardRoms`) isn't wired into the workbench yet.~~ Done in Stage 27: `/?machine=mos`. (Stage 22)
 - `dfs.rom` isn't in `roms/` yet. It's needed by Part 11 (DFS), and its header test skips until then. (Stage 22)
 - NMOS quirk: a taken branch that doesn't cross a page delays IRQ/NMI recognition by one instruction. Explained but not modelled in Stage 17; Part 12 cycle-exact extras. (Stage 14)
 - NMOS quirk: `PLP`, `CLI` and `SEI` change I one instruction late as far as IRQ recognition goes (`RTI` doesn't). Explained but not modelled in Stage 17 (ours takes an IRQ straight after `CLI`); Part 12 cycle-exact extras. (Stage 15)
@@ -167,10 +167,10 @@ Things to come back to: questions raised during a stage, known inaccuracies, ide
 - **Floating bus** (Stage 21): reads that no chip answers return the last byte on the data bus (NMOS open bus). The principle is sound, but it isn't confirmed for every empty Model B address (FRED, JIM, empty sockets, write-only chips like the Video ULA). Check against hardware notes if any software depends on it. (Stage 21)
 - SHEILA mirroring inside each slot assumes each chip sees only its own register-select lines. That's confirmed for the VIAs by common use, but not checked against the circuit diagram for the others. The `&FE18` (Econet ID/INTOFF) and `&FE20` read (INTON) side effects aren't modelled (Econet is out of scope). (Stage 21)
 - The 1 MHz bus cycle stretching for FRED, JIM and the slow SHEILA chips isn't modelled. Part 12 cycle-exact extras. (Stage 21)
-- The Stage 17 doorbell wraps the map, so `&FC00` accesses don't reach the I/O log, and peeking `&FC00` shows the floating bus. It goes away with the playground in Part 5. (Stage 21)
+- ~~The Stage 17 doorbell wraps the map, so `&FC00` accesses don't reach the I/O log.~~ Done in Stage 27: it's a FRED card now. (Stage 21)
 - Undocumented `SBC #` duplicate at `&EB` isn't implemented. Part 12 extras. (Stage 10)
 - Undocumented NMOS opcodes that also load registers (`LAX` `&A7`/`&AF`/…) aren't implemented. They belong with the optional extras in Part 12. (Stage 06)
-- **BREAK vs power-on** (Stage 23): only power-on resets the VIAs; the MOS tells them apart by reading IER. Stage 27's `reset()` needs two flavours, and BREAK must leave the VIAs alone. (Stage 23)
+- ~~**BREAK vs power-on** (Stage 23): Stage 27's `reset()` needs two flavours.~~ Done in Stage 27: `powerOn()` and `reset()`. (Stage 23)
 - `lastLap` starts a lap at the least-run instruction (ties: lowest address). A trace window that starts mid-lap can make it pick a later anchor (Part 5 starts at `defaultREM`, not `rdchWait`). Cosmetic. (Stage 23)
 - Unnamed routines still show as hex in call chains (`&CCF5` VDU dispatch `JMP (&035D)`, `&F068` `JMP (KEYV)`, `&E577`, BASIC's `&BC02`). Name them when a later stage reads them. (Stage 23)
 - Floating VIA inputs read 1 in our model (no line pulled low). Believed right for the Model B's user port, not checked against the circuit diagram's pull-ups. The outside can only pull a line *low*; forcing a VIA-driven 0 high isn't modelled. (Stage 24)
@@ -184,4 +184,9 @@ Things to come back to: questions raised during a stage, known inaccuracies, ide
 - VIA control-line edges count the instant `setControlLine` is called; a real 6522 samples at its next φ2 (≤ 1 µs later). Invisible between instructions. The CA2/CB2 pulse output ends at the next VIA cycle, always inside the same instruction's tick, so the CPU can never see it low. (Stage 26)
 - Writing the PCR resets a CA2/CB2 handshake output to high only when the mode changes; the datasheet doesn't say. Input latches start at `&FF`. Both unconfirmed. (Stage 26)
 - The VIA panel's port-grid **outside** buttons are still rebuilt every frame during Run, so a click can be lost (mouse-down and mouse-up on different elements). Stage 26 fixed this for the control-line buttons by updating rows in place; do the same for the grids (same family as the Stage 03/24 refresh items). (Stage 26)
-- The doorbell and the VIAs now share the playground's IRQ line; Stage 27's machine takes over the wire-OR (`irqHolders` is a debugging nicety worth keeping). (Stage 26)
+- ~~The doorbell and the VIAs now share the playground's IRQ line; Stage 27's machine takes over the wire-OR.~~ Done in Stage 27: `BbcModelB.irqLine`/`irqHolders`; the doorbell is a 1 MHz bus card. (Stage 26)
+- **ACIA stub needed** (Stage 27): the MOS polls the 6850 first on every IRQ (`&DCA2`), and the floating `&FE` at `&FE08` claims every interrupt, so the System VIA is never serviced (IRQ storm). Stage 28/29 needs an ACIA stub whose status has bit 7 = 0, even though serial is out of scope. Its exact reset status (/DCD, /CTS pins) is unchecked. (Stage 27)
+- Does the 1 MHz bus /RST follow BREAK or only power-on? We reset cards on both. Only matters for the doorbell. (Stage 27)
+- The machine always traces (1.7× cost, Stage 20). Measured at ~21 MHz under tsx. If Stage 30's frame loop needs the time, make tracing switchable. (Stage 27)
+- A synchronous 75-frame `page.evaluate` in an e2e test starved `compare-branch`'s parallel Run test past its 20 s timeout; `machine.spec.ts` uses 20 frames. That Run test is sensitive to load (~6 s alone). (Stage 27)
+- `playgroundTarget` survives only for tests and CLI demos on a flat `TestBus`. It could go once nothing needs a flat 64K. (Stage 27)

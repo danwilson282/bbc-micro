@@ -5,6 +5,7 @@ import { ROM_SIZE } from '../memory/memory-regions';
 import { loadStandardRoms } from '../memory/rom-files';
 import { withRoms } from '../memory/with-roms';
 import { MOS_LABELS } from './mos-labels';
+import { BbcModelB } from '../machine/bbc-model-b';
 import { MosRunner } from './mos-runner';
 
 const MOS = 'roms/os12.rom';
@@ -158,3 +159,31 @@ describe('MosRunner, on MOS 1.20', () => {
   });
 });
 
+
+describe('MosRunner, watching a BbcModelB (Stage 27)', () => {
+  withRoms(MOS)('uses the machine\'s own tracer, so a step is traced once', () => {
+    const machine = new BbcModelB();
+    loadStandardRoms(machine.map);
+    const runner = new MosRunner(machine);
+    expect(runner.tracer).toBe(machine.trace);
+    machine.powerOn();
+    runner.clear();
+    runner.step();
+    expect(machine.trace.recorded).toBe(1);
+  });
+
+  withRoms(MOS)('from power-on, stalls in the CTRL+SHIFT wait: PA7 is a VIA input now, nothing drives it, so every key reads "down"', () => {
+    const machine = new BbcModelB();
+    loadStandardRoms(machine.map);
+    const runner = new MosRunner(machine);
+    machine.powerOn();
+    runner.clear();
+    const result = runner.runUntilStall(20_000_000);
+    expect(result.kind).toBe('stall');
+    expect(result.loop).toContain(0xf02a); // keyTest
+    expect(runner.calls.frames().map((f) => MOS_LABELS.get(f.to))).toContain('ctrlShiftWait');
+    expect(machine.peek(0x028d)).toBe(1); // but it was a power-on this time
+    expect(machine.irqHolders).toEqual(['System VIA']); // and the 100 Hz tick is waiting, with I = 1
+    expect(machine.registers.i).toBe(true);
+  });
+});

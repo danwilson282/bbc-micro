@@ -85,6 +85,25 @@
         flex: 1 1 560px;
         min-width: 0;
       }
+      .machine-switch {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px 12px;
+        align-items: baseline;
+        margin: 0 0 4px;
+        font-size: 0.9rem;
+      }
+      .machine-switch a {
+        color: var(--fg);
+      }
+      .machine-switch a[aria-current='page'] {
+        font-weight: 600;
+        text-decoration: none;
+      }
+      .machine-switch .rom-status {
+        color: var(--muted);
+        font-size: 0.85rem;
+      }
       .workbench-target {
         margin: 0 0 8px;
         color: var(--muted);

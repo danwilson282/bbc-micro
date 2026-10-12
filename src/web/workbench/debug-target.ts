@@ -6,19 +6,20 @@
 // &FE would change the program it was watching. So panels use peek(), which
 // promises no side effects, and poke(), the debugger's write.
 //
-// DOM-free on purpose, so Jest can test it. Core objects (like BbcModelB in
-// Part 5) satisfy this interface structurally: they just need these members,
-// and never have to import anything from src/web/.
+// DOM-free on purpose, so Jest can test it. Core objects (like BbcModelB,
+// Stage 27) satisfy these interfaces structurally: they just need these
+// members, and never have to import anything from src/web/.
 
 import { Cpu6502, type InterruptKind } from '../../cpu/cpu6502';
 import { Tracer } from '../../cpu/trace';
 import type { Clocked } from '../../devices/clocked';
 import type { NamedIrqSource } from '../../devices/irq-source';
 import type { Registers } from '../../cpu/registers';
+import type { BbcModelB } from '../../machine/bbc-model-b';
 import type { Bus } from '../../memory/bus';
 import type { TestBus } from '../../memory/test-bus';
 import { WriteRecorder, type WriteLog } from '../../memory/write-recorder';
-import { Doorbell } from '../../playground/doorbell';
+import { DOORBELL, DOORBELL_NAME, DOORBELL_REGISTER, Doorbell } from '../../playground/doorbell';
 
 export interface DebugTarget {
   /** Shown in the workbench header, e.g. "CPU playground (64K TestBus)". */
@@ -89,7 +90,7 @@ export interface InterruptTarget extends CpuTarget {
 }
 
 /** How irqHolders names the playground's doorbell. */
-export const DOORBELL_HOLDER = 'the doorbell';
+export const DOORBELL_HOLDER = DOORBELL_NAME;
 
 /** A CPU target that keeps a trace of the steps it has run (Stage 18). */
 export interface TracedTarget extends CpuTarget {
@@ -98,15 +99,17 @@ export interface TracedTarget extends CpuTarget {
 }
 
 /**
- * The playground: a 6502 on some memory (the BBC memory map in the browser
- * since Stage 21, a flat TestBus in most tests), with a WriteRecorder between
- * them so the workbench can see what the CPU wrote, and a doorbell at &FC00
- * for the IRQ button to ring (Stage 17), and a tracer that notes each step
- * just before it runs (Stage 18), and any clocked devices (the VIAs, Stage 25)
- * ticked by each step's cycles. The IRQ sources (the VIAs, Stage 26) share
- * the CPU's IRQ line with the doorbell: a wire-OR, so any one holds it low.
+ * The Part 2 playground: a 6502 on some memory (a flat TestBus, in tests and
+ * CLI demos; the browser runs a BbcModelB since Stage 27, see machineTarget),
+ * with a WriteRecorder between them so the workbench can see what the CPU
+ * wrote, and a doorbell at &FC00 for the IRQ button to ring (Stage 17), and a
+ * tracer that notes each step just before it runs (Stage 18), and any clocked
+ * devices (the VIAs, Stage 25) ticked by each step's cycles. The IRQ sources
+ * (the VIAs, Stage 26) share the CPU's IRQ line with the doorbell: a wire-OR,
+ * so any one holds it low.
  *
- *   Cpu6502 ──▶ WriteRecorder ──▶ Doorbell ──▶ memory ◀── peek / poke
+ *   Cpu6502 ──▶ WriteRecorder ──▶ &FC00? ──yes──▶ Doorbell
+ *                                    └──no───▶ memory ◀── peek / poke
  *                                                ▲
  *                                     Tracer ────┘ (peeks the bytes at PC)
  *
@@ -119,8 +122,17 @@ export function playgroundTarget(
   devices: readonly Clocked[] = [],
   irqSources: readonly NamedIrqSource[] = [],
 ): InterruptTarget & TracedTarget & { readonly cpu: Cpu6502 } {
-  const doorbell = new Doorbell(memory);
-  const recorder = new WriteRecorder(doorbell);
+  // A flat TestBus has no FRED to plug a card into, so &FC00 alone is sent to
+  // the doorbell. It never sees another address, so its floating bus is never read.
+  const doorbell = new Doorbell({ dataBus: 0x00 });
+  const routed: Bus = {
+    read: (address) => ((address & 0xffff) === DOORBELL ? doorbell.read(DOORBELL_REGISTER) : memory.read(address)),
+    write: (address, value) => {
+      if ((address & 0xffff) === DOORBELL) doorbell.write(DOORBELL_REGISTER);
+      else memory.write(address, value);
+    },
+  };
+  const recorder = new WriteRecorder(routed);
   const cpu = new Cpu6502(recorder);
   const base: DebugTarget = {
     name,
@@ -196,6 +208,50 @@ export function playgroundTarget(
     },
     get nmiPending() {
       return cpu.nmiPending;
+    },
+  };
+}
+
+/**
+ * The workbench's view of a BbcModelB (Stage 27). The machine already has
+ * almost everything a panel needs; this adds the IRQ button, which rings a
+ * doorbell card plugged into the machine's 1 MHz bus. The machine copies the
+ * line to the CPU before its next step.
+ */
+export function machineTarget(machine: BbcModelB, doorbell: Doorbell): InterruptTarget & TracedTarget {
+  return {
+    name: machine.name,
+    peek: (address) => machine.peek(address),
+    poke: (address, value) => {
+      machine.poke(address, value);
+    },
+    get registers() {
+      return machine.registers;
+    },
+    get cycles() {
+      return machine.cycles;
+    },
+    step: () => machine.step(),
+    reset: () => machine.reset(),
+    writes: machine.writes,
+    trace: machine.trace,
+    get pendingInterrupt() {
+      return machine.pendingInterrupt;
+    },
+    ringIrq: () => {
+      doorbell.ring();
+    },
+    pulseNmi: () => {
+      machine.pulseNmi();
+    },
+    get irqLine() {
+      return machine.irqLine;
+    },
+    get irqHolders() {
+      return machine.irqHolders;
+    },
+    get nmiPending() {
+      return machine.nmiPending;
     },
   };
 }
