@@ -13,6 +13,7 @@
 import { Cpu6502, type InterruptKind } from '../../cpu/cpu6502';
 import { Tracer } from '../../cpu/trace';
 import type { Clocked } from '../../devices/clocked';
+import type { NamedIrqSource } from '../../devices/irq-source';
 import type { Registers } from '../../cpu/registers';
 import type { Bus } from '../../memory/bus';
 import type { TestBus } from '../../memory/test-bus';
@@ -79,11 +80,16 @@ export interface InterruptTarget extends CpuTarget {
   ringIrq(): void;
   /** The NMI button: one pulse on /NMI (asserted then released), so one falling edge. */
   pulseNmi(): void;
-  /** Is something holding the IRQ line? */
+  /** Is something holding the IRQ line? Worked out now, from the devices. */
   readonly irqLine: boolean;
+  /** Who is holding it, e.g. ["the doorbell", "System VIA"]. Empty when released. For panels, not the hot path. */
+  readonly irqHolders: readonly string[];
   /** Is the NMI edge detector's latch set? */
   readonly nmiPending: boolean;
 }
+
+/** How irqHolders names the playground's doorbell. */
+export const DOORBELL_HOLDER = 'the doorbell';
 
 /** A CPU target that keeps a trace of the steps it has run (Stage 18). */
 export interface TracedTarget extends CpuTarget {
@@ -97,7 +103,8 @@ export interface TracedTarget extends CpuTarget {
  * them so the workbench can see what the CPU wrote, and a doorbell at &FC00
  * for the IRQ button to ring (Stage 17), and a tracer that notes each step
  * just before it runs (Stage 18), and any clocked devices (the VIAs, Stage 25)
- * ticked by each step's cycles.
+ * ticked by each step's cycles. The IRQ sources (the VIAs, Stage 26) share
+ * the CPU's IRQ line with the doorbell: a wire-OR, so any one holds it low.
  *
  *   Cpu6502 ──▶ WriteRecorder ──▶ Doorbell ──▶ memory ◀── peek / poke
  *                                                ▲
@@ -110,6 +117,7 @@ export function playgroundTarget(
   memory: PlaygroundMemory,
   name = 'CPU playground (6502 on a 64K TestBus)',
   devices: readonly Clocked[] = [],
+  irqSources: readonly NamedIrqSource[] = [],
 ): InterruptTarget & TracedTarget & { readonly cpu: Cpu6502 } {
   const doorbell = new Doorbell(memory);
   const recorder = new WriteRecorder(doorbell);
@@ -122,10 +130,18 @@ export function playgroundTarget(
     },
   };
   const trace = new Tracer((address) => base.peek(address));
-  // After anything that might change the doorbell, copy its line to the CPU's
-  // /IRQ pin. Part 5's machine does the same after ticking its devices (BUILD-PLAN §3).
+  // The IRQ line: low while the doorbell OR any source holds it (wire-OR).
+  // An indexed loop, so nothing is allocated per step.
+  const lineHeld = (): boolean => {
+    if (doorbell.ringing) return true;
+    for (let i = 0; i < irqSources.length; i++) if (irqSources[i]?.source.irq) return true;
+    return false;
+  };
+  // Copy the line to the CPU's /IRQ pin, before and after each step: a step
+  // can change it (a timer runs out, the handler acknowledges), and so can the
+  // debugger between steps (a VIA panel button). Part 5's machine does the same (BUILD-PLAN §3).
   const syncIrq = (): void => {
-    cpu.irq = doorbell.ringing;
+    cpu.irq = lineHeld();
   };
   // Time passes for the devices too: an indexed loop, so nothing is allocated per step.
   const tickDevices = (cycles: number): void => {
@@ -140,6 +156,7 @@ export function playgroundTarget(
       return cpu.cycles;
     },
     step: () => {
+      syncIrq();
       trace.record(cpu);
       const cycles = cpu.step();
       tickDevices(cycles);
@@ -158,6 +175,7 @@ export function playgroundTarget(
     },
     writes: recorder,
     get pendingInterrupt() {
+      syncIrq();
       return cpu.pendingInterrupt;
     },
     ringIrq: () => {
@@ -169,7 +187,12 @@ export function playgroundTarget(
       cpu.setNmi(false);
     },
     get irqLine() {
-      return cpu.irq;
+      return lineHeld();
+    },
+    get irqHolders() {
+      const holders: string[] = doorbell.ringing ? [DOORBELL_HOLDER] : [];
+      for (const { name, source } of irqSources) if (source.irq) holders.push(name);
+      return holders;
     },
     get nmiPending() {
       return cpu.nmiPending;

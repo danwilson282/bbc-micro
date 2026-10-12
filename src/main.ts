@@ -43,8 +43,17 @@ const systemVia = new Via6522();
 const userVia = new Via6522();
 const bus = new BbcMemoryMap({ devices: { systemVia, userVia } });
 // The target puts a WriteRecorder between the CPU and the bus (Stage 07),
-// and ticks both VIAs after every step so their timers run (Stage 25).
-const target = playgroundTarget(bus, 'CPU playground (6502 on the BBC memory map)', [systemVia, userVia]);
+// ticks both VIAs after every step so their timers run (Stage 25), and wires
+// both VIAs' /IRQ to the CPU, together with the doorbell (Stage 26).
+const target = playgroundTarget(
+  bus,
+  'CPU playground (6502 on the BBC memory map)',
+  [systemVia, userVia],
+  [
+    { name: 'System VIA', source: systemVia },
+    { name: 'User VIA', source: userVia },
+  ],
+);
 let listing: readonly ListingLine[] = [];
 // Address → name, from the last assembly, so the Disassembly panel can say "JSR one".
 let labels: ReadonlyMap<number, string> = new Map();
@@ -110,7 +119,8 @@ workbench.add(
       { name: 'System VIA', base: SYSTEM_VIA_BASE, via: systemVia },
       { name: 'User VIA', base: USER_VIA_BASE, via: userVia },
     ],
-    { initial: 1, onChange: refreshAll },
+    // The System VIA first: the Stage 26 example uses it, as the MOS does.
+    { initial: 0, onChange: refreshAll },
   ),
 );
 workbench.add(createAddressingPanel(target));
@@ -148,6 +158,6 @@ Object.assign(window, {
       target.pulseNmi();
       workbench.refreshAll();
     },
-    help: `workbench.poke(0x${hex16(PROGRAM_PAGE + 1)}, 0xff), workbench.step(), workbench.peek(addr), workbench.goTo(addr), workbench.trace(20), workbench.map.ioLog.recent(), workbench.userVia.pins('b'), workbench.irq(), workbench.nmi(), workbench.cpu.regs`,
+    help: `workbench.poke(0x${hex16(PROGRAM_PAGE + 1)}, 0xff), workbench.step(), workbench.peek(addr), workbench.goTo(addr), workbench.trace(20), workbench.map.ioLog.recent(), workbench.userVia.pins('b'), workbench.systemVia.setControlLine('ca1', 0), workbench.irq(), workbench.nmi(), workbench.cpu.regs`,
   },
 });

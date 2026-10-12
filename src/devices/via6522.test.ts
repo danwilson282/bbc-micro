@@ -38,7 +38,8 @@ describe('Via6522 after reset', () => {
     expect(via.outputRegister('b')).toBe(0x00);
     expect(via.dataDirection('a')).toBe(0x00);
     expect(via.dataDirection('b')).toBe(0x00);
-    expect([VIA_ACR, VIA_PCR, VIA_IER].map((r) => via.read(r))).toEqual([0x00, 0x00, 0x00]);
+    // IER's bit 7 always reads 1 (Stage 26), so a cleared IER reads &80.
+    expect([VIA_ACR, VIA_PCR, VIA_IER].map((r) => via.read(r))).toEqual([0x00, 0x00, 0x80]);
     expect([VIA_T1L_L, VIA_T1L_H, VIA_SR].map((r) => via.read(r))).toEqual([0x5a, 0x5a, 0x5a]);
   });
 
@@ -142,8 +143,8 @@ describe('Via6522 reading port A (IRA)', () => {
   });
 });
 
-describe('Via6522 registers not built yet (SR, PCR, IER)', () => {
-  it.each([VIA_SR, VIA_PCR, VIA_IER])('register %i stores a write and reads it back (a stub until Stage 26, or for good)', (reg) => {
+describe('Via6522 SR and PCR', () => {
+  it.each([VIA_SR, VIA_PCR])('register %i stores a write and reads it back (SR is storage only: no shift register)', (reg) => {
     const via = new Via6522();
     via.write(reg, 0x3c);
     expect(via.read(reg)).toBe(0x3c);

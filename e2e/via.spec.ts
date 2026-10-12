@@ -8,12 +8,14 @@ function portRow(page: Page, port: 'a' | 'b', row: string): ReturnType<Page['loc
   return viaPanel(page).locator(`.via-port[data-port="${port}"] tr[data-row="${row}"] td`);
 }
 
-// Stage 24's VIA ports example (the default until Stage 25).
+// Stage 24's VIA ports example (the default until Stage 25). It uses the User
+// VIA; the panel opens on the System VIA since Stage 26.
 test.beforeEach(async ({ page }) => {
   await page.goto('/?program=via-ports');
+  await viaPanel(page).getByRole('button', { name: 'Show the User VIA' }).click();
 });
 
-test('opens on the User VIA after reset: every line an input, reading &FF', async ({ page }) => {
+test('the User VIA after reset: every line an input, reading &FF', async ({ page }) => {
   await expect(page.getByRole('region', { name: 'Assembler' }).getByRole('combobox', { name: 'Example program' })).toHaveValue('via-ports');
   const panel = viaPanel(page);
   await expect(panel.getByRole('button', { name: 'Show the User VIA' })).toHaveAttribute('aria-pressed', 'true');

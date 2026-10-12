@@ -778,6 +778,42 @@
         background: color-mix(in srgb, var(--accent) 18%, transparent);
         font-weight: 600;
       }
+      .via-interrupts caption,
+      .via-control-lines caption {
+        text-align: left;
+        font-weight: 600;
+        padding: 4px 0 2px;
+      }
+      .via-interrupts.irq caption {
+        color: var(--accent);
+      }
+      .via-interrupts tr.stub td,
+      .via-interrupts td.wired,
+      .via-control-lines td.wired,
+      .via-control-lines td.driven {
+        color: var(--muted);
+        font-size: 0.8rem;
+      }
+      .via-interrupts td.ifr-bit,
+      .via-interrupts td.ier-bit {
+        text-align: center;
+      }
+      .via-interrupts td.set {
+        font-weight: 600;
+      }
+      .via-interrupts tr.firing td {
+        background: color-mix(in srgb, var(--accent) 18%, transparent);
+      }
+      .via-interrupts td.firing {
+        color: var(--accent);
+        font-weight: 600;
+      }
+      .via-control-lines td.mode {
+        font-size: 0.8rem;
+      }
+      .via-control-lines td.level.low {
+        font-weight: 600;
+      }
       .via-note {
         margin: 0;
         font-size: 0.8rem;

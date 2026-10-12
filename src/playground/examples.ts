@@ -673,7 +673,86 @@ wait:   BIT ifr           ; BIT copies bit 6 of IFR into V
 
 const VIA_TIMERS_EXAMPLE: Example = { id: 'via-timers', title: 'Stage 25: VIA timers (Step, then Run)', source: VIA_TIMERS_SOURCE };
 
+/**
+ * Stage 26: VIA interrupts. An IRQ-driven clock on the System VIA, set up the
+ * way the MOS does it (os12.rom &DA6B): T1 free-runs at 100 Hz, and its
+ * interrupt handler counts centiseconds at &80 and seconds at &81, while the
+ * main loop counts at &84. CA1 is enabled too, for the VIA panel's button.
+ */
+export const VIA_INTERRUPTS_SOURCE = `; Stage 26: VIA interrupts. An IRQ-driven clock on the System VIA, set up
+; the way the MOS sets up its own 100 Hz tick. Press Run, then type 0080 in
+; the Memory panel's Go box:
+;   &80      centiseconds: +1 every 10 ms, 0-99, counted by the IRQ handler
+;   &81      seconds
+;   &82      CA1 edges: click "Pull CA1 low" in the VIA panel's Control lines
+;   &84/&85  the main loop's own count: it never looks at the timer
+; Then try deleting the LDA t1cl in the handler and Run again.
+
+svia    = &FE40
+t1cl    = svia + 4        ; read: T1 counter low, which clears IFR bit 6
+t1ch    = svia + 5        ; write: T1 high latch, then latches -> counter: go
+acr     = svia + 11       ; bit 6: T1 free-runs
+ifr     = svia + 13       ; bit 7: "it's this VIA". bit 6: T1. bit 1: CA1
+ier     = svia + 14       ; write: bit 7 = 1 SETS the 1 bits, 0 CLEARS them
+cs      = &80
+secs    = &81
+edges   = &82
+main    = &84             ; 16 bits, low byte first
+
+        *= &0400
+start:  LDX #&FF
+        TXS
+        LDA #&7F
+        STA ier           ; bit 7 = 0: clear bits 6-0, so every source is off
+        STA ifr           ; and every old flag is cleared: the MOS does both first
+        LDA #&40
+        STA acr           ; T1 free-runs
+        LDA #&0E
+        STA t1cl          ; latch &270E = 9,998: a period of 9,998 + 2 = 10,000 us
+        LDA #&27
+        STA t1ch          ; go
+        LDA #&C2
+        STA ier           ; bit 7 = 1: set bits 6 (T1) and 1 (CA1)
+        CLI               ; and let IRQs into the CPU
+idle:   INC main          ; the main program: count, for ever
+        BNE idle
+        INC main+1
+        JMP idle
+
+; Every IRQ arrives here, through &FFFE. Ask the VIA who it was.
+irq:    PHA
+        LDA ifr
+        BPL done          ; bit 7 = 0: not the System VIA
+        AND #&40          ; Timer 1?
+        BEQ notT1
+        LDA t1cl          ; acknowledge it: reading T1C-L clears IFR bit 6
+        INC cs
+        LDA cs
+        CMP #100
+        BNE notT1
+        LDA #0            ; 100 centiseconds make a second
+        STA cs
+        INC secs
+notT1:  LDA ifr
+        AND #&02          ; CA1?
+        BEQ done
+        STA ifr           ; A = &02: a 1 in bit 1 clears CA1's flag (the MOS's way)
+        INC edges
+done:   PLA
+        RTI               ; P comes back with I = 0: ready for the next one
+
+nmi:    RTI               ; NMI isn't used
+
+        *= &FFFA
+        .word nmi         ; &FFFA: NMI
+        .word start       ; &FFFC: RESET
+        .word irq         ; &FFFE: IRQ and BRK
+`;
+
+const VIA_INTERRUPTS_EXAMPLE: Example = { id: 'via-interrupts', title: 'Stage 26: VIA interrupts (Run me)', source: VIA_INTERRUPTS_SOURCE };
+
 export const EXAMPLES: readonly Example[] = [
+  VIA_INTERRUPTS_EXAMPLE,
   VIA_TIMERS_EXAMPLE,
   VIA_PORTS_EXAMPLE,
   MEMORY_MAP_EXAMPLE,
@@ -694,5 +773,5 @@ export const EXAMPLES: readonly Example[] = [
 
 /** The example with this id, or the current stage's if there's none. */
 export function findExample(id: string | null): Example {
-  return EXAMPLES.find((example) => example.id === id) ?? VIA_TIMERS_EXAMPLE;
+  return EXAMPLES.find((example) => example.id === id) ?? VIA_INTERRUPTS_EXAMPLE;
 }

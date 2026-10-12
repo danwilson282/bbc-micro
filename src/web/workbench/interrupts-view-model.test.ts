@@ -1,3 +1,4 @@
+import { IFR_CA1, VIA_IER, Via6522 } from '../../devices/via6522';
 import { TestBus } from '../../memory/test-bus';
 import { playgroundTarget } from './debug-target';
 import { buildInterruptsView } from './interrupts-view-model';
@@ -55,5 +56,20 @@ describe('buildInterruptsView', () => {
     const view = buildInterruptsView(target);
     expect(view.lines[2]).toEqual({ name: 'NMI latch', value: 'set: an edge was seen', active: true });
     expect(view.verdict).toBe('Next step: NMI → &0430. I can’t hold it off.');
+  });
+
+  it('names a VIA holding the line, and says the handler must clear its flag (Stage 26)', () => {
+    const bus = new TestBus();
+    bus.load(0xfffa, [0x30, 0x04, 0x00, 0x04, 0x0f, 0x04]);
+    const via = new Via6522();
+    const target = playgroundTarget(bus, 'test', [via], [{ name: 'System VIA', source: via }]);
+    target.reset();
+    target.cpu.regs.i = false;
+    via.write(VIA_IER, 0x80 | IFR_CA1);
+    via.setControlLine('ca1', 0);
+    target.ringIrq();
+    const view = buildInterruptsView(target);
+    expect(view.lines[0]).toEqual({ name: 'IRQ line', value: 'held by the doorbell at &FC00 and the System VIA', active: true });
+    expect(view.verdict).toBe("Next step: IRQ → &040F. The handler must answer the doorbell and clear the System VIA's flag, or it will be back.");
   });
 });
