@@ -3,12 +3,21 @@
 //
 //   /                 the playground: Assemble & Run puts your program in RAM,
 //                     with the reset vector pointing at it, and powers on
-//   /?machine=mos     the real ROMs from roms/, powered on into MOS 1.20
+//   /?machine=mos     the real ROMs from roms/, powered on into MOS 1.20 and
+//                     run in real time by the frame loop (Stage 30)
+//   /?machine=mos&paused   the same, but powered on and left paused at the
+//                     reset vector, to step through the MOS from its first instruction
+//
+// Either way, MODE 7's screen memory shows as text over the canvas.
 
 import { BbcModelB } from './machine/bbc-model-b';
 import { MOS_LABELS } from './mos/mos-labels';
 import { Doorbell } from './playground/doorbell';
 import { fetchStandardRoms } from './web/rom-fetch';
+import { createFrameLoop } from './web/frame-loop';
+import { createRunControls } from './web/run-controls';
+import { createTextScreen } from './web/text-screen';
+import { mode7StartAddress } from './video/mode7-text';
 import type { ListingLine } from './playground/listing';
 import { EXAMPLES, findExample } from './playground/examples';
 import { PROGRAM_PAGE, installProgram, pokeWriter } from './playground/setup';
@@ -30,8 +39,8 @@ import { createStackPanel } from './web/workbench/stack-panel';
 import { createViaPanel } from './web/workbench/via-panel';
 import { SYSTEM_VIA_BASE, USER_VIA_BASE } from './web/workbench/via-view-model';
 
-const canvas = document.querySelector<HTMLCanvasElement>('#screen');
-if (!canvas) throw new Error('Missing #screen canvas');
+const screenFrame = document.querySelector<HTMLElement>('.screen-frame');
+if (!screenFrame?.querySelector('#screen')) throw new Error('Missing #screen canvas in .screen-frame');
 const host = document.querySelector<HTMLElement>('#workbench');
 if (!host) throw new Error('Missing #workbench element');
 // Registers, Stack and Memory sit under the screen; the other panels go in the workbench column.
@@ -40,6 +49,7 @@ if (!underScreen) throw new Error('Missing #under-screen element');
 
 const params = new URLSearchParams(window.location.search);
 const mosMode = params.get('machine') === 'mos';
+const startPaused = params.has('paused');
 // Programs come from the Assembler panel (Stage 08). The current stage's
 // example runs by default; ?program=stores or ?program=loads starts with an
 // earlier stage's instead.
@@ -64,9 +74,97 @@ let listing: readonly ListingLine[] = [];
 let labels: ReadonlyMap<number, string> = mosMode ? MOS_LABELS : new Map();
 
 const workbench = createWorkbench(host, target.name);
+
+// The screen: MODE 7's 1,000 bytes from wherever the CRTC's R12/R13 say it
+// starts (the MOS scrolls by moving that), as text over the canvas.
+const textScreen = createTextScreen();
+screenFrame.append(textScreen.element);
+const drawScreen = (): void => {
+  textScreen.draw((address) => machine.peek(address), mode7StartAddress(machine.crtc.register(12), machine.crtc.register(13)));
+};
+
 const refreshAll = (): void => {
   workbench.refreshAll();
+  drawScreen();
 };
+
+// ── The frame loop (Stage 30): MOS mode runs in real time ────────────────
+//
+// Every BBC frame draws the screen. The panels rebuild their tables, which
+// costs more, and nobody reads a hex dump at 50 Hz: they refresh at most 10
+// times a second while running, and once more on pause. The write log is
+// cleared with each panel refresh, so the Memory panel marks what was
+// written since the last one.
+const PANEL_REFRESH_MS = 100;
+let lastPanelRefresh = 0;
+let framesRun = 0;
+const loop = createFrameLoop(
+  {
+    requestFrame: (callback) => requestAnimationFrame(callback),
+    cancelFrame: (id) => {
+      cancelAnimationFrame(id);
+    },
+  },
+  {
+    runFrame: () => {
+      machine.runFrame();
+      framesRun++;
+    },
+    draw: () => {
+      drawScreen();
+      const now = performance.now();
+      if (now - lastPanelRefresh < PANEL_REFRESH_MS) return;
+      lastPanelRefresh = now;
+      workbench.refreshAll();
+      target.writes.clear();
+      controls.update(true, framesRun, loop.speed);
+    },
+    onError: (error) => {
+      refreshAll();
+      controls.say(`Stopped: ${error instanceof Error ? error.message : String(error)}`, true);
+    },
+  },
+);
+
+/** Pauses the loop (if running) and shows everything as it is now. */
+function pause(): void {
+  loop.pause();
+  refreshAll();
+  controls.update(false, framesRun, loop.speed);
+}
+
+function run(): void {
+  registers.stop();
+  loop.start();
+  controls.update(true, framesRun, loop.speed);
+}
+
+const controls = createRunControls({
+  onToggle: () => {
+    if (loop.running) pause();
+    else run();
+  },
+  onStepFrame: () => {
+    target.writes.clear();
+    loop.stepFrame();
+    refreshAll();
+    controls.update(false, framesRun, loop.speed);
+  },
+  onBreak: () => {
+    machine.reset();
+    target.writes.clear();
+    refreshAll();
+    if (!loop.running) controls.update(false, framesRun, loop.speed);
+  },
+  onPowerOn: () => {
+    machine.powerOn();
+    framesRun = 0;
+    target.writes.clear();
+    refreshAll();
+    if (!loop.running) controls.update(false, framesRun, loop.speed);
+  },
+});
+if (mosMode) screenFrame.after(controls.element);
 
 // The switch between the two modes, at the top of the workbench column.
 const modes = document.createElement('nav');
@@ -98,7 +196,13 @@ const memory = createMemoryPanel(target, {
 // Assemble & Run: a clean playground with the new bytes in it (installProgram
 // also puts back "HELLO, BBC MICRO" at &7C00 and the explorer's pointers),
 // the reset vector pointing at the first byte, and a CPU reset.
-const registers = createRegistersPanel(target, { onRun: refreshAll });
+// Step, Run or Reset in the Registers panel pause the frame loop first: one driver at a time.
+const registers = createRegistersPanel(target, {
+  onRun: refreshAll,
+  onTakeControl: () => {
+    if (loop.running) pause();
+  },
+});
 const assembler = createAssemblerPanel({
   examples: EXAMPLES,
   initial,
@@ -164,6 +268,8 @@ if (mosMode) {
     machine.powerOn();
     memory.goTo(0x0200);
     refreshAll();
+    if (startPaused) controls.update(false, framesRun, loop.speed);
+    else run();
   });
 } else {
   assembler.assembleAndRun();
@@ -176,7 +282,7 @@ Object.assign(window, {
     peek: (address: number): string => `&${hex8(target.peek(address))}`,
     poke: (address: number, value: number): void => {
       target.poke(address, value);
-      workbench.refreshAll();
+      refreshAll();
     },
     goTo: (address: number): void => {
       memory.goTo(address);
@@ -184,27 +290,30 @@ Object.assign(window, {
     step: (): number => {
       target.writes.clear();
       const cycles = target.step();
-      workbench.refreshAll();
+      refreshAll();
       return cycles;
     },
     machine,
+    loop,
+    pause,
+    run,
     cpu: machine.cpu,
     map: bus,
     powerOn: (): void => {
       machine.powerOn();
-      workbench.refreshAll();
+      refreshAll();
     },
     systemVia,
     userVia,
     trace: (count = 20): string => [TRACE_HEADER, ...target.trace.recent(count).map((entry) => formatTraceLine(entry, labels))].join('\n'),
     irq: (): void => {
       target.ringIrq();
-      workbench.refreshAll();
+      refreshAll();
     },
     nmi: (): void => {
       target.pulseNmi();
-      workbench.refreshAll();
+      refreshAll();
     },
-    help: `workbench.machine.runFrame(), workbench.powerOn(), workbench.poke(0x${hex16(PROGRAM_PAGE + 1)}, 0xff), workbench.step(), workbench.peek(addr), workbench.goTo(addr), workbench.trace(20), workbench.map.ioLog.recent(), workbench.userVia.pins('b'), workbench.systemVia.setControlLine('ca1', 0), workbench.irq(), workbench.nmi(), workbench.cpu.regs`,
+    help: `workbench.pause(), workbench.run(), workbench.loop.speed, workbench.machine.runFrame(), workbench.powerOn(), workbench.poke(0x${hex16(PROGRAM_PAGE + 1)}, 0xff), workbench.step(), workbench.peek(addr), workbench.goTo(addr), workbench.trace(20), workbench.map.ioLog.recent(), workbench.userVia.pins('b'), workbench.systemVia.setControlLine('ca1', 0), workbench.irq(), workbench.nmi(), workbench.cpu.regs`,
   },
 });

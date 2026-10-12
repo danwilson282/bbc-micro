@@ -2,7 +2,7 @@
 
 Tracks where the build is up to. The `/start-stage` and `/finish-stage` skills keep this file up to date. For what each stage involves, see [`BUILD-PLAN.md`](./BUILD-PLAN.md).
 
-**Current stage:** 30 — Browser run loop (not started)
+**Current stage:** 31 — Teletext font & canvas (not started)
 
 **Status values:**
 - `not started`
@@ -72,7 +72,7 @@ Tracks where the build is up to. The `/start-stage` and `/finish-stage` skills k
 
 | # | Stage | Status | Seen? | Branch | Doc | Notes |
 |---|---|---|---|---|---|---|
-| 30 | Browser run loop | not started | | `stage/30-run-loop` | [doc](./stages/30-run-loop.md) | |
+| 30 | Browser run loop | done | ✅ | `stage/30-run-loop` | [doc](./stages/30-run-loop.md) | `src/web/frame-loop.ts`: pure `framesDue` accumulator (20 ms frames, remainder carried, elapsed clamped to 100 ms, ≤ 5 frames/callback), `createFrameLoop` over an injected `AnimationHost` (fake rAF in Jest), `SpeedMeter`. MOS mode runs itself on load: **50 frames/s (100%), display 60 Hz**. `run-controls.ts` (Pause/Run, Step frame, BREAK, Power on, status). `text-screen.ts`: 40 × 25 text over the canvas, one text node per row (per-cell spans measured 9 ms on a full-screen change), `contain: strict`. `mode7StartAddress`/`mode7CellAddress`: &7C00 + (MA AND &3FF), verified on the real MOS (30 LFs → &29B8 = &7DB8 = its &350/&351). Panels refresh at 10 Hz while running. Registers panel `onTakeControl` pauses the loop; its **Run now uses the accumulator too** (fixed a flaky `compare-branch` e2e that also failed on `main`). `?machine=mos&paused` waits at &D9CD. Playwright project `real-time` runs `e2e/boot.spec.ts` after the rest. Found: soft BREAK prints "BBC Computer" without "32K". |
 | 31 | Teletext font & canvas | not started | | `stage/31-teletext-font` | [doc](./stages/31-teletext-font.md) | |
 | 32 | Teletext colours & graphics | not started | | `stage/32-teletext-colour-graphics` | [doc](./stages/32-teletext-colour-graphics.md) | |
 | 33 | Double height, flash & conceal | not started | | `stage/33-teletext-double-height-flash` | [doc](./stages/33-teletext-double-height-flash.md) | |
@@ -197,7 +197,10 @@ Things to come back to: questions raised during a stage, known inaccuracies, ide
 - CRTC stub reads give &00 (the real 6845 reads R14-R17 only); Stage 37. (Stage 28)
 - ACIA stub status is fixed at &02: if RS423/cassette ever turned its interrupts on, a real 6850 would raise IRQ on TDRE; ours never will. /DCD and /CTS (bits 2-3 = 0) for an unconnected Model B port are unchecked. Serial/cassette are out of scope. (Stage 29)
 - Which VSYNC edge reaches System VIA CA1 (is the 6845's active-high VSYNC inverted?) is unconfirmed; with PCR &04 our IRQ comes at the start of the pulse. Stage 38. (Stage 29)
-- `mode7Text` reads from &7C00 only; after BASIC scrolls, the MOS moves CRTC R12/R13 and the screen wraps inside &7C00-&7FFF. Stage 30's text grid needs the start address. (Stage 29)
+- ~~`mode7Text` reads from &7C00 only; after BASIC scrolls, the MOS moves CRTC R12/R13 and the screen wraps inside &7C00-&7FFF. Stage 30's text grid needs the start address. (Stage 29)~~ Done in Stage 30: `mode7StartAddress`/`mode7CellAddress`.
 - The playground has the fake vsync switched off (main.ts) so the VIA panel's CA1 button keeps working for Stage 26's example. Revisit when the real CRTC arrives (Stage 38): the panel's CA1 button vs a real vsync on the same pin. (Stage 29)
 - The MOS polls the ADC (&FEC0-&FEC2) from the Timer 1 interrupt and reads the floating &FE; harmless so far (the ADC is "not planned"). (Stage 29)
 - Idea: show the stall detector's verdict in the browser ("Stalled: looping in rdchWait, defaultREM") once Stage 30 runs the machine continuously. It's CLI-only now (`MosRunner`). (Stage 29)
+- The tab-hidden clamp means TIME (and the BBC clock generally) falls behind wall-clock time while the tab is hidden. Deliberate (no catch-up freeze); revisit if anything needs wall-clock sync. (Stage 30)
+- The text overlay has no cursor: R14/R15 (&28C9 at the prompt) and R10's flash are the CRTC's job. Stage 37+. (Stage 30)
+- Headless Chromium under 4 Playwright workers can give rAF callbacks at ~12 Hz. Any future timing-sensitive e2e should go in the `real-time` project. (Stage 30)

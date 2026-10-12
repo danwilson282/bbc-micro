@@ -3,7 +3,8 @@
 // A panel owns one element and knows how to redraw itself from the emulator's
 // current state. The workbench doesn't know what's inside a panel. It only
 // lays them out and tells them all to refresh when something has changed
-// (a poke now, a CPU Step from Stage 04, every frame from Stage 30).
+// (a poke, a CPU Step, and from Stage 30 up to 10 times a second while the
+// frame loop runs).
 //
 // Each panel's heading has a − / + button that hides or shows its body. The
 // choice is remembered per browser in localStorage, which is only a

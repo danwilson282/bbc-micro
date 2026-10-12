@@ -7,14 +7,19 @@ import { test, expect, type Page } from '@playwright/test';
 interface Handle {
   peek(address: number): string;
   step(): number;
+  pause(): void;
   machine: { runFrame(): number; readonly irqHolders: readonly string[] };
 }
 
-/** Runs frames through the console handle (much faster than Run's 10 s), then one step so the panels redraw. */
+/**
+ * Pauses the frame loop (Stage 30) so nothing else drives the machine, then
+ * runs frames through the console handle as fast as it can, then one step so the panels redraw.
+ */
 async function runFrames(page: Page, frames: number): Promise<void> {
   await page.evaluate((n) => {
     // The console handle main.ts puts on window; typed here because the page isn't.
     const handle = (window as unknown as { workbench: Handle }).workbench;
+    handle.pause();
     for (let i = 0; i < n; i++) handle.machine.runFrame();
     handle.step();
   }, frames);
@@ -41,7 +46,8 @@ test('MOS mode boots MOS 1.20 and BASIC II to the > prompt in MODE 7 screen memo
   };
   test.skip(!(await isRom('/roms/os12.rom')) || !(await isRom('/roms/basic2.rom')), 'roms/os12.rom or roms/basic2.rom is missing (Acorn copyright, so you supply them)');
 
-  await page.goto('/?machine=mos');
+  // Paused (Stage 30), so this test drives the machine itself and doesn't compete for CPU while it loads.
+  await page.goto('/?machine=mos&paused');
   await expect(page.locator('.rom-status')).toContainText('os12.rom');
   await expect(page.getByRole('region', { name: 'Assembler' })).toHaveCount(0);
   await expect(page.getByRole('region', { name: 'Interrupts' })).toContainText('&FFFC');
