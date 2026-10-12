@@ -1,206 +1,184 @@
-// Stage 28 demo: MOS 1.20 on the machine, now with the IC32 latch, a keyboard
-// stub, and storage stubs for the CRTC and Video ULA. The boot gets past the
-// keyboard, and the hardware log says, by name, what it did to the chips.
+// Stage 29 demo: the first boot. MOS 1.20 and BASIC II reach the > prompt,
+// and the MODE 7 screen is printed as text.
 //
 //   npm run demo:boot
 //
-// Part 1 powers on. Part 2 compares the raw I/O log with the named hardware
-// log. Part 3 is the boot's hardware writes, from power-on. Part 4 is what
-// the MOS left in the stubs. Part 5 changes the keyboard links. Part 6 is
-// where it stalls now, and BREAK.
+// Part 1 is the milestone. Part 2 is how the Stage 28 stall was diagnosed:
+// the MOS asks the ACIA first on every IRQ. Part 3 is one interrupt now,
+// traced. Part 4 is where the machine rests: waiting for a key. Part 5 is
+// what vsync is for, with it and without it.
 
-import { CRTC_REGISTER_NAMES, describeHardwareWrite, type HardwareWrite } from '../src/devices/hardware-log';
-import { BbcModelB } from '../src/machine/bbc-model-b';
+import { disassemble } from '../src/cpu/disassembler';
+import { describeHardwareWrite } from '../src/devices/hardware-log';
+import { ACIA_IDLE_STATUS } from '../src/devices/stubs/acia-stub';
+import { BbcModelB, CYCLES_PER_FRAME } from '../src/machine/bbc-model-b';
 import { loadStandardRoms } from '../src/memory/rom-files';
-import { describeIoAddress } from '../src/memory/sheila';
+import { MOS_LABELS, MOS_NOTES, formatMosTraceLine, mosHeading } from '../src/mos/mos-labels';
 import { MosRunner } from '../src/mos/mos-runner';
 import { hex16, hex8 } from '../src/util/bits';
+import { MODE7_SCREEN_START, formatMode7Text, mode7Text } from '../src/video/mode7-text';
 
-const MAX_CYCLES = 40_000_000; // 20 emulated seconds
 const CYCLES_PER_MS = 2000;
-const BOOT_FRAMES = 40; // 0.8 s: past the MODE setup and the banner
+const BOOT_FRAMES = 50; // 1 emulated second
+const PROMPT_ROW = 5;
 
 function bbcTime(cycles: number): string {
   return `${(cycles / CYCLES_PER_MS).toFixed(1)} ms`;
 }
 
-/** A machine with the ROMs from roms/, or undefined if the MOS is missing. */
+function bin8(value: number): string {
+  return value.toString(2).padStart(8, '0');
+}
+
+/** A machine with the ROMs from roms/, or undefined if they're missing. */
 function machine(): BbcModelB | undefined {
   const m = new BbcModelB();
   const report = loadStandardRoms(m.map);
-  if (!report.loaded.some((r) => r.id === 'mos')) return undefined;
+  const has = (id: string): boolean => report.loaded.some((r) => r.id === id);
+  if (!has('mos') || !has('basic')) return undefined;
   return m;
 }
 
-function showIo(m: BbcModelB, count: number): void {
-  for (const access of m.map.ioLog.recent(count)) {
-    const what = access.write ? `write &${hex8(access.value)}` : `read  &${hex8(access.value)}`;
-    console.log(`    &${hex16(access.address)}  ${what}   ${describeIoAddress(access.address).text}`);
-  }
+function booted(setUp: (m: BbcModelB) => void = () => undefined): BbcModelB {
+  const m = machine();
+  if (m === undefined) process.exit(0);
+  setUp(m);
+  m.powerOn();
+  for (let i = 0; i < BOOT_FRAMES; i++) m.runFrame();
+  return m;
 }
 
-function showMode7(m: BbcModelB, rows: number): void {
-  console.log(`    ┌${'─'.repeat(40)}┐`);
-  for (let row = 0; row < rows; row++) {
-    let text = '';
-    for (let col = 0; col < 40; col++) {
-      const b = m.peek(0x7c00 + row * 40 + col) & 0x7f;
-      text += b >= 0x20 && b < 0x7f ? String.fromCharCode(b) : ' ';
-    }
-    console.log(`    │${text}│`);
-  }
-  console.log(`    └${'─'.repeat(40)}┘`);
-}
-
-function isLatch(w: HardwareWrite | undefined, bit: number, value: number): boolean {
-  return w !== undefined && w.device === 'latch' && w.register === bit && w.value === value;
-}
-
-/**
- * The log as lines, with each sound write (bit 0 low, then high) as one line,
- * and runs of identical lines folded into "× n".
- */
-function foldedLines(writes: readonly HardwareWrite[]): { cycles: number; text: string }[] {
-  const lines: { cycles: number; text: string; times: number }[] = [];
-  for (let i = 0; i < writes.length; i++) {
-    const w = writes[i];
-    let text = describeHardwareWrite(w);
-    if (isLatch(w, 0, 0) && isLatch(writes[i + 1], 0, 1)) {
-      text = 'latch: sound WE on, then off: one byte into the sound chip';
-      i++;
-    }
-    const last = lines.at(-1);
-    if (last !== undefined && last.text === text) last.times++;
-    else lines.push({ cycles: w.cycles, text, times: 1 });
-  }
-  return lines.map((l) => ({ cycles: l.cycles, text: l.times > 1 ? `${l.text}   × ${String(l.times)}` : l.text }));
-}
-
-/** What a run of the log is about, for the summary: "CRTC R14", "latch bit 3". */
-function topic(w: HardwareWrite): string {
-  if (w.device === 'crtc') return `CRTC R${String(w.register)} (${CRTC_REGISTER_NAMES[w.register] ?? '?'})`;
-  if (w.device === 'latch') return describeHardwareWrite(w).replace(/ \(bit.*$/, ''); // "latch: Caps Lock LED on"
-  return w.device === 'ulaControl' ? 'ULA ctrl' : 'ULA palette';
+/** One line of disassembly from the MOS, with its label heading and note. */
+function mosLine(m: BbcModelB, address: number): string {
+  const d = disassemble((a) => m.peek(a), address, MOS_LABELS);
+  const note = MOS_NOTES.get(address);
+  return `    &${hex16(address)}  ${d.text.padEnd(18)}${note === undefined ? '' : `; ${note}`}`.trimEnd();
 }
 
 // ── Part 1 ─────────────────────────────────────────────────────────────────
 
-console.log('── Part 1: the machine, with the new parts, switched on ──');
+console.log('── Part 1: power on, and wait ──');
 const first = machine();
 if (first === undefined) {
-  console.log('  skipped: roms/os12.rom is missing (Acorn copyright, so you supply it).');
+  console.log('  skipped: roms/os12.rom and roms/basic2.rom are needed (Acorn copyright, so you supply them).');
   process.exit(0);
 }
-console.log('  New since Stage 27:');
-console.log('    IC32 latch         on the System VIA\'s PB0-PB3 (address PB0-PB2, data PB3)');
-console.log(`    keyboard stub      on the System VIA's port A: no key down, links &${hex8(first.keyboard.links)} (all open)`);
-console.log('    CRTC stub          at &FE00-&FE01: stores R0-R17, nothing else (Stage 37 builds the 6845)');
-console.log('    Video ULA stub     at &FE20-&FE21: stores control and palette (Stage 40 builds the ULA)');
-console.log('    hardware log       what they are told, by name');
-first.hardwareLog.clear();
 first.powerOn();
-console.log(`  powerOn(): the latch reads &${hex8(first.latch.value)}. The VIA's reset makes PB0-PB3 inputs, floating high: &F,`);
-console.log('  address 7, data 1. So IC32 bit 7 is set before the CPU has run an instruction:');
-for (const w of first.hardwareLog.recent()) console.log(`    ${String(w.cycles).padStart(8)}  ${describeHardwareWrite(w)}`);
+const promptAddress = MODE7_SCREEN_START + PROMPT_ROW * 40;
+while (first.peek(promptAddress) !== 0x3e && first.cycles < 10 * BOOT_FRAMES * CYCLES_PER_FRAME) first.step();
+console.log(`  ">" appeared at &${hex16(promptAddress)} after ${bbcTime(first.cycles)} (frame ${String(Math.ceil(first.cycles / CYCLES_PER_FRAME))}).`);
+const m = booted();
+console.log(`  After ${String(BOOT_FRAMES)} frames (1 second), MODE 7 screen memory reads:\n`);
+const rows = mode7Text((a) => m.peek(a));
+let last = rows.length - 1;
+while (last > PROMPT_ROW + 1 && rows[last]?.trim() === '') last--;
+for (const line of formatMode7Text(rows.slice(0, last + 1))) console.log(`  ${line}`);
+console.log(`        (rows ${String(last + 1)}-24 are blank too)\n`);
+console.log('  🎉 BBC Computer 32K, BASIC, and the prompt.');
 
 // ── Part 2 ─────────────────────────────────────────────────────────────────
 
-console.log('\n── Part 2: the same moment, raw and named ──');
-const two = machine();
-if (two === undefined) process.exit(0);
-two.powerOn();
-two.hardwareLog.clear();
-const isR0 = (w: HardwareWrite | undefined): boolean => w !== undefined && w.device === 'crtc' && w.register === 0;
-while (!isR0(two.hardwareLog.recent(1)[0]) && two.cycles < MAX_CYCLES) two.step();
-console.log('  Stepped until the MOS set CRTC R0. The I/O log (Stage 21) has the bus accesses:');
-showIo(two, 4);
-console.log('  The hardware log has what the CRTC made of them:');
-for (const w of two.hardwareLog.recent(2)) console.log(`    ${describeHardwareWrite(w)}`);
-console.log('  "&FE01 write &3F" needs the previous "&FE00 write &00" to mean anything. Only the CRTC knows.');
-
-two.hardwareLog.clear();
-const isAutoscanOn = (w: HardwareWrite | undefined): boolean => isLatch(w, 3, 1);
-while (!isAutoscanOn(two.hardwareLog.recent(1)[0]) && two.cycles < MAX_CYCLES) two.step();
-console.log('\n  And the latch. It isn\'t on the bus at all; the bus only sees a System VIA write:');
-showIo(two, 1);
-for (const w of two.hardwareLog.recent(1)) console.log(`    ${describeHardwareWrite(w)}`);
-console.log('  &0B = 0000 1011: PB0-PB2 = 011 = bit 3, PB3 = 1. Bit 3 is the keyboard enable: autoscan on.');
+console.log('\n── Part 2: what Stage 28 was stuck on ──');
+console.log('  Stage 28 stalled in an IRQ storm. The I/O log showed the same two reads, over and over:');
+console.log('    &FE08  read  &FE   ACIA reg 0 (status / control)');
+console.log('    &FE09  read  &FE   ACIA reg 1 (data)');
+console.log('  The MOS\'s IRQ handler asks the ACIA before anything else:');
+for (const a of [0xdca1, 0xdca2, 0xdca5, 0xdca7]) console.log(mosLine(m, a));
+console.log('  6850 status bit 7 = "I am pulling /IRQ low". With no chip there, the read floats:');
+console.log(`    &FE = ${bin8(0xfe)}   bit 7 = 1: "yes, it's me".`);
+console.log('                     It services an ACIA that isn\'t there, returns, and the System VIA\'s T1 flag');
+console.log('                     (never cleared) interrupts again at once.');
+console.log(`  The ACIA stub answers &${hex8(ACIA_IDLE_STATUS)}:`);
+console.log(`    &${hex8(ACIA_IDLE_STATUS)} = ${bin8(ACIA_IDLE_STATUS)}   bit 7 = 0: "not me". Bit 1 (TDRE): transmitter empty.`);
+console.log(`  And it's honest: the MOS has written control &${hex8(m.acia.control)} = ${bin8(m.acia.control)}:`);
+console.log('    bits 0-1 = 10 divide by 64, bits 2-4 = 101 8N1, bits 5-6 = 10 RTS high + transmit IRQ off, bit 7 = 0 receive IRQ off.');
+console.log('  Both interrupts off, so a real 6850 couldn\'t say "me" either.');
 
 // ── Part 3 ─────────────────────────────────────────────────────────────────
 
-console.log('\n── Part 3: every hardware write from power-on, until MODE 7 is set up ──');
-const m = machine();
-if (m === undefined) process.exit(0);
-m.hardwareLog.clear();
-m.powerOn();
-for (let i = 0; i < BOOT_FRAMES; i++) m.runFrame();
-const writes = m.hardwareLog.recent();
-const endOfSetup = writes.findIndex((w) => w.device === 'crtc' && w.register === 13) + 1;
-console.log('   cycles   what');
-for (const line of foldedLines(writes.slice(0, endOfSetup))) console.log(`  ${String(line.cycles).padStart(7)}  ${line.text}`);
-console.log('  Reading it:');
-console.log('    0        PB0-PB3 floating high at power-on: bit 7.');
-console.log('    ~507,000 (the MOS has cleared 32K of RAM first) DDRB = &0F at &DA05. PB0-PB3 stop floating and drive ORB,');
-console.log('             which is &00 after reset: address 0, data 0. A sound write enable nobody asked for: the wires did it.');
-console.log('             Then the walk at &DA08: &0E, &0D ... &08 sets bits 6 down to 0. Everything off.');
-console.log('    autoscan off ... on: the links and CTRL being read as keys (&DA11). Then the LEDs (&EEEB).');
-console.log('    the sound writes: bytes into the SN76489 (Part 10 decodes them). The latch makes each one a pulse.');
-console.log('    C0 = 0, ULA &4B, CRTC R11 down to R0, then R14-R15 and R12-R13: MODE 7, the cursor, the screen start.');
-
-const rest = writes.slice(endOfSetup);
-const counts = new Map<string, number>();
-for (const w of rest) counts.set(topic(w), (counts.get(topic(w)) ?? 0) + 1);
-console.log(`\n  The next ${String(rest.length)} writes, counted by what they set:`);
-for (const [what, n] of [...counts].sort((a, b) => b[1] - a[1])) console.log(`    ${String(n).padStart(4)}  ${what}`);
-console.log('  The cursor following the banner as it\'s printed (R14-R15), and the keyboard being scanned (bit 3 off, LEDs, on).');
+console.log('\n── Part 3: one Timer 1 interrupt now, traced ──');
+const t = booted();
+// Step until the CPU takes an IRQ, then until the handler's RTI.
+const runner = new MosRunner(t);
+runner.clear();
+while (t.pendingInterrupt !== 'irq') t.step();
+const ifrAtIrq = t.peek(0xfe4d);
+t.trace.clear();
+let steps = 0;
+for (;;) {
+  const pc = t.registers.pc;
+  t.step();
+  steps++;
+  if (t.peek(pc) === 0x40 || steps > 400) break; // RTI
+}
+const wanted = new Set([0xdca2, 0xdca5, 0xdca7, 0xdd06, 0xdd09, 0xdd0b, 0xdd0e, 0xdd11, 0xdd12, 0xdd13, 0xdd69, 0xddca, 0xddcc, 0xddce]);
+const shown = new Set<number>();
+for (const e of t.trace.recent(t.trace.length)) {
+  if (e.kind === 'irq') console.log(`  ${String(e.cycles)}  IRQ: System VIA IFR = &${hex8(ifrAtIrq)} (${bin8(ifrAtIrq)}), so /IRQ is low; the CPU goes through &FFFE`);
+  else if (wanted.has(e.pc) && !shown.has(e.pc)) {
+    shown.add(e.pc);
+    const heading = mosHeading(e.pc);
+    if (heading !== undefined) console.log(`  ${heading}`);
+    console.log(`  ${formatMosTraceLine(e)}`);
+  }
+}
+console.log(`  ... ${String(steps)} instructions in all, ending in RTI. Only the interesting lines are shown:`);
+console.log('  the ACIA says no (&02), the System VIA\'s IFR says T1 (&C0), and &40 to the IFR clears it. /IRQ is let go.');
 
 // ── Part 4 ─────────────────────────────────────────────────────────────────
 
-console.log('\n── Part 4: what the MOS left in the stubs ──');
-console.log(`  &028F = &${hex8(m.peek(0x028f))}: the links, all open. Bits 0-2 = 7: MODE ${String(m.peek(0x028f) & 7)}. (&0355, the current MODE, = ${String(m.peek(0x0355))}.)`);
-console.log('  CRTC:');
-m.crtc.registers().forEach((value, r) => {
-  if (r < 16) console.log(`    R${String(r).padEnd(2)} = &${hex8(value)}   ${CRTC_REGISTER_NAMES[r] ?? ''}`);
-});
-console.log('  R7 is &1C, but the MOS\'s MODE 7 table at &C4A5 says &1B. At &C95E it adds the *TV offset (0) with');
-console.log('  ADC straight after CPY #&07, which leaves carry set: &1B + 0 + 1. The stub stores what was written.');
-console.log(`  Video ULA control = &${hex8(m.videoUla.control)}. No palette writes at all: teletext colours don't use it (Part 5's MODE 4 does).`);
-console.log(`  Latch = &${hex8(m.latch.value)} = ${m.latch.value.toString(2).padStart(8, '0')}: Shift Lock off, Caps Lock ON, C1 C0 = 10, autoscan on, speech idle, sound off.`);
-console.log('  Caps Lock on is right: a BBC Micro starts in capitals. And screen memory:');
-showMode7(m, 5);
+console.log('\n── Part 4: where it rests now ──');
+const s = booted();
+const rest = new MosRunner(s);
+rest.clear();
+const result = rest.runUntilStall(200 * CYCLES_PER_FRAME);
+const named = [...new Set(result.loop.map((a) => MOS_LABELS.get(a)).filter((n): n is string => n !== undefined))];
+console.log(`  ${result.kind === 'stall' ? 'The stall detector fires' : 'No stall'} after ${bbcTime(result.cycles)} more (it waits for 1 s in which no new code runs).`);
+console.log(`  Named addresses in the loop: ${named.join(', ')}.`);
+console.log('  rdchWait and defaultREM: "is the keyboard buffer empty?" BASIC is waiting for you to type.');
+console.log(`  At the moment it stopped, /IRQ was held by: ${s.irqHolders.length === 0 ? 'nobody' : s.irqHolders.join(', ')}. Interrupts come and go, 150 a second`);
+console.log('  (Timer 1 at 100 Hz, vsync at 50 Hz); each is cleared by the handler, so the CPU always gets back to BASIC.');
+console.log('  That\'s the stall we want. Part 7 (the keyboard) is what ends it.');
 
 // ── Part 5 ─────────────────────────────────────────────────────────────────
 
-console.log('\n── Part 5: change the links, and the MOS starts in another MODE ──');
-console.log('  links  &028F  MODE  ULA ctrl  CRTC R0  R1   palette writes');
-for (const links of [0xff, 0xfc, 0xfb, 0xf9, 0xf8]) {
-  const x = machine();
-  if (x === undefined) process.exit(0);
-  x.keyboard.links = links;
-  x.powerOn();
-  for (let i = 0; i < BOOT_FRAMES; i++) x.runFrame();
-  const palette = x.hardwareLog.recent().filter((w) => w.device === 'ulaPalette').length;
-  console.log(`   &${hex8(links)}   &${hex8(x.peek(0x028f))}     ${String(x.peek(0x0355))}     &${hex8(x.videoUla.control)}      &${hex8(x.crtc.register(0))}    &${hex8(x.crtc.register(1))}   ${String(palette)}`);
+console.log('\n── Part 5: what vsync is for ──');
+console.log('  The fake vsync: a falling edge on System VIA CA1 every 40,000 cycles, low for 256 (2 lines).');
+console.log(`  PCR = &${hex8(m.peek(0xfe4c))}: bit 0 = 0, CA1 interrupts on a falling edge. IER = &${hex8(m.peek(0xfe4e))} = ${bin8(m.peek(0xfe4e))}: bit 1 (CA1) enabled.`);
+console.log('  The handler\'s vsync branch:');
+for (const a of [0xdd11, 0xdd12, 0xdd13, 0xdd15, 0xdd42]) console.log(mosLine(m, a));
+
+/** *FX19 from &0900, then INC &70. Returns &70 after `frames`. */
+function fx19(x: BbcModelB, frames: number): number {
+  [0xa9, 0x13, 0x20, 0xf4, 0xff, 0xe6, 0x70, 0x4c, 0x07, 0x09].forEach((b, i) => {
+    x.poke(0x0900 + i, b);
+  });
+  x.poke(0x70, 0);
+  x.cpu.regs.pc = 0x0900;
+  for (let i = 0; i < frames; i++) x.runFrame();
+  return x.peek(0x70);
 }
-console.log('  A closed link reads as a pressed key (PA7 = 1); the MOS inverts it, so it\'s a 0 in &028F.');
-console.log('  Bits 0-2 are the links on columns 9, 8 and 7. R1 (characters shown) is &28 = 40 or &50 = 80.');
 
-// ── Part 6 ─────────────────────────────────────────────────────────────────
-
-console.log('\n── Part 6: where it stalls now ──');
-const s = machine();
-if (s === undefined) process.exit(0);
-const runner = new MosRunner(s);
-s.powerOn();
-runner.clear();
-const result = runner.runUntilStall(MAX_CYCLES);
-console.log(`  ${result.kind === 'stall' ? 'Stalled' : 'No stall'} after ${bbcTime(result.cycles)}. Last new code at ${bbcTime(runner.stall.lastNewCycle)}.`);
-console.log(`  No CTRL+SHIFT wait this time: the keyboard says nothing is down. The banner is printed, and then`);
-console.log(`  /IRQ is held by the ${s.irqHolders.join(', ')} while the MOS keeps asking the ACIA. The last 4 I/O accesses:`);
-showIo(s, 4);
-console.log('  The same storm as Stage 27\'s experiment: there is no ACIA, so its status read floats to &FE, bit 7 says');
-console.log('  "it\'s me", and the System VIA is never asked. Stage 29\'s first job.');
-
-s.reset();
-for (let i = 0; i < 25; i++) s.runFrame();
-console.log(`\n  Press BREAK: &028D = ${String(s.peek(0x028d))}, a soft BREAK. Stage 27 got 2 (CTRL+BREAK) because PA7 floated and CTRL read "down".`);
+console.log('\n  The same machine, one more second, with and without it:');
+console.log('               vsyncs  &0240 moved  ULA flash writes   *FX19 returned?  prompt at boot?');
+for (const on of [true, false]) {
+  const x = booted((machine) => {
+    machine.vsync.enabled = on;
+  });
+  const prompt = mode7Text((a) => x.peek(a))[PROMPT_ROW]?.startsWith('>') ?? false;
+  const pulses = x.vsync.pulses;
+  const before = x.peek(0x0240);
+  x.hardwareLog.clear();
+  for (let i = 0; i < BOOT_FRAMES; i++) x.runFrame();
+  const vsyncs = x.vsync.pulses - pulses;
+  const moved = (before - x.peek(0x0240)) & 0xff;
+  const flashes = x.hardwareLog.recent().filter((w) => w.device === 'ulaControl');
+  const returned = fx19(x, 10) === 1;
+  console.log(
+    `    vsync ${on ? 'on ' : 'off'}  ${String(vsyncs).padStart(6)}  ${String(moved).padStart(11)}  ${`${String(flashes.length)} ${flashes.map((w) => describeHardwareWrite(w).replace('ULA ctrl=', '')).join(' ')}`.padEnd(17)}  ${(returned ? 'yes' : 'no: hangs').padEnd(15)}  ${prompt ? 'yes' : 'no'}`,
+  );
+}
+console.log('  The boot doesn\'t need vsync: the clock and the keyboard run from Timer 1. But &0240 stands still,');
+console.log('  colours never flash, and *FX19 ("wait for the next frame") loops at waitVsync for ever:');
+for (const a of [0xe9b6, 0xe9b9, 0xe9ba, 0xe9bb, 0xe9be]) console.log(mosLine(m, a));
+console.log('  Stage 38\'s CRTC will make the real pulse; this one is its stand-in.');

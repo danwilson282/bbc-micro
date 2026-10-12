@@ -4,6 +4,8 @@ import { Via6522 } from '../devices/via6522';
 import { loadStandardRoms } from '../memory/rom-files';
 import { withRoms } from '../memory/with-roms';
 import { DOORBELL, Doorbell } from '../playground/doorbell';
+import { MosRunner } from '../mos/mos-runner';
+import { mode7Text } from '../video/mode7-text';
 import { BbcModelB, CYCLES_PER_FRAME } from './bbc-model-b';
 
 const SYSTEM_VIA_IER = 0xfe4e;
@@ -332,19 +334,13 @@ describe('BbcModelB: with MOS 1.20', () => {
     return m;
   }
 
-  withRoms('roms/os12.rom')('sees a power-on (IER read &80), measures 32K, and sets the System VIA up: IER &F2, ACR &60, PCR &04', () => {
+  withRoms('roms/os12.rom')('sees a power-on (IER read &80), measures 32K, and sets the System VIA up: ACR &60, PCR &04, IER &F2 then &F3', () => {
     const m = booted(25);
     expect(m.peek(0x028d)).toBe(1); // last BREAK type: power-on
     expect(m.peek(0x028e)).toBe(0x80); // 32K
-    expect([m.peek(SYSTEM_VIA_IER), m.peek(0xfe4b), m.peek(0xfe4c)]).toEqual([0xf2, 0x60, 0x04]);
+    // &F2 at &DA82; then the keyboard code at &EEE2 finds no key down and adds CA2 (a keypress wakes it): &F3.
+    expect([m.peek(SYSTEM_VIA_IER), m.peek(0xfe4b), m.peek(0xfe4c)]).toEqual([0xf3, 0x60, 0x04]);
   });
-
-  /** Row n of the MODE 7 screen at &7C00, as text. */
-  function mode7Row(m: BbcModelB, n: number): string {
-    let text = '';
-    for (let col = 0; col < 40; col++) text += String.fromCharCode(m.peek(0x7c00 + n * 40 + col) & 0x7f);
-    return text.trimEnd();
-  }
 
   withRoms('roms/os12.rom')('reads the keyboard links into &028F: all open (the stub\'s default) is &FF, so MODE 7', () => {
     const m = booted(40);
@@ -360,9 +356,9 @@ describe('BbcModelB: with MOS 1.20', () => {
     expect(m.peek(0x0355)).toBe(4);
   });
 
-  withRoms('roms/os12.rom')('sets MODE 7 up on the stubs: Video ULA control &4B, CRTC R0 = &3F (64 characters a line), R1 = &28 (40 shown), start address &2800', () => {
+  withRoms('roms/os12.rom')('sets MODE 7 up on the stubs: Video ULA control &4B (or &4A: bit 0 flashes with vsync), CRTC R0 = &3F (64 characters a line), R1 = &28 (40 shown), start address &2800', () => {
     const m = booted(40);
-    expect(m.videoUla.control).toBe(0x4b);
+    expect(m.videoUla.control & 0xfe).toBe(0x4a);
     expect(m.crtc.registers().slice(0, 2)).toEqual([0x3f, 0x28]);
     expect([m.crtc.register(12), m.crtc.register(13)]).toEqual([0x28, 0x00]);
   });
@@ -385,19 +381,87 @@ describe('BbcModelB: with MOS 1.20', () => {
     expect(m.latch.value).toBe(0xaf);
   });
 
-  withRoms('roms/os12.rom')('a BREAK after that is not a power-on (the VIAs kept IER &F2), and with CTRL not held it\'s a soft BREAK', () => {
+  withRoms('roms/os12.rom')('a BREAK after that is not a power-on (the VIAs kept their IER), and with CTRL not held it\'s a soft BREAK', () => {
     const m = booted(25);
     m.reset();
     for (let i = 0; i < 25; i++) m.runFrame();
     expect(m.peek(0x028d)).toBe(0); // soft BREAK (Stage 27, with PA7 floating, saw 2: CTRL+BREAK)
   });
 
-  withRoms('roms/os12.rom', 'roms/basic2.rom')('prints the banner, then storms on the floating ACIA, which still claims every IRQ (Stage 29\'s problem)', () => {
-    const m = booted(100);
-    expect([mode7Row(m, 1), mode7Row(m, 3)]).toEqual(['BBC Computer 32K', 'BASIC']);
-    // The storm: every step now is inside the IRQ handler, and the System VIA still holds the line.
-    expect(m.irqHolders).toEqual(['System VIA']);
-    const irqs = m.trace.recent(m.trace.length).filter((e) => e.kind === 'irq').length;
-    expect(irqs).toBeGreaterThan(10);
+  withRoms('roms/os12.rom', 'roms/basic2.rom')('boots to the BASIC prompt: "BBC Computer 32K", "BASIC" and ">" in MODE 7 screen memory at &7C00', () => {
+    const m = booted(50);
+    const screen = mode7Text((a) => m.peek(a)).map((row) => row.trimEnd());
+    expect(screen.slice(0, 7)).toEqual(['', 'BBC Computer 32K', '', 'BASIC', '', '>', '']);
+  });
+
+  withRoms('roms/os12.rom', 'roms/basic2.rom')('ends up waiting for a key: no IRQ storm, nobody holding /IRQ between interrupts', () => {
+    const m = booted(50);
+    const runner = new MosRunner(m);
+    runner.clear();
+    const result = runner.runUntilStall(200 * CYCLES_PER_FRAME);
+    expect(result.kind).toBe('stall');
+    expect(result.loop).toContain(0xdee6); // rdchWait
+    // Most of the time is spent in BASIC's wait, not the handler: well under 1 IRQ per 100 steps.
+    const entries = m.trace.recent(m.trace.length);
+    expect(entries.filter((e) => e.kind === 'irq').length).toBeLessThan(entries.length / 100);
+  });
+
+  withRoms('roms/os12.rom')('the MOS asks the ACIA first on every IRQ, gets status &02 (bit 7 = 0), and sets its control to &56: both ACIA interrupts off', () => {
+    const m = booted(25);
+    expect(m.acia.control).toBe(0x56);
+    expect(m.map.ioLog.recent().some((a) => a.address === 0xfe08 && !a.write && a.value === 0x02)).toBe(true);
+  });
+
+  withRoms('roms/os12.rom')('vsync: every falling edge on CA1 is counted down at &0240, 50 a second', () => {
+    const m = booted(25);
+    const before = m.peek(0x0240);
+    const pulses = m.vsync.pulses;
+    for (let i = 0; i < 10; i++) m.runFrame();
+    expect(m.vsync.pulses - pulses).toBe(10);
+    expect((before - m.peek(0x0240)) & 0xff).toBe(10);
+  });
+
+  withRoms('roms/os12.rom')('without vsync the boot still finishes (the clock is Timer 1), but &0240 never moves', () => {
+    const m = booted(25, (machine) => {
+      machine.vsync.enabled = false;
+    });
+    const before = m.peek(0x0240);
+    for (let i = 0; i < 10; i++) m.runFrame();
+    expect(m.peek(0x0240)).toBe(before);
+    expect(m.peek(0x0355)).toBe(7);
+  });
+
+  /** Runs *FX19 (OSBYTE &13: wait for vsync) from &0900, then INC &70 and loop. Returns &70 after `frames`. */
+  function fx19(m: BbcModelB, frames: number): number {
+    // LDA #&13 : JSR OSBYTE : INC &70 : JMP &0907
+    [0xa9, 0x13, 0x20, 0xf4, 0xff, 0xe6, 0x70, 0x4c, 0x07, 0x09].forEach((b, i) => {
+      m.poke(0x0900 + i, b);
+    });
+    m.poke(0x70, 0);
+    m.cpu.regs.pc = 0x0900;
+    for (let i = 0; i < frames; i++) m.runFrame();
+    return m.peek(0x70);
+  }
+
+  withRoms('roms/os12.rom')('*FX19 (OSBYTE &13, wait for vsync) returns within a frame when vsync is there', () => {
+    expect(fx19(booted(25), 2)).toBe(1);
+  });
+
+  withRoms('roms/os12.rom')('*FX19 never returns without vsync: the MOS loops at &E9B9-&E9BE waiting for &0240 to change', () => {
+    const m = booted(25, (machine) => {
+      machine.vsync.enabled = false;
+    });
+    expect(fx19(m, 50)).toBe(0);
+    const loop = m.trace.recent(m.trace.length).map((e) => e.pc).filter((pc) => pc >= 0xe9b6 && pc <= 0xe9be);
+    expect(loop.length).toBeGreaterThan(0);
+  });
+
+  withRoms('roms/os12.rom')('flashing: every 25 vsyncs the MOS flips the Video ULA\'s flash bit (control bit 0), &4B ↔ &4A', () => {
+    const m = booted(25);
+    m.hardwareLog.clear();
+    for (let i = 0; i < 100; i++) m.runFrame();
+    const flashes = m.hardwareLog.recent().filter((w) => w.device === 'ulaControl').map((w) => w.value);
+    expect(flashes).toHaveLength(4);
+    expect(new Set(flashes)).toEqual(new Set([0x4a, 0x4b]));
   });
 });

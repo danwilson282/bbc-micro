@@ -26,6 +26,10 @@
 //   System VIA PA0-PA6 ──▶ keyboard stub ◀────────────────────────┘
 //                               └──▶ PA7: "that key is down"
 //
+// Stage 29 adds the last two the boot needs: an idle ACIA (so the MOS's
+// "was it the ACIA?" gets "no" and it goes on to the System VIA), and a
+// fake 50 Hz vsync on the System VIA's CA1.
+//
 // step() and runCycles() are the hot path: no objects, closures or arrays
 // are made in them, and the device lists are walked with indexed loops.
 
@@ -36,6 +40,8 @@ import { AddressableLatch, LATCH_KEYBOARD_ENABLE } from '../devices/addressable-
 import type { Clocked } from '../devices/clocked';
 import { HardwareLog, type CycleClock } from '../devices/hardware-log';
 import type { IrqSource } from '../devices/irq-source';
+import { AciaStub } from '../devices/stubs/acia-stub';
+import { FakeVsync } from '../devices/stubs/fake-vsync';
 import { CrtcStub } from '../devices/stubs/crtc-stub';
 import { KeyboardStub } from '../devices/stubs/keyboard-stub';
 import { VideoUlaStub } from '../devices/stubs/video-ula-stub';
@@ -79,6 +85,10 @@ export class BbcModelB implements PinListener, DataBus, CycleClock {
   /** Stubs until their stages: the keyboard (Part 7), CRTC (Stage 37), Video ULA (Stage 40). */
   readonly keyboard = new KeyboardStub();
   readonly crtc: CrtcStub;
+  /** Always idle: serial and cassette are out of scope. The MOS asks it first on every IRQ (Stage 29). */
+  readonly acia = new AciaStub();
+  /** A 50 Hz pulse on the System VIA's CA1, until the CRTC makes a real one (Stage 38). */
+  readonly vsync = new FakeVsync(this.systemVia);
   readonly videoUla: VideoUlaStub;
   readonly map: BbcMemoryMap;
   readonly cpu: Cpu6502;
@@ -106,7 +116,7 @@ export class BbcModelB implements PinListener, DataBus, CycleClock {
     this.crtc = new CrtcStub(this.hardwareLog);
     this.videoUla = new VideoUlaStub(this, this.hardwareLog);
     this.map = new BbcMemoryMap({
-      devices: { systemVia: this.systemVia, userVia: this.userVia, crtc: this.crtc, videoUla: this.videoUla },
+      devices: { acia: this.acia, systemVia: this.systemVia, userVia: this.userVia, crtc: this.crtc, videoUla: this.videoUla },
     });
     this.recorder = new WriteRecorder(this.map);
     this.cpu = new Cpu6502(this.recorder);
@@ -114,7 +124,7 @@ export class BbcModelB implements PinListener, DataBus, CycleClock {
     this.systemVia.connectPins(this);
     this.latchFollowsPins();
     this.trace = new Tracer((address) => this.map.peek(address));
-    this.clocked = [this.systemVia, this.userVia];
+    this.clocked = [this.systemVia, this.userVia, this.vsync];
     this.irqSources = [this.systemVia, this.userVia];
     this.irqNames = [SYSTEM_VIA_NAME, USER_VIA_NAME];
   }
@@ -174,13 +184,15 @@ export class BbcModelB implements PinListener, DataBus, CycleClock {
 
   /**
    * Switching on: every chip's /RES (the VIAs clear IER, so the MOS sees
-   * &80 at &FE4E), the 1 MHz bus cards, and the CPU's reset sequence. RAM
-   * is left as it is: clearing it is the MOS's job. Returns the CPU's 7 cycles.
+   * &80 at &FE4E), the vsync back to the start of a frame, the 1 MHz bus
+   * cards, and the CPU's reset sequence. RAM is left as it is: clearing it
+   * is the MOS's job. Returns the CPU's 7 cycles.
    */
   powerOn(): number {
     this.latch.reset();
     this.systemVia.reset();
     this.userVia.reset();
+    this.vsync.reset();
     this.latchFollowsPins();
     return this.reset();
   }

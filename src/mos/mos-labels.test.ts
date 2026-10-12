@@ -75,4 +75,16 @@ describe('MOS labels and notes', () => {
       expect([MOS_LABELS.get(handler.vector), target]).toEqual([MOS_LABELS.get(handler.vector), handler.address]);
     }
   });
+
+  test('the ACIA question in the IRQ handler is explained: BPL &DD06 goes to systemViaIrq', () => {
+    expect(formatMosTraceLine(entry(0xdca2, [0xad, 0x08, 0xfe]))).toContain('; ACIA status: bit 7');
+    expect(formatMosTraceLine(entry(0xdca7, [0x10, 0x5d]))).toContain('BPL systemViaIrq');
+  });
+
+  withRoms(MOS)('waitVsync is where OSBYTE &13 goes: the dispatch table at &E5B3 holds &E9B6 for A = &13', () => {
+    const image = loadRomFile(MOS);
+    const entryAt = 0xe5b3 + 2 * 0x13 - 0xc000;
+    expect((image[entryAt] ?? 0) | ((image[entryAt + 1] ?? 0) << 8)).toBe(0xe9b6);
+    expect(MOS_LABELS.get(0xe9b6)).toBe('waitVsync');
+  });
 });
