@@ -50,6 +50,10 @@ const initial = findExample(params.get('program'));
 // The Stage 17 doorbell is a card on its 1 MHz bus, so the IRQ button has
 // something to ring, in either mode.
 const machine = new BbcModelB(mosMode ? 'BBC Model B running MOS 1.20 from roms/' : 'BBC Model B, playground: your program instead of the MOS');
+// The fake 50 Hz vsync on the System VIA's CA1 (Stage 29) is for the MOS. In
+// the playground it would fight the VIA panel's CA1 button, which Stage 26's
+// example counts, so it's off there.
+if (!mosMode) machine.vsync.enabled = false;
 const doorbell = new Doorbell(machine.map);
 machine.plugIn(doorbell);
 const target = machineTarget(machine, doorbell);

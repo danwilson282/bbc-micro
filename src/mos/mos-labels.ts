@@ -94,6 +94,8 @@ const ROUTINES: readonly (readonly [number, string])[] = [
   [0xf02a, 'keyTest'], //       key number X out on port A, read back: bit 7 = down
   [0xf12e, 'autoScanOn'], //    LDA #&0B : STA &FE40: IC32 bit 3 = 1, keyboard scans itself again
   [0xdee6, 'rdchWait'], //      inside defaultRDCH: loop until the input buffer isn't empty
+  [0xdd06, 'systemViaIrq'], //  defaultIRQ1 comes here when the ACIA says "not me" (BPL at &DCA7) (Stage 29)
+  [0xe9b6, 'waitVsync'], //     OSBYTE &13 (*FX19): the table at &E5B3 sends A = &13 here; loops until &0240 changes
 ];
 
 /** Address → name, for the disassembler and the trace. */
@@ -141,6 +143,13 @@ export const MOS_NOTES: ReadonlyMap<number, string> = new Map<number, string>([
   [0xe9e8, 'C = CTRL, N = SHIFT'],
   [0xdeb2, 'next character of the message'],
   [0xe466, 'buffer X empty? (start index = end index)'],
+  [0xdca2, 'ACIA status: bit 7 = the ACIA is interrupting'],
+  [0xdca7, 'bit 7 = 0: not the ACIA, so ask the System VIA'],
+  [0xdd13, 'C = IFR bit 1 (CA1, vsync). Not vsync?'],
+  [0xdd15, 'vsync: count it down (*FX19 watches &0240)'],
+  [0xdd42, '&02: clear IFR bit 1 (at &DE6E)'],
+  [0xe9bb, '*FX19: has a vsync changed &0240 yet?'],
+  [0xeee2, 'no key down: enable CA2, a keypress will interrupt'],
 ]);
 
 /** Documented MOS workspace (AUG, "Memory usage"), for comments. */
