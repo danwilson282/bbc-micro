@@ -36,7 +36,8 @@
     "demo:roms": "tsx scripts/demo-roms.ts",
     "demo:mos": "tsx scripts/demo-mos.ts",
     "demo:timers": "tsx scripts/demo-timers.ts",
-    "demo:boot": "tsx scripts/demo-boot.ts"
+    "demo:boot": "tsx scripts/demo-boot.ts",
+    "demo:font": "tsx scripts/demo-font.ts"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

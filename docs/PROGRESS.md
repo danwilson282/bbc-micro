@@ -2,7 +2,7 @@
 
 Tracks where the build is up to. The `/start-stage` and `/finish-stage` skills keep this file up to date. For what each stage involves, see [`BUILD-PLAN.md`](./BUILD-PLAN.md).
 
-**Current stage:** 31 — Teletext font & canvas (not started)
+**Current stage:** 32 — Teletext colours & graphics (not started)
 
 **Status values:**
 - `not started`
@@ -73,7 +73,7 @@ Tracks where the build is up to. The `/start-stage` and `/finish-stage` skills k
 | # | Stage | Status | Seen? | Branch | Doc | Notes |
 |---|---|---|---|---|---|---|
 | 30 | Browser run loop | done | ✅ | `stage/30-run-loop` | [doc](./stages/30-run-loop.md) | `src/web/frame-loop.ts`: pure `framesDue` accumulator (20 ms frames, remainder carried, elapsed clamped to 100 ms, ≤ 5 frames/callback), `createFrameLoop` over an injected `AnimationHost` (fake rAF in Jest), `SpeedMeter`. MOS mode runs itself on load: **50 frames/s (100%), display 60 Hz**. `run-controls.ts` (Pause/Run, Step frame, BREAK, Power on, status). `text-screen.ts`: 40 × 25 text over the canvas, one text node per row (per-cell spans measured 9 ms on a full-screen change), `contain: strict`. `mode7StartAddress`/`mode7CellAddress`: &7C00 + (MA AND &3FF), verified on the real MOS (30 LFs → &29B8 = &7DB8 = its &350/&351). Panels refresh at 10 Hz while running. Registers panel `onTakeControl` pauses the loop; its **Run now uses the accumulator too** (fixed a flaky `compare-branch` e2e that also failed on `main`). `?machine=mos&paused` waits at &D9CD. Playwright project `real-time` runs `e2e/boot.spec.ts` after the rest. Found: soft BREAK prints "BBC Computer" without "32K". |
-| 31 | Teletext font & canvas | not started | | `stage/31-teletext-font` | [doc](./stages/31-teletext-font.md) | |
+| 31 | Teletext font & canvas | done | ✅ | `stage/31-teletext-font` | [doc](./stages/31-teletext-font.md) | `video/saa5050-font.ts`: 96 glyphs as `#`/`.` pictures, **sampled by a throwaway script from a high-res render of the data sheet's Fig. 11** (every square clearly black or white) and spot-checked by eye; 25 symmetric glyphs mirror-tested. `glyphRow`, `glyphPicture`, `teletextCharacter` (12 English swaps: &23 £, &5F #, &7F ■...). `video/mode7-renderer.ts`: pure, 480 × 500 colour numbers (dot = 2 × 2, gap column 0 and gap line 0). `web/screen-canvas.ts`: one `ImageData` + 8-word palette (endianness checked), ≈1.3 ms/frame. Canvas 480 × 500 at 5:4, `pixelated`. Text grid kept but transparent (a11y, copy, e2e) and now shows `£`. `mode7DisplayCode` replaced by `teletextCharacter`. `demo:font`. `e2e/boot.spec.ts` reads canvas pixels. |
 | 32 | Teletext colours & graphics | not started | | `stage/32-teletext-colour-graphics` | [doc](./stages/32-teletext-colour-graphics.md) | |
 | 33 | Double height, flash & conceal | not started | | `stage/33-teletext-double-height-flash` | [doc](./stages/33-teletext-double-height-flash.md) | |
 
@@ -204,3 +204,6 @@ Things to come back to: questions raised during a stage, known inaccuracies, ide
 - The tab-hidden clamp means TIME (and the BBC clock generally) falls behind wall-clock time while the tab is hidden. Deliberate (no catch-up freeze); revisit if anything needs wall-clock sync. (Stage 30)
 - The text overlay has no cursor: R14/R15 (&28C9 at the prompt) and R10's flash are the CRTC's job. Stage 37+. (Stage 30)
 - Headless Chromium under 4 Playwright workers can give rAF callbacks at ~12 Hz. Any future timing-sensitive e2e should go in the `real-time` project. (Stage 30)
+- Which cell column/line the SAA5050 leaves blank for alphanumerics: we use column 0 (left) and line 0 (top), from the data sheet's 2.6 vs 2.767 µs graphics/alphanumeric delay (one 6 MHz dot) and Fig. 10's drawing. Not stated in words; check when mosaics sit next to letters (Stage 32). (Stage 31)
+- MODE 7 is shown 480 × 500 stretched to 5:4. Real horizontal/vertical position and size of MODE 7 within the TV picture vs the bitmap modes is for the 6845 stages (37-39). (Stage 31)
+- Whole-screen redraw every BBC frame (≈1.3 ms in Chromium). Fine for now; dirty-cell tracking is possible but flash (Stage 33) changes cells without memory changing. (Stage 31)

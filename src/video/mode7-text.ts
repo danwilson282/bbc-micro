@@ -7,8 +7,8 @@
 //
 // Codes below &20 and &80-&9F are teletext control codes (colours, graphics,
 // flash...). Each takes a cell and shows as a space, so we show a space. The
-// SAA5050 ignores bit 7. The rest is shown as ASCII, although a few teletext
-// characters differ (&23 is £): Stage 31.
+// SAA5050 ignores bit 7. The rest is shown as the character the SAA5050
+// draws, which is mostly ASCII but not quite (&23 is £): see saa5050-font.ts.
 //
 // Where the screen starts (Stage 30). When the MOS scrolls MODE 7 it doesn't
 // move the bytes: it moves the CRTC's start address (R12/R13) on by a row,
@@ -21,6 +21,7 @@
 // so &7C00 is &2800. 1,000 cells are shown; the wrap is every 1,024.
 
 import { hex16 } from '../util/bits';
+import { teletextCharacter } from './saa5050-font';
 
 /** Where MODE 7's screen starts on a 32K machine (AUG, MODE 7). */
 export const MODE7_SCREEN_START = 0x7c00;
@@ -32,9 +33,6 @@ const MODE7_RAM_BASE = 0x7c00;
 /** MA0-MA9: the part of the 6845's address that MODE 7 uses. */
 const MODE7_ADDRESS_MASK = 0x3ff;
 
-const FIRST_PRINTABLE = 0x20;
-const DELETE = 0x7f;
-
 /** The RAM address of the top-left cell, from the CRTC's start address (R12 high, R13 low). */
 export function mode7StartAddress(r12: number, r13: number): number {
   return MODE7_RAM_BASE | ((((r12 & 0xff) << 8) | (r13 & 0xff)) & MODE7_ADDRESS_MASK);
@@ -45,22 +43,13 @@ export function mode7CellAddress(start: number, cell: number): number {
   return MODE7_RAM_BASE | ((start + cell) & MODE7_ADDRESS_MASK);
 }
 
-/**
- * What a cell shows as text: the character code (bit 7 dropped, as the
- * SAA5050 does), or &20 for a control code or &7F. Stage 31 draws the rest.
- */
-export function mode7DisplayCode(byte: number): number {
-  const code = byte & 0x7f;
-  return code >= FIRST_PRINTABLE && code < DELETE ? code : FIRST_PRINTABLE;
-}
-
 /** The screen, as 25 strings of 40 characters. Reads with peek, so it has no side effects. */
 export function mode7Text(peek: (address: number) => number, start = MODE7_SCREEN_START): string[] {
   const rows: string[] = [];
   for (let row = 0; row < MODE7_ROWS; row++) {
     let text = '';
     for (let column = 0; column < MODE7_COLUMNS; column++) {
-      text += String.fromCharCode(mode7DisplayCode(peek(mode7CellAddress(start, row * MODE7_COLUMNS + column))));
+      text += teletextCharacter(peek(mode7CellAddress(start, row * MODE7_COLUMNS + column)));
     }
     rows.push(text);
   }

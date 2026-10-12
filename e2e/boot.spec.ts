@@ -2,6 +2,32 @@ import { test, expect, type APIRequestContext, type Page } from '@playwright/tes
 
 // Stage 30: MOS mode runs by itself in real time, and MODE 7's screen
 // memory shows as text over the canvas.
+// Stage 31: the canvas shows it as SAA5050 dots (the text is transparent).
+
+/** The colour of one canvas pixel, as 'r,g,b'. The canvas is 480 × 500: a cell is 12 × 20, a dot 2 × 2. */
+async function canvasPixel(page: Page, x: number, y: number): Promise<string> {
+  return page.evaluate(
+    ([px, py]) => {
+      const canvas = document.querySelector('#screen');
+      if (!(canvas instanceof HTMLCanvasElement)) throw new Error('no #screen canvas');
+      const data = canvas.getContext('2d')?.getImageData(px, py, 1, 1).data;
+      return data ? `${String(data[0])},${String(data[1])},${String(data[2])}` : 'none';
+    },
+    [x, y] as const,
+  );
+}
+
+/** How many white pixels the canvas has in text row r (20 pixel lines). */
+async function whitePixelsInRow(page: Page, row: number): Promise<number> {
+  return page.evaluate((r) => {
+    const canvas = document.querySelector('#screen');
+    if (!(canvas instanceof HTMLCanvasElement)) throw new Error('no #screen canvas');
+    const data = canvas.getContext('2d')?.getImageData(0, r * 20, canvas.width, 20).data;
+    let count = 0;
+    if (data) for (let i = 0; i < data.length; i += 4) if (data[i] === 255 && data[i + 1] === 255 && data[i + 2] === 255) count++;
+    return count;
+  }, row);
+}
 
 async function hasRoms(request: APIRequestContext): Promise<boolean> {
   for (const path of ['/roms/os12.rom', '/roms/basic2.rom']) {
@@ -27,6 +53,12 @@ test('the boot text appears live in the browser, with nobody pressing Run', asyn
   await expect(screen).toContainText('BASIC');
   await expect(page.locator('.text-row').nth(5)).toHaveText(/^>/);
   await pause(page);
+  // Stage 31: the same text, as dots. The MOS starts with a blank line, so
+  // row 0 is empty and row 1 ("BBC Computer 32K") has white dots, and so
+  // does row 5 (the prompt's >).
+  expect(await whitePixelsInRow(page, 0)).toBe(0);
+  expect(await whitePixelsInRow(page, 1)).toBeGreaterThan(100);
+  expect(await whitePixelsInRow(page, 5)).toBeGreaterThan(0);
 });
 
 test('it never runs faster than real time, whatever the display rate, and Pause, Step frame and Run work', async ({ page, request }) => {
@@ -79,4 +111,17 @@ test('the playground shows its screen memory as text too: the "HELLO, BBC MICRO"
   await page.goto('/');
   await expect(page.getByLabel('Screen (MODE 7 as text)')).toContainText('HELLO, BBC MICRO');
   await expect(page.getByRole('group', { name: 'Machine' })).toHaveCount(0);
+});
+
+test('the canvas draws the playground\'s H as SAA5050 dots: a 2 × 2 square per dot, after a blank gap column', async ({ page }) => {
+  await page.goto('/');
+  await expect(page.getByLabel('Screen (MODE 7 as text)')).toContainText('HELLO, BBC MICRO');
+  // H's top line is #...# (data sheet Fig. 11, 4/8). Its first dot is dot 1
+  // of the cell (dot 0 is the gap) on line 1 (line 0 is the gap): x 2-3, y 2-3.
+  expect(await canvasPixel(page, 2, 2)).toBe('255,255,255');
+  expect(await canvasPixel(page, 3, 3)).toBe('255,255,255');
+  expect(await canvasPixel(page, 0, 2)).toBe('0,0,0'); // the gap column
+  expect(await canvasPixel(page, 2, 0)).toBe('0,0,0'); // the gap line
+  expect(await canvasPixel(page, 4, 2)).toBe('0,0,0'); // H's second dot is background
+  expect(await canvasPixel(page, 10, 2)).toBe('255,255,255'); // and its fifth is lit
 });
