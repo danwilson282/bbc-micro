@@ -5,7 +5,7 @@ import { loadStandardRoms } from '../memory/rom-files';
 import { withRoms } from '../memory/with-roms';
 import { DOORBELL, Doorbell } from '../playground/doorbell';
 import { MosRunner } from '../mos/mos-runner';
-import { mode7Text } from '../video/mode7-text';
+import { mode7StartAddress, mode7Text } from '../video/mode7-text';
 import { BbcModelB, CYCLES_PER_FRAME } from './bbc-model-b';
 
 const SYSTEM_VIA_IER = 0xfe4e;
@@ -463,5 +463,32 @@ describe('BbcModelB: with MOS 1.20', () => {
     const flashes = m.hardwareLog.recent().filter((w) => w.device === 'ulaControl').map((w) => w.value);
     expect(flashes).toHaveLength(4);
     expect(new Set(flashes)).toEqual(new Set([0x4a, 0x4b]));
+  });
+  withRoms('roms/os12.rom', 'roms/basic2.rom')('scrolling MODE 7 moves the CRTC start address, not the bytes: R12/R13 then agree with the MOS\'s own screen top at &350/&351 (Stage 30)', () => {
+    const m = booted(50);
+    // LDX #n / loop: LDA #10 / JSR OSWRCH / DEX / BNE loop / spin: JMP spin. n line feeds.
+    const lineFeeds = (n: number): void => {
+      [0xa2, n, 0xa9, 0x0a, 0x20, 0xee, 0xff, 0xca, 0xd0, 0xf8, 0x4c, 0x0a, 0x09].forEach((b, i) => {
+        m.poke(0x0900 + i, b);
+      });
+      m.cpu.regs.pc = 0x0900;
+      for (let i = 0; i < 25; i++) m.runFrame();
+    };
+    const screenTop = (): number => m.peek(0x0350) | (m.peek(0x0351) << 8);
+    const start = (): number => mode7StartAddress(m.crtc.register(12), m.crtc.register(13));
+
+    // The cursor is on the ">" row (5). 20 line feeds take it to "row 25": one scroll, of 40 bytes.
+    lineFeeds(20);
+    expect(start()).toBe(0x7c28);
+    expect(start()).toBe(screenTop());
+    // Followed properly, everything has moved up a row: the banner is now on row 0.
+    expect(mode7Text((a) => m.peek(a), start()).slice(0, 5).map((row) => row.trimEnd())).toEqual(['BBC Computer 32K', '', 'BASIC', '', '>']);
+    // The bytes didn't move: read from &7C00, as Stage 29 did, and the banner seems still to be on row 1.
+    expect(mode7Text((a) => m.peek(a))[1]?.trimEnd()).toBe('BBC Computer 32K');
+
+    // Ten more: the start keeps moving on, and the MOS agrees (&7C00 + 11 × 40 = &7DB8).
+    lineFeeds(10);
+    expect(start()).toBe(0x7db8);
+    expect(start()).toBe(screenTop());
   });
 });

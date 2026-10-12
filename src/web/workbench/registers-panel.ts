@@ -8,11 +8,17 @@ import type { CpuTarget } from './debug-target';
 import { button } from './dom';
 import type { Panel } from './panel';
 import { buildRegistersView, describeRun, stepMany, type RegistersView } from './registers-view-model';
+import { createFrameClock, framesDue, resetClock } from '../frame-loop';
 import { RUN_START, advanceRun, describeRunState, stopRun, type RunState } from './run-model';
 
 export interface RegistersPanelOptions {
   /** Called after the CPU runs or resets, so every panel can redraw. */
   readonly onRun: () => void;
+  /**
+   * Called before Step, Step ×16, Run or Reset drives the CPU, so anything
+   * else driving it (the frame loop, Stage 30) can stop first: one driver at a time.
+   */
+  readonly onTakeControl?: () => void;
 }
 
 export function createRegistersPanel(target: CpuTarget, options: RegistersPanelOptions): Panel & { stop(): void } {
@@ -20,6 +26,8 @@ export function createRegistersPanel(target: CpuTarget, options: RegistersPanelO
   /** The Run in progress, if there is one, and its pending animation frame. */
   let running: RunState | undefined;
   let frame = 0;
+  /** Real time (Stage 30): wall-clock time owed, in 20 ms frames, whatever the display's rate. */
+  const clock = createFrameClock();
 
   const element = document.createElement('div');
   element.className = 'registers-panel';
@@ -115,6 +123,7 @@ export function createRegistersPanel(target: CpuTarget, options: RegistersPanelO
   }
 
   function run(n: number): void {
+    options.onTakeControl?.();
     const result = stepMany(target, n);
     say(describeRun(result), result.error !== undefined);
     options.onRun();
@@ -128,12 +137,19 @@ export function createRegistersPanel(target: CpuTarget, options: RegistersPanelO
     step16.disabled = isRunning;
   }
 
-  /** One animation frame of a Run: 40,000 cycles, then redraw everything (that's what makes the counter live). */
-  function tick(): void {
+  /**
+   * One animation frame of a Run: as many 40,000-cycle frames as the time
+   * since the last one covers (Stage 30's accumulator: 50 a second on any
+   * display), then redraw everything (that's what makes the counter live).
+   */
+  function tick(now: number): void {
     if (running === undefined) return;
-    running = advanceRun(target, running);
-    say(describeRunState(running, target.registers.pc), running.end === 'error');
-    options.onRun();
+    const due = framesDue(clock, now);
+    for (let i = 0; i < due && running.end === undefined; i++) running = advanceRun(target, running);
+    if (due > 0) {
+      say(describeRunState(running, target.registers.pc), running.end === 'error');
+      options.onRun();
+    }
     if (running.end === undefined) {
       frame = requestAnimationFrame(tick);
     } else {
@@ -162,12 +178,16 @@ export function createRegistersPanel(target: CpuTarget, options: RegistersPanelO
       stop();
       return;
     }
+    options.onTakeControl?.();
     running = RUN_START;
     showRunning(true);
-    tick();
+    resetClock(clock);
+    say(describeRunState(running, target.registers.pc));
+    frame = requestAnimationFrame(tick);
   });
   reset.addEventListener('click', () => {
     stop();
+    options.onTakeControl?.();
     target.reset();
     target.writes.clear();
     say('Reset: PC loaded from &FFFC/&FFFD');

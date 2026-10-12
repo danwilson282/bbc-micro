@@ -10,9 +10,15 @@
 // SAA5050 ignores bit 7. The rest is shown as ASCII, although a few teletext
 // characters differ (&23 is £): Stage 31.
 //
-// It always reads from `start`. When the MOS scrolls MODE 7 it moves the
-// CRTC's start address instead of the bytes, so after a scroll the screen
-// starts elsewhere in &7C00-&7FFF and wraps. Not followed yet (Stage 30).
+// Where the screen starts (Stage 30). When the MOS scrolls MODE 7 it doesn't
+// move the bytes: it moves the CRTC's start address (R12/R13) on by a row,
+// and the screen wraps round inside &7C00-&7FFF. In MODE 7 the Model B uses
+// only MA0-MA9 of the 6845's address and forces A10-A14 high (32K machine):
+//
+//   RAM address = &7C00 + (MA AND &3FF)
+//
+// The AUG gives the MOS's side of it: R12/R13 = (start - &7400) EOR &2000,
+// so &7C00 is &2800. 1,000 cells are shown; the wrap is every 1,024.
 
 import { hex16 } from '../util/bits';
 
@@ -21,8 +27,32 @@ export const MODE7_SCREEN_START = 0x7c00;
 export const MODE7_COLUMNS = 40;
 export const MODE7_ROWS = 25;
 
+/** MODE 7's screen is in this 1K of RAM, whatever R12/R13 say. */
+const MODE7_RAM_BASE = 0x7c00;
+/** MA0-MA9: the part of the 6845's address that MODE 7 uses. */
+const MODE7_ADDRESS_MASK = 0x3ff;
+
 const FIRST_PRINTABLE = 0x20;
 const DELETE = 0x7f;
+
+/** The RAM address of the top-left cell, from the CRTC's start address (R12 high, R13 low). */
+export function mode7StartAddress(r12: number, r13: number): number {
+  return MODE7_RAM_BASE | ((((r12 & 0xff) << 8) | (r13 & 0xff)) & MODE7_ADDRESS_MASK);
+}
+
+/** Cell n's RAM address (row × 40 + column), counting on from start and wrapping inside &7C00-&7FFF. */
+export function mode7CellAddress(start: number, cell: number): number {
+  return MODE7_RAM_BASE | ((start + cell) & MODE7_ADDRESS_MASK);
+}
+
+/**
+ * What a cell shows as text: the character code (bit 7 dropped, as the
+ * SAA5050 does), or &20 for a control code or &7F. Stage 31 draws the rest.
+ */
+export function mode7DisplayCode(byte: number): number {
+  const code = byte & 0x7f;
+  return code >= FIRST_PRINTABLE && code < DELETE ? code : FIRST_PRINTABLE;
+}
 
 /** The screen, as 25 strings of 40 characters. Reads with peek, so it has no side effects. */
 export function mode7Text(peek: (address: number) => number, start = MODE7_SCREEN_START): string[] {
@@ -30,8 +60,7 @@ export function mode7Text(peek: (address: number) => number, start = MODE7_SCREE
   for (let row = 0; row < MODE7_ROWS; row++) {
     let text = '';
     for (let column = 0; column < MODE7_COLUMNS; column++) {
-      const code = peek((start + row * MODE7_COLUMNS + column) & 0xffff) & 0x7f;
-      text += code >= FIRST_PRINTABLE && code < DELETE ? String.fromCharCode(code) : ' ';
+      text += String.fromCharCode(mode7DisplayCode(peek(mode7CellAddress(start, row * MODE7_COLUMNS + column))));
     }
     rows.push(text);
   }
