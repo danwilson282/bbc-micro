@@ -1,6 +1,6 @@
 import { mode7Text } from './mode7-text';
-import { decodeRow } from './teletext-attributes';
-import { TEST_PAGE_ROWS, pageRow, teletextTestPage } from './teletext-test-page';
+import { decodeRow, decodeRows } from './teletext-attributes';
+import { TEST_PAGES, TEST_PAGE_COUNT, pageRow, teletextTestPage } from './teletext-test-page';
 
 describe('pageRow: one teletext row from bytes and text', () => {
   test('mixes control codes and text, and pads with spaces to 40', () => {
@@ -18,13 +18,23 @@ describe('pageRow: one teletext row from bytes and text', () => {
   });
 });
 
-describe('the Stage 32 test page', () => {
-  const page = teletextTestPage();
-
-  test('is exactly 1,000 bytes: 25 rows of 40', () => {
-    expect(page).toHaveLength(1000);
-    expect(TEST_PAGE_ROWS).toHaveLength(25);
+describe('the test pages', () => {
+  test('there are two, each exactly 1,000 bytes: 25 rows of 40', () => {
+    expect(TEST_PAGE_COUNT).toBe(2);
+    for (let page = 1; page <= TEST_PAGE_COUNT; page++) {
+      expect(teletextTestPage(page)).toHaveLength(1000);
+      expect(TEST_PAGES[page - 1]).toHaveLength(25);
+    }
   });
+
+  test('asking for a page that does not exist is an error', () => {
+    expect(() => teletextTestPage(3)).toThrow(/pages 1-2/);
+  });
+});
+
+describe('test page 1 (Stage 32): colours & graphics', () => {
+  const page = teletextTestPage(1);
+  const TEST_PAGE_ROWS = TEST_PAGES[0] ?? [];
 
   test('uses every Stage 32 control code', () => {
     const codes = new Set(page.filter((b) => (b & 0x7f) < 0x20).map((b) => b & 0x7f));
@@ -41,5 +51,29 @@ describe('the Stage 32 test page', () => {
   test('reads as text with its title on the first row', () => {
     const rows = mode7Text((address) => page[address - 0x7c00] ?? 0);
     expect(rows[0]).toContain('Teletext colours & graphics');
+  });
+});
+
+describe('test page 2 (Stage 33): double height, flash & conceal', () => {
+  const page = teletextTestPage(2);
+  const rows = decodeRows(TEST_PAGES[1] ?? []);
+
+  test('uses every Stage 33 control code', () => {
+    const codes = new Set(page.filter((b) => (b & 0x7f) < 0x20).map((b) => b & 0x7f));
+    for (const code of [0x08, 0x09, 0x0c, 0x0d, 0x18]) expect(codes).toContain(code);
+  });
+
+  test('its title is double height on rows 0 and 1, and flashes', () => {
+    const title = rows[0]?.filter((c) => c.kind === 'letter') ?? [];
+    expect(title.length).toBeGreaterThan(10);
+    expect(title.every((c) => c.height === 'top' && c.flash)).toBe(true);
+    expect(rows[1]?.filter((c) => c.kind === 'letter').every((c) => c.height === 'bottom' && c.flash)).toBe(true);
+    expect(TEST_PAGES[1]?.[1]).toEqual(TEST_PAGES[1]?.[0]);
+  });
+
+  test('reads as text with its title on the first two rows', () => {
+    const text = mode7Text((address) => page[address - 0x7c00] ?? 0);
+    expect(text[0]).toContain('Double height, flash & conceal');
+    expect(text[1]).toContain('Double height, flash & conceal');
   });
 });

@@ -5,9 +5,11 @@ import {
   createTeletextState,
   decodeCell,
   decodeRow,
+  decodeRows,
   mosaicLine,
   startRow,
   teletextCellText,
+  teletextFlashVisible,
 } from './teletext-attributes';
 
 /** Decodes a row given as bytes and strings, and returns a copy of each cell. */
@@ -53,8 +55,24 @@ describe('the row starts with Table 1\'s "presumed" attributes', () => {
     state.separated = true;
     state.hold = true;
     state.heldCode = 0x7f;
+    state.flash = true;
+    state.conceal = true;
+    state.doubleHeight = true;
     startRow(state);
-    expect(state).toEqual({ foreground: 7, background: 0, graphics: false, separated: false, hold: false, heldCode: 0x20, heldSeparated: false });
+    expect(state).toEqual({
+      foreground: 7,
+      background: 0,
+      graphics: false,
+      separated: false,
+      hold: false,
+      heldCode: 0x20,
+      heldSeparated: false,
+      flash: false,
+      conceal: false,
+      doubleHeight: false,
+      doubleHeightSeen: false,
+      bottomRow: false,
+    });
   });
 
   test('plain text is white letters on black', () => {
@@ -183,15 +201,152 @@ describe('hold graphics', () => {
   });
 });
 
-describe('Stage 33 codes are recognised but change nothing yet', () => {
+/** Bytes and strings as a row's bytes, padded to nothing: decodeRows doesn't need 40. */
+function bytesOf(...parts: readonly (number | string)[]): number[] {
+  return parts.flatMap((part) => (typeof part === 'number' ? [part] : Array.from({ length: part.length }, (_, i) => part.charCodeAt(i))));
+}
+
+describe('flash (&88, set-after) and steady (&89, set-at)', () => {
+  test('&88 marks the cells after it as flashing, but not its own cell', () => {
+    const cells = row(0x88, 'AB', 0x89, 'C');
+    expect(cells.map((c) => c.flash)).toEqual([false, true, true, false, false]);
+    expect(cells.map((c) => c.kind)).toEqual(['blank', 'letter', 'letter', 'blank', 'letter']);
+  });
+
+  test('mosaics flash too', () => {
+    const cells = row(0x92, 0x88, 0xff);
+    expect(cells[2]).toMatchObject({ kind: 'mosaic', flash: true });
+  });
+
+  test('a held mosaic in a control cell flashes along with the rest', () => {
+    const cells = row(0x92, 0x88, 0x9e, 0xff, 0x80);
+    expect(cells[4]).toMatchObject({ kind: 'mosaic', flash: true });
+  });
+
+  test('a colour change does not stop the flash', () => {
+    expect(row(0x88, 'A', 0x81, 'B')[3]?.flash).toBe(true);
+  });
+
+  test('the flash phase: shown for 48 fields, hidden for 16, then round again', () => {
+    expect(teletextFlashVisible(0)).toBe(true);
+    expect(teletextFlashVisible(47)).toBe(true);
+    expect(teletextFlashVisible(48)).toBe(false);
+    expect(teletextFlashVisible(63)).toBe(false);
+    expect(teletextFlashVisible(64)).toBe(true);
+    const shown = Array.from({ length: 64 }, (_, field) => teletextFlashVisible(field)).filter(Boolean).length;
+    expect(shown).toBe(48); // 3:1 on to off
+  });
+});
+
+describe('conceal (&98, set-at)', () => {
+  test('hides letters from its own cell on, keeping the background', () => {
+    const cells = row(0x81, 0x9d, 0x87, 'A', 0x98, 'BC');
+    expect(summary(cells)).toEqual(['7/0 blank', '1/1 blank', '1/1 blank', '7/1 letter', '7/1 blank', '7/1 blank', '7/1 blank']);
+  });
+
+  test('an alpha colour code ends it, from the cell after the code (set-after)', () => {
+    expect(row(0x98, 'A', 0x83, 'B').map((c) => c.kind)).toEqual(['blank', 'blank', 'blank', 'letter']);
+  });
+
+  test('a graphics colour code ends it too', () => {
+    expect(row(0x91, 0x98, 0xff, 0x92, 0xff).map((c) => c.kind)).toEqual(['blank', 'blank', 'blank', 'blank', 'mosaic']);
+  });
+
+  test('a concealed mosaic still becomes the held mosaic: concealing hides it, it is still drawn into the state', () => {
+    const cells = row(0x91, 0x9e, 0x98, 0xe1, 0x92, 0x80);
+    expect(cells[3]?.kind).toBe('blank');
+    expect(cells[5]).toMatchObject({ kind: 'mosaic', code: 0x61 });
+  });
+});
+
+describe('double height (&8D, set-after) and normal height (&8C, set-at)', () => {
+  test('&8D makes the cells after it the top halves of double-height characters', () => {
+    const cells = row('A', 0x8d, 'B', 0x8c, 'C');
+    expect(cells.map((c) => c.height)).toEqual(['normal', 'normal', 'top', 'normal', 'normal']);
+  });
+
+  test('mosaics are double height too', () => {
+    expect(row(0x97, 0x8d, 0xff)[2]).toMatchObject({ kind: 'mosaic', height: 'top' });
+  });
+
+  test('a change of height clears the held mosaic (ETS 300 706 §12.2)', () => {
+    // &8D is set-after, so its own cell still holds the normal-height block; the &92 after it shows a space.
+    const cells = row(0x91, 0x9e, 0xff, 0x8d, 0x92, 0xff);
+    expect(cells.map((c) => c.kind)).toEqual(['blank', 'blank', 'mosaic', 'mosaic', 'blank', 'mosaic']);
+    expect(cells[3]?.height).toBe('normal');
+  });
+
+  test('so does going back to normal height', () => {
+    const cells = row(0x91, 0x8d, 0x9e, 0xff, 0x8c);
+    expect(cells[4]?.kind).toBe('blank');
+  });
+
+  test('&8D in a row that is already double height changes nothing', () => {
+    expect(row(0x91, 0x8d, 0x9e, 0xff, 0x8d)[4]?.kind).toBe('mosaic');
+  });
+});
+
+describe('row pairs: the row after a double-height row is a bottom row', () => {
+  test('a bottom row draws the bottom halves of its own double-height characters', () => {
+    const [top, bottom] = decodeRows([bytesOf(0x8d, 'Hi'), bytesOf(0x8d, 'Hi')]);
+    expect(top.map((c) => c.height)).toEqual(['normal', 'top', 'top']);
+    expect(bottom.map((c) => c.height)).toEqual(['normal', 'bottom', 'bottom']);
+    expect(bottom.map((c) => c.kind)).toEqual(['blank', 'letter', 'letter']);
+  });
+
+  test('the bottom row draws its own bytes: a different word gives a mismatched pair', () => {
+    const [, bottom] = decodeRows([bytesOf(0x8d, 'Hi'), bytesOf(0x8d, 'Yo')]);
+    expect(bottom[1]?.code).toBe(0x59);
+  });
+
+  test('normal-height characters on a bottom row are not drawn, but their background is', () => {
+    const [, bottom] = decodeRows([bytesOf(0x8d, 'X'), bytesOf(0x81, 0x9d, 'A', 0x8d, 'B')]);
+    expect(summary(bottom)).toEqual(['7/0 blank', '1/1 blank', '1/1 blank', '1/1 blank', '1/1 letter']);
+  });
+
+  test('mosaics follow the same rule', () => {
+    const [, bottom] = decodeRows([bytesOf(0x8d), bytesOf(0x97, 0xff, 0x8d, 0xff)]);
+    expect(bottom.map((c) => c.kind)).toEqual(['blank', 'blank', 'blank', 'mosaic']); // the normal-height &FF is hidden; the &8D cell is a space
+  });
+
+  test('a bottom row never makes the next row a bottom row, even with &8D in it', () => {
+    const rows = decodeRows([bytesOf(0x8d, 'A'), bytesOf(0x8d, 'A'), bytesOf(0x8d, 'B'), bytesOf(0x8d, 'B')]);
+    expect(rows.map((cells) => cells[1]?.height)).toEqual(['top', 'bottom', 'top', 'bottom']);
+  });
+
+  test('without an &8D, the next row is a normal row', () => {
+    const rows = decodeRows([bytesOf('A'), bytesOf('B'), bytesOf(0x8d, 'C'), bytesOf('D'), bytesOf('E')]);
+    expect(rows.map((cells) => cells.find((c) => c.kind === 'letter')?.height ?? 'none')).toEqual(['normal', 'normal', 'top', 'none', 'normal']);
+  });
+
+  test('an &8D at the very end of a row still counts', () => {
+    const [, bottom] = decodeRows([bytesOf('A', 0x8d), bytesOf('B')]);
+    expect(bottom[0]?.kind).toBe('blank');
+  });
+
+  test('a fresh state is the top of a page: nothing is a bottom row', () => {
+    const state = createTeletextState();
+    const cell = createTeletextCell();
+    decodeCell(state, 0x8d, cell);
+    const fresh = createTeletextState();
+    expect(fresh.bottomRow).toBe(false);
+    startRow(state);
+    expect(state.bottomRow).toBe(true);
+  });
+});
+
+describe('codes with no effect on a BBC', () => {
   test.each([
-    ['flash', 0x88],
-    ['steady', 0x89],
-    ['normal height', 0x8c],
-    ['double height', 0x8d],
-    ['conceal', 0x98],
-  ])('%s (&%s) is a blank cell', (_name, code) => {
+    ['NUL', 0x80],
+    ['end box', 0x8a],
+    ['start box', 0x8b],
+    ['SO', 0x8e],
+    ['SI', 0x8f],
+    ['DLE', 0x90],
+    ['ESC', 0x9b],
+  ])('%s (&%s) is a blank cell and changes nothing', (_name, code) => {
     expect(summary(row(0x81, code, 'A'))).toEqual(['7/0 blank', '1/0 blank', '1/0 letter']);
+    expect(row(0x81, code, 'A')[2]).toMatchObject({ height: 'normal', flash: false });
   });
 });
 

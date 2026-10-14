@@ -20,7 +20,8 @@ import { createRunControls } from './web/run-controls';
 import { createScreenCanvas } from './web/screen-canvas';
 import { createTextScreen } from './web/text-screen';
 import { mode7CellAddress, mode7StartAddress } from './video/mode7-text';
-import { teletextTestPage } from './video/teletext-test-page';
+import { TEST_PAGE_COUNT, teletextTestPage } from './video/teletext-test-page';
+import { teletextFlashVisible } from './video/teletext-attributes';
 import type { ListingLine } from './playground/listing';
 import { EXAMPLES, findExample } from './playground/examples';
 import { PROGRAM_PAGE, installProgram, pokeWriter } from './playground/setup';
@@ -87,9 +88,12 @@ const screenCanvas = createScreenCanvas(screenElement);
 const textScreen = createTextScreen();
 screenFrame.append(textScreen.element);
 const peekScreen = (address: number): number => machine.peek(address);
+// The SAA5050 times its own flash by counting fields (Stage 33), so the
+// phase comes from the vsyncs so far: paused, it stops blinking. (In the
+// playground the fake vsync is off, so flashing text stays shown.)
 const drawScreen = (): void => {
   const start = mode7StartAddress(machine.crtc.register(12), machine.crtc.register(13));
-  screenCanvas.draw(peekScreen, start);
+  screenCanvas.draw(peekScreen, start, teletextFlashVisible(machine.vsync.pulses));
   textScreen.draw(peekScreen, start);
 };
 
@@ -150,18 +154,22 @@ function run(): void {
 }
 
 /**
- * Stage 32's test page: pauses, then pokes the 1,000 bytes into screen
- * memory from wherever the screen starts now (after a scroll that isn't
- * &7C00), so it fills the screen top to bottom.
+ * The teletext test pages (Stages 32 and 33): pokes a page's 1,000 bytes
+ * into screen memory from wherever the screen starts now (after a scroll
+ * that isn't &7C00), so it fills the screen top to bottom. With no page,
+ * the next one in turn. It doesn't pause (Stage 33): the flash needs the
+ * machine running, and the MOS only redraws what it prints.
  */
-function showTestPage(): void {
-  if (loop.running) pause();
+let testPageShown = 0;
+function showTestPage(page = (testPageShown % TEST_PAGE_COUNT) + 1): void {
+  const bytes = teletextTestPage(page);
+  testPageShown = page;
   const start = mode7StartAddress(machine.crtc.register(12), machine.crtc.register(13));
-  teletextTestPage().forEach((byte, cell) => {
+  bytes.forEach((byte, cell) => {
     machine.poke(mode7CellAddress(start, cell), byte);
   });
   refreshAll();
-  controls.say('Paused, showing the teletext test page. Run carries on (the MOS only redraws what it prints).');
+  if (!loop.running) controls.say(`Showing teletext test page ${String(page)} of ${String(TEST_PAGE_COUNT)}. Run to see it flash.`);
 }
 
 const controls = createRunControls({

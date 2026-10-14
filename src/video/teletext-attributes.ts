@@ -15,11 +15,15 @@
 // sheet doesn't say.
 //
 // Every row starts from Table 1's "presumed" codes (marked **): white text
-// on black, contiguous, released. The chip's LOSE input resets it before
-// every TV line (data sheet, pin 26).
+// on black, contiguous, released, steady, normal height. The chip's LOSE
+// input resets it before every TV line (data sheet, pin 26).
 //
-// Not built yet (Stage 33): flash, steady, double/normal height, conceal.
-// They're recognised (named below) and drawn blank, and change nothing.
+// Stage 33 adds flash, conceal and double height, and the one thing that
+// carries from row to row: a row with a Double Height code makes the next
+// row a "bottom row", which draws the bottom halves of its *own*
+// double-height characters and hides its normal-height ones. (The SAA5050
+// can't see the row above, so on a BBC double-height text is printed twice.)
+// So a screen must be decoded top to bottom with one state.
 
 import { teletextCharacter } from './saa5050-font';
 
@@ -72,7 +76,14 @@ const BLACK = 0;
 /** What a cleared held-mosaic register holds: a graphics space. */
 const SPACE = 0x20;
 
-/** The row's attributes so far. One per renderer, reset by startRow. */
+/** Which part of a character a cell draws: all of it, or the top or bottom half of a double-height one. */
+export type TeletextHeight = 'normal' | 'top' | 'bottom';
+
+/** The flash cycle, in fields (vsyncs): shown for 48, hidden for 16. 3:1 is our reading of the data sheet; the 64 is our assumption. */
+const FLASH_CYCLE_FIELDS = 64;
+const FLASH_ON_FIELDS = 48;
+
+/** The row's attributes so far, and whether this row is a bottom row. One per renderer: startRow moves it on to the next row. */
 export interface TeletextState {
   /** Colour number 1-7 of lit dots (there's no black foreground on the SAA5050). */
   foreground: number;
@@ -87,6 +98,16 @@ export interface TeletextState {
   heldCode: number;
   /** Whether heldCode was drawn separated. */
   heldSeparated: boolean;
+  /** After Flash (&88), until Steady (&89). */
+  flash: boolean;
+  /** After Conceal (&98), until a colour code. */
+  conceal: boolean;
+  /** After Double Height (&8D), until Normal Height (&8C). */
+  doubleHeight: boolean;
+  /** This row has had a Double Height code: the next row is a bottom row (unless this one is). */
+  doubleHeightSeen: boolean;
+  /** This row draws the bottom halves of double-height characters, and hides normal-height ones. */
+  bottomRow: boolean;
 }
 
 export type TeletextCellKind = 'blank' | 'letter' | 'mosaic';
@@ -100,20 +121,45 @@ export interface TeletextCell {
   background: number;
   /** For a mosaic: draw it with gaps. */
   separated: boolean;
+  /** All of the character, or the top or bottom half stretched over the cell. */
+  height: TeletextHeight;
+  /** Blinks: the renderer draws it as a space in the flash's off phase. */
+  flash: boolean;
 }
 
 export function createTeletextState(): TeletextState {
-  const state: TeletextState = { foreground: WHITE, background: BLACK, graphics: false, separated: false, hold: false, heldCode: SPACE, heldSeparated: false };
+  const state: TeletextState = {
+    foreground: WHITE,
+    background: BLACK,
+    graphics: false,
+    separated: false,
+    hold: false,
+    heldCode: SPACE,
+    heldSeparated: false,
+    flash: false,
+    conceal: false,
+    doubleHeight: false,
+    doubleHeightSeen: false,
+    bottomRow: false,
+  };
   startRow(state);
   return state;
 }
 
 export function createTeletextCell(): TeletextCell {
-  return { kind: 'blank', code: SPACE, foreground: WHITE, background: BLACK, separated: false };
+  return { kind: 'blank', code: SPACE, foreground: WHITE, background: BLACK, separated: false, height: 'normal', flash: false };
 }
 
-/** Table 1's codes "presumed before each row begins": Alpha White, Contiguous, Black Background, Release (and Steady, Normal Height: Stage 33). */
+/**
+ * Moves on to the next row: works out whether it's a bottom row (the row
+ * just finished had a Double Height code and wasn't a bottom row itself),
+ * then resets Table 1's codes "presumed before each row begins": Alpha
+ * White, Steady, Normal Height, Contiguous, Black Background, Release. A
+ * fresh state is the top of a page.
+ */
 export function startRow(state: TeletextState): void {
+  state.bottomRow = state.doubleHeightSeen && !state.bottomRow;
+  state.doubleHeightSeen = false;
   state.foreground = WHITE;
   state.background = BLACK;
   state.graphics = false;
@@ -121,15 +167,32 @@ export function startRow(state: TeletextState): void {
   state.hold = false;
   state.heldCode = SPACE;
   state.heldSeparated = false;
+  state.flash = false;
+  state.conceal = false;
+  state.doubleHeight = false;
+}
+
+/** Whether flashing cells are drawn, fields (vsyncs) after power-on: the SAA5050 times the flash itself. */
+export function teletextFlashVisible(fields: number): boolean {
+  return fields % FLASH_CYCLE_FIELDS < FLASH_ON_FIELDS;
+}
+
+/** Clears the held mosaic to a space. */
+function clearHeld(state: TeletextState): void {
+  state.heldCode = SPACE;
+  state.heldSeparated = false;
 }
 
 /** Switches between text and graphics. A real change clears the held mosaic. */
 function setGraphics(state: TeletextState, graphics: boolean): void {
-  if (state.graphics !== graphics) {
-    state.heldCode = SPACE;
-    state.heldSeparated = false;
-  }
+  if (state.graphics !== graphics) clearHeld(state);
   state.graphics = graphics;
+}
+
+/** Switches between normal and double height. A real change clears the held mosaic too (ETS 300 706 §12.2). */
+function setDoubleHeight(state: TeletextState, double: boolean): void {
+  if (state.doubleHeight !== double) clearHeld(state);
+  state.doubleHeight = double;
 }
 
 /**
@@ -157,11 +220,22 @@ export function decodeCell(state: TeletextState, byte: number, cell: TeletextCel
     case TELETEXT.HOLD_GRAPHICS:
       state.hold = true;
       break;
+    case TELETEXT.STEADY:
+      state.flash = false;
+      break;
+    case TELETEXT.NORMAL_HEIGHT:
+      setDoubleHeight(state, false);
+      break;
+    case TELETEXT.CONCEAL_DISPLAY:
+      state.conceal = true;
+      break;
   }
 
   // 2. What this cell shows, from the state as it is now.
   cell.foreground = state.foreground;
   cell.background = state.background;
+  cell.height = state.doubleHeight ? (state.bottomRow ? 'bottom' : 'top') : 'normal';
+  cell.flash = state.flash;
   if (code < FIRST_PRINTABLE) {
     // A control code is a space, unless holding: then it repeats the held
     // mosaic. A held &20 (nothing held yet) lights nothing, so it's blank too.
@@ -181,26 +255,48 @@ export function decodeCell(state: TeletextState, byte: number, cell: TeletextCel
     cell.code = code;
     cell.separated = false;
   }
+  // Hidden, though it still counted (a concealed mosaic is still held):
+  // concealed, or normal height on a bottom row.
+  if (cell.kind !== 'blank' && (state.conceal || (state.bottomRow && !state.doubleHeight))) {
+    cell.kind = 'blank';
+    cell.code = SPACE;
+    cell.separated = false;
+  }
 
   // 3. Set-after: these take effect from the next cell.
   if (code >= TELETEXT.ALPHA_RED && code <= TELETEXT.ALPHA_WHITE) {
     state.foreground = code & COLOUR_MASK;
+    state.conceal = false;
     setGraphics(state, false);
   } else if (code >= TELETEXT.GRAPHICS_RED && code <= TELETEXT.GRAPHICS_WHITE) {
     state.foreground = code & COLOUR_MASK;
+    state.conceal = false;
     setGraphics(state, true);
   } else if (code === TELETEXT.RELEASE_GRAPHICS) {
     state.hold = false;
+  } else if (code === TELETEXT.FLASH) {
+    state.flash = true;
+  } else if (code === TELETEXT.DOUBLE_HEIGHT) {
+    setDoubleHeight(state, true);
+    state.doubleHeightSeen = true;
   }
 }
 
-/** Decodes a whole row of bytes into new cells. For tests and the CLI: the renderer reuses one cell instead. */
+/** Decodes a whole row of bytes into new cells, as the top row of a page. For tests and the CLI: the renderer reuses one cell instead. */
 export function decodeRow(bytes: readonly number[]): TeletextCell[] {
+  return decodeRows([bytes])[0] ?? [];
+}
+
+/** Decodes rows from the top of a page down, so double-height pairs work. For tests and the CLI. */
+export function decodeRows(rows: readonly (readonly number[])[]): TeletextCell[][] {
   const state = createTeletextState();
-  return bytes.map((byte) => {
-    const cell = createTeletextCell();
-    decodeCell(state, byte, cell);
-    return cell;
+  return rows.map((bytes) => {
+    startRow(state);
+    return bytes.map((byte) => {
+      const cell = createTeletextCell();
+      decodeCell(state, byte, cell);
+      return cell;
+    });
   });
 }
 
