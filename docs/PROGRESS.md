@@ -2,7 +2,7 @@
 
 Tracks where the build is up to. The `/start-stage` and `/finish-stage` skills keep this file up to date. For what each stage involves, see [`BUILD-PLAN.md`](./BUILD-PLAN.md).
 
-**Current stage:** 34 — Key matrix & PC mapping (not started)
+**Current stage:** 35 — Scanning & keyboard interrupts (not started)
 
 **Status values:**
 - `not started`
@@ -81,7 +81,7 @@ Tracks where the build is up to. The `/start-stage` and `/finish-stage` skills k
 
 | # | Stage | Status | Seen? | Branch | Doc | Notes |
 |---|---|---|---|---|---|---|
-| 34 | Key matrix & PC mapping | not started | | `stage/34-key-matrix` | [doc](./stages/34-key-matrix.md) | |
+| 34 | Key matrix & PC mapping | done | ✅ | `stage/34-key-matrix` | [doc](./stages/34-key-matrix.md) | `devices/keyboard.ts` replaces `KeyboardStub`: `BBC_KEYS` (**72** keys from the AUG, 35 checked against `INKEY` numbers), one byte per column (`Uint8Array(10)`, bit = row), links folded in as row 0, `onChange` → machine recomputes PA7 at once. `web/key-map.ts`: **by place** (`event.code`), UK PC layout (`'`→`:`, `#`→`]`, `` ` ``→`_`, End→COPY, F10→f0); `PcKeyTracker` counts both Shifts, releases only its own presses. `web/keyboard-input.ts`: screen-focus only, repeats ignored, blur/⌘ let go, `preventDefault` on mapped keys. Keyboard panel (first under the screen): desk view + 8 × 10 matrix, built once, sticky click (SHIFT LOCK). **Found: CTRL+BREAK already hard-resets** (`&028D` = 2) via `keyTest`; ROM test added. `e2e/keyboard.spec.ts` (7). |
 | 35 | Scanning & keyboard interrupts | not started | | `stage/35-keyboard-scanning` | [doc](./stages/35-keyboard-scanning.md) | |
 | 36 | Modifiers, BREAK & LEDs | not started | | `stage/36-modifiers-break-leds` | [doc](./stages/36-modifiers-break-leds.md) | |
 
@@ -212,3 +212,8 @@ Things to come back to: questions raised during a stage, known inaccuracies, ide
 - Which cell column/line the SAA5050 leaves blank for alphanumerics: we use column 0 (left) and line 0 (top), from the data sheet's 2.6 vs 2.767 µs graphics/alphanumeric delay (one 6 MHz dot) and Fig. 10's drawing. Not stated in words; check when mosaics sit next to letters (Stage 32). (Stage 31)
 - MODE 7 is shown 480 × 500 stretched to 5:4. Real horizontal/vertical position and size of MODE 7 within the TV picture vs the bitmap modes is for the 6845 stages (37-39). (Stage 31)
 - Whole-screen redraw every BBC frame (≈1.3 ms in Chromium). Fine for now; dirty-cell tracking is possible but flash (Stage 33) changes cells without memory changing. (Stage 31)
+- Keyboard ghosting (three keys at a rectangle's corners making the fourth read as down) isn't modelled: does the Model B keyboard have diodes? Unchecked. (Stage 34)
+- Symbolic key mapping (type `"` on any PC layout and get BBC SHIFT+2) as an option beside the positional one. Friendlier for typing, but it has to fake/unfake SHIFT. Idea only. (Stage 34)
+- A PC key-up releases a BBC key even if it was clicked down in the panel too (the tracker only knows its own presses). Rare, harmless. (Stage 34)
+- The desk view's key order (`← →` ending the number row, `↑ ↓` after `_`, `DELETE COPY` after right SHIFT) is from memory of the Model B, not a measured photo. The matrix positions don't depend on it. (Stage 34)
+- Keys pressed from the console (`workbench.keyboard.press(0x41)`) light the panel only at the next panel refresh. (Stage 34)

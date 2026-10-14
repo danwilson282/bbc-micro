@@ -10,12 +10,15 @@
 //
 // Either way, MODE 7's screen memory is drawn on the canvas as SAA5050
 // teletext dots (Stage 31), with its text in a transparent layer on top.
+// Click the screen and PC keys close the BBC's key switches (Stage 34).
 
 import { BbcModelB } from './machine/bbc-model-b';
 import { MOS_LABELS } from './mos/mos-labels';
 import { Doorbell } from './playground/doorbell';
 import { fetchStandardRoms } from './web/rom-fetch';
 import { createFrameLoop } from './web/frame-loop';
+import { PcKeyTracker } from './web/key-map';
+import { attachKeyboardInput } from './web/keyboard-input';
 import { createRunControls } from './web/run-controls';
 import { createScreenCanvas } from './web/screen-canvas';
 import { createTextScreen } from './web/text-screen';
@@ -33,6 +36,7 @@ import { createConverterPanel } from './web/workbench/converter-panel';
 import { createDisassemblyPanel } from './web/workbench/disassembly-panel';
 import { labelsFromSymbols } from './web/workbench/disassembly-view-model';
 import { createInterruptsPanel } from './web/workbench/interrupts-panel';
+import { createKeyboardPanel } from './web/workbench/keyboard-panel';
 import { machineTarget } from './web/workbench/debug-target';
 import { createListingPanel } from './web/workbench/listing-panel';
 import { createMemoryMapPanel } from './web/workbench/memory-map-panel';
@@ -101,6 +105,27 @@ const refreshAll = (): void => {
   workbench.refreshAll();
   drawScreen();
 };
+
+// ── The keyboard (Stage 34) ──────────────────────────────────────────────
+//
+// The screen takes focus (click it), and while it has it, PC keys close
+// BBC key switches by position (key-map.ts). The Keyboard panel lights
+// them at once, not at the next 10 Hz refresh. Until Stage 35 the MOS
+// doesn't scan the keyboard, so BASIC doesn't see the keys yet.
+screenFrame.tabIndex = 0;
+screenFrame.setAttribute('aria-label', 'BBC Micro screen: click to type on the BBC keyboard');
+const typing = (): boolean => document.activeElement === screenFrame;
+const keyboardPanel = createKeyboardPanel(machine.keyboard, {
+  onChange: () => {
+    keyboardPanel.refresh();
+  },
+  typing,
+});
+const pcKeys = new PcKeyTracker(machine.keyboard);
+attachKeyboardInput(screenFrame, pcKeys, () => {
+  screenFrame.classList.toggle('typing', typing());
+  keyboardPanel.refresh();
+});
 
 // ── The frame loop (Stage 30): MOS mode runs in real time ────────────────
 //
@@ -255,6 +280,7 @@ const assembler = createAssemblerPanel({
     refreshAll();
   },
 });
+workbench.add(keyboardPanel, underScreen);
 workbench.add(registers, underScreen);
 workbench.add(createInterruptsPanel(target, { onChange: refreshAll }), underScreen);
 workbench.add(createStackPanel(target), underScreen);
@@ -341,6 +367,7 @@ Object.assign(window, {
     },
     systemVia,
     userVia,
+    keyboard: machine.keyboard,
     trace: (count = 20): string => [TRACE_HEADER, ...target.trace.recent(count).map((entry) => formatTraceLine(entry, labels))].join('\n'),
     irq: (): void => {
       target.ringIrq();
@@ -350,6 +377,6 @@ Object.assign(window, {
       target.pulseNmi();
       refreshAll();
     },
-    help: `workbench.testPage(), workbench.pause(), workbench.run(), workbench.loop.speed, workbench.machine.runFrame(), workbench.powerOn(), workbench.poke(0x${hex16(PROGRAM_PAGE + 1)}, 0xff), workbench.step(), workbench.peek(addr), workbench.goTo(addr), workbench.trace(20), workbench.map.ioLog.recent(), workbench.userVia.pins('b'), workbench.systemVia.setControlLine('ca1', 0), workbench.irq(), workbench.nmi(), workbench.cpu.regs`,
+    help: `workbench.testPage(), workbench.keyboard.press(0x41), workbench.pause(), workbench.run(), workbench.loop.speed, workbench.machine.runFrame(), workbench.powerOn(), workbench.poke(0x${hex16(PROGRAM_PAGE + 1)}, 0xff), workbench.step(), workbench.peek(addr), workbench.goTo(addr), workbench.trace(20), workbench.map.ioLog.recent(), workbench.userVia.pins('b'), workbench.systemVia.setControlLine('ca1', 0), workbench.irq(), workbench.nmi(), workbench.cpu.regs`,
   },
 });

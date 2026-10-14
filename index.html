@@ -747,6 +747,85 @@
         margin: 0 0 4px;
         font-size: 0.8rem;
       }
+      /* Keyboard panel (Stage 34): the desk view and the matrix view. */
+      .screen-frame:focus {
+        outline: none;
+      }
+      .screen-frame:focus-visible,
+      .screen-frame.typing {
+        outline: 3px solid var(--flag-on);
+        outline-offset: 2px;
+      }
+      .keyboard-status {
+        margin: 0 0 8px;
+        font-size: 0.85rem;
+        color: var(--muted);
+      }
+      .keyboard-status .active {
+        color: var(--flag-on);
+        font-weight: 600;
+      }
+      .bbc-keyboard {
+        display: flex;
+        flex-direction: column;
+        gap: 3px;
+        margin: 0 0 10px;
+      }
+      .bbc-key-row {
+        display: flex;
+        gap: 3px;
+      }
+      .bbc-key {
+        flex-basis: 0;
+        min-width: 0;
+        padding: 2px 0;
+        font-size: 0.6rem;
+        line-height: 1.15;
+        overflow: hidden;
+        overflow-wrap: anywhere;
+        border: 1px solid var(--border);
+        border-radius: 3px;
+        background: var(--panel);
+        color: var(--fg);
+        cursor: pointer;
+      }
+      .bbc-key .shifted {
+        color: var(--muted);
+      }
+      .bbc-key.not-in-matrix {
+        border-style: dashed;
+        cursor: not-allowed;
+        color: var(--muted);
+      }
+      .bbc-key.down,
+      .key-matrix td.down {
+        background: var(--flag-on);
+        border-color: var(--flag-on);
+        color: var(--flag-on-fg);
+      }
+      .bbc-key.down .shifted {
+        color: inherit;
+      }
+      .key-matrix {
+        border-collapse: collapse;
+        font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+        font-size: 0.7rem;
+      }
+      .key-matrix th {
+        color: var(--muted);
+        font-weight: normal;
+        padding: 1px 4px;
+      }
+      .key-matrix td {
+        border: 1px solid var(--border);
+        text-align: center;
+        min-width: 2.6em;
+        padding: 2px 3px;
+      }
+      .key-matrix td.link {
+        border-style: dashed;
+        color: var(--muted);
+      }
       /* VIA panel (Stage 24). */
       .via-picker {
         display: flex;
