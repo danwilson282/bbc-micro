@@ -270,7 +270,7 @@ describe('BbcModelB: the System VIA\'s pins, the IC32 latch and the keyboard (St
     expect(m.map.read(0xfe4f)).toBe(0x08);
   });
 
-  it('no real key is down: SHIFT (&00) and CTRL (&01) read with PA7 low, where Stage 27 read them "down"', () => {
+  it('with no key pressed, SHIFT (&00) and CTRL (&01) read with PA7 low, where Stage 27 read them "down"', () => {
     const m = machineWith(JMP_LOOP);
     m.map.write(0xfe42, 0x0f);
     m.map.write(0xfe40, 0x03);
@@ -279,6 +279,31 @@ describe('BbcModelB: the System VIA\'s pins, the IC32 latch and the keyboard (St
     expect(m.map.read(0xfe4f)).toBe(0x00);
     m.map.write(0xfe4f, 0x01);
     expect(m.map.read(0xfe4f)).toBe(0x01);
+  });
+
+  it('a pressed key answers on PA7 (Stage 34): with A held and autoscan off, key &41 reads &C1 and Q (&10) reads &10', () => {
+    const m = machineWith(JMP_LOOP);
+    m.keyboard.press(0x41);
+    m.map.write(0xfe42, 0x0f);
+    m.map.write(0xfe40, 0x03);
+    m.map.write(0xfe43, 0x7f);
+    m.map.write(0xfe4f, 0x41);
+    expect(m.map.read(0xfe4f)).toBe(0xc1);
+    m.map.write(0xfe4f, 0x10);
+    expect(m.map.read(0xfe4f)).toBe(0x10);
+  });
+
+  it('a key pressed while its number is already on port A is seen at once, with no new port write (Stage 34)', () => {
+    const m = machineWith(JMP_LOOP);
+    m.map.write(0xfe42, 0x0f);
+    m.map.write(0xfe40, 0x03);
+    m.map.write(0xfe43, 0x7f);
+    m.map.write(0xfe4f, 0x41);
+    expect(m.map.read(0xfe4f)).toBe(0x41);
+    m.keyboard.press(0x41);
+    expect(m.map.read(0xfe4f)).toBe(0xc1);
+    m.keyboard.release(0x41);
+    expect(m.map.read(0xfe4f)).toBe(0x41);
   });
 
   it('with autoscan on (&0B: latch bit 3 = 1) the keyboard isn\'t answering the CPU: even a closed link reads PA7 low', () => {
@@ -342,7 +367,7 @@ describe('BbcModelB: with MOS 1.20', () => {
     expect([m.peek(SYSTEM_VIA_IER), m.peek(0xfe4b), m.peek(0xfe4c)]).toEqual([0xf3, 0x60, 0x04]);
   });
 
-  withRoms('roms/os12.rom')('reads the keyboard links into &028F: all open (the stub\'s default) is &FF, so MODE 7', () => {
+  withRoms('roms/os12.rom')('reads the keyboard links into &028F: all open (the default) is &FF, so MODE 7', () => {
     const m = booted(40);
     expect(m.peek(0x028f)).toBe(0xff);
     expect(m.peek(0x0355)).toBe(7); // the current MODE
@@ -386,6 +411,14 @@ describe('BbcModelB: with MOS 1.20', () => {
     m.reset();
     for (let i = 0; i < 25; i++) m.runFrame();
     expect(m.peek(0x028d)).toBe(0); // soft BREAK (Stage 27, with PA7 floating, saw 2: CTRL+BREAK)
+  });
+
+  withRoms('roms/os12.rom')('with CTRL (&01) held in the key matrix, BREAK is a hard reset: the MOS\'s keyTest finds it (Stage 34)', () => {
+    const m = booted(25);
+    m.keyboard.press(0x01);
+    m.reset();
+    for (let i = 0; i < 25; i++) m.runFrame();
+    expect(m.peek(0x028d)).toBe(2); // CTRL+BREAK
   });
 
   withRoms('roms/os12.rom', 'roms/basic2.rom')('boots to the BASIC prompt: "BBC Computer 32K", "BASIC" and ">" in MODE 7 screen memory at &7C00', () => {

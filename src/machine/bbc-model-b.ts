@@ -19,11 +19,11 @@
 //
 // Stage 28 plugs in the parts the MOS talks to while it starts up, built
 // just well enough: the IC32 latch on the System VIA's PB0-PB3, a keyboard
-// stub on its port A, and storage stubs for the CRTC and Video ULA. They
+// on its port A (a stub then; the real matrix since Stage 34), and storage stubs for the CRTC and Video ULA. They
 // report what they're told to the hardware log, by name.
 //
 //   System VIA PB0-PB3 ──▶ IC32 latch ──▶ bit 3: keyboard enable ─┐
-//   System VIA PA0-PA6 ──▶ keyboard stub ◀────────────────────────┘
+//   System VIA PA0-PA6 ──▶ key matrix ◀───────────────────────────┘
 //                               └──▶ PA7: "that key is down"
 //
 // Stage 29 adds the last two the boot needs: an idle ACIA (so the MOS's
@@ -39,11 +39,11 @@ import { Tracer } from '../cpu/trace';
 import { AddressableLatch, LATCH_KEYBOARD_ENABLE } from '../devices/addressable-latch';
 import type { Clocked } from '../devices/clocked';
 import { HardwareLog, type CycleClock } from '../devices/hardware-log';
+import { Keyboard } from '../devices/keyboard';
 import type { IrqSource } from '../devices/irq-source';
 import { AciaStub } from '../devices/stubs/acia-stub';
 import { FakeVsync } from '../devices/stubs/fake-vsync';
 import { CrtcStub } from '../devices/stubs/crtc-stub';
-import { KeyboardStub } from '../devices/stubs/keyboard-stub';
 import { VideoUlaStub } from '../devices/stubs/video-ula-stub';
 import { Via6522, type PinListener, type ViaPort } from '../devices/via6522';
 import { BbcMemoryMap } from '../memory/bbc-memory-map';
@@ -82,8 +82,9 @@ export class BbcModelB implements PinListener, DataBus, CycleClock {
   readonly hardwareLog: HardwareLog;
   /** IC32, on the System VIA's PB0-PB3. */
   readonly latch: AddressableLatch;
-  /** Stubs until their stages: the keyboard (Part 7), CRTC (Stage 37), Video ULA (Stage 40). */
-  readonly keyboard = new KeyboardStub();
+  /** The key matrix (Stage 34). A press or release recomputes PA7 at once. */
+  readonly keyboard: Keyboard;
+  /** Stubs until their stages: CRTC (Stage 37), Video ULA (Stage 40). */
   readonly crtc: CrtcStub;
   /** Always idle: serial and cassette are out of scope. The MOS asks it first on every IRQ (Stage 29). */
   readonly acia = new AciaStub();
@@ -115,6 +116,9 @@ export class BbcModelB implements PinListener, DataBus, CycleClock {
     this.latch = new AddressableLatch(this.hardwareLog);
     this.crtc = new CrtcStub(this.hardwareLog);
     this.videoUla = new VideoUlaStub(this, this.hardwareLog);
+    this.keyboard = new Keyboard(undefined, () => {
+      this.answerKeyboard();
+    });
     this.map = new BbcMemoryMap({
       devices: { acia: this.acia, systemVia: this.systemVia, userVia: this.userVia, crtc: this.crtc, videoUla: this.videoUla },
     });
