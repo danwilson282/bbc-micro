@@ -1,11 +1,14 @@
 // MODE 7's screen memory as a live 40 × 25 grid of text, laid over the
 // canvas. Since Stage 31 the canvas shows the real dots and this grid is
 // transparent: it's the screen's text for screen readers, Playwright and
-// copy-paste. It shows the SAA5050's characters (&23 as £).
+// copy-paste. It shows the SAA5050's characters (&23 as £), and since
+// Stage 32 graphics as Unicode block sextants (decoded like the dots, since
+// a control code changes the cells after it).
 //
 // One text node per row, built once. draw() runs after every BBC frame (50 a
 // second), so it remembers the code each cell last showed and only rebuilds
-// a row when one of its 40 cells changed. At the > prompt that's no DOM
+// a row when one of its 40 cells changed. A rebuilt row is decoded from its
+// first cell, as the SAA5050 does. At the > prompt that's no DOM
 // writes at all. (A first version had a <span> per cell: 1,000 boxes to lay
 // out cost 9 ms whenever the whole screen changed. 25 lines of text cost
 // far less. The CSS also gives the grid `contain: strict`, so a change
@@ -15,15 +18,13 @@
 // hardware scrolling and wraps inside &7C00-&7FFF (see mode7-text.ts).
 
 import { MODE7_COLUMNS, MODE7_ROWS, mode7CellAddress } from '../video/mode7-text';
-import { teletextCharacter } from '../video/saa5050-font';
+import { createTeletextCell, createTeletextState, decodeCell, startRow, teletextCellText } from '../video/teletext-attributes';
 
 const CELLS = MODE7_COLUMNS * MODE7_ROWS;
 /** The SAA5050 sees 7 bits (bit 7 isn't wired). */
 const CODE_MASK = 0x7f;
 /** Not a 7-bit code, so the first draw writes every row. */
 const NOTHING_SHOWN = 0xff;
-/** What each of the 128 codes shows, made once. */
-const CHARACTERS: readonly string[] = Array.from({ length: 128 }, (_, code) => teletextCharacter(code));
 
 export interface TextScreen {
   readonly element: HTMLElement;
@@ -48,6 +49,8 @@ export function createTextScreen(): TextScreen {
   }
 
   const shown = new Uint8Array(CELLS).fill(NOTHING_SHOWN);
+  const state = createTeletextState();
+  const cell = createTeletextCell();
 
   return {
     element,
@@ -64,7 +67,11 @@ export function createTextScreen(): TextScreen {
         }
         if (!changed) continue;
         let text = '';
-        for (let i = first; i < first + MODE7_COLUMNS; i++) text += CHARACTERS[shown[i]];
+        startRow(state);
+        for (let i = first; i < first + MODE7_COLUMNS; i++) {
+          decodeCell(state, shown[i] ?? 0, cell);
+          text += teletextCellText(cell);
+        }
         rows[row].data = text;
       }
     },

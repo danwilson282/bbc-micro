@@ -57,6 +57,18 @@ describe('mode7Text: MODE 7 screen memory read as text', () => {
     expect(mode7Text((a) => mem[a] ?? 0)[0]?.slice(0, 3)).toBe('£#■');
   });
 
+  it('in graphics mode &7F is a full block of sixels, not the 5 × 7 block, and blast-through capitals stay letters (Stage 32)', () => {
+    const mem = memory();
+    mem[0x7c00] = 0x97; // graphics white
+    mem[0x7c01] = 0x7f;
+    mem[0x7c02] = 0x41;
+    mem[0x7c03] = 0x21; // top-left sixel
+    expect(mode7Text((a) => mem[a] ?? 0)[0]?.slice(0, 5)).toBe(' █A\u{1FB00}'); // 5: the sextant is 2 UTF-16 units
+    // Each row starts in text mode again.
+    mem[0x7c28] = 0x7f;
+    expect(mode7Text((a) => mem[a] ?? 0)[1]?.[0]).toBe('■');
+  });
+
   it('starts wherever it is told, and wraps inside &7C00-&7FFF: after the last byte comes &7C00', () => {
     const mem = memory();
     put(mem, 0x7db8, 'TOP');

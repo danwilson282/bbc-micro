@@ -2,7 +2,7 @@
 
 Tracks where the build is up to. The `/start-stage` and `/finish-stage` skills keep this file up to date. For what each stage involves, see [`BUILD-PLAN.md`](./BUILD-PLAN.md).
 
-**Current stage:** 32 — Teletext colours & graphics (not started)
+**Current stage:** 33 — Double height, flash & conceal (not started)
 
 **Status values:**
 - `not started`
@@ -74,7 +74,7 @@ Tracks where the build is up to. The `/start-stage` and `/finish-stage` skills k
 |---|---|---|---|---|---|---|
 | 30 | Browser run loop | done | ✅ | `stage/30-run-loop` | [doc](./stages/30-run-loop.md) | `src/web/frame-loop.ts`: pure `framesDue` accumulator (20 ms frames, remainder carried, elapsed clamped to 100 ms, ≤ 5 frames/callback), `createFrameLoop` over an injected `AnimationHost` (fake rAF in Jest), `SpeedMeter`. MOS mode runs itself on load: **50 frames/s (100%), display 60 Hz**. `run-controls.ts` (Pause/Run, Step frame, BREAK, Power on, status). `text-screen.ts`: 40 × 25 text over the canvas, one text node per row (per-cell spans measured 9 ms on a full-screen change), `contain: strict`. `mode7StartAddress`/`mode7CellAddress`: &7C00 + (MA AND &3FF), verified on the real MOS (30 LFs → &29B8 = &7DB8 = its &350/&351). Panels refresh at 10 Hz while running. Registers panel `onTakeControl` pauses the loop; its **Run now uses the accumulator too** (fixed a flaky `compare-branch` e2e that also failed on `main`). `?machine=mos&paused` waits at &D9CD. Playwright project `real-time` runs `e2e/boot.spec.ts` after the rest. Found: soft BREAK prints "BBC Computer" without "32K". |
 | 31 | Teletext font & canvas | done | ✅ | `stage/31-teletext-font` | [doc](./stages/31-teletext-font.md) | `video/saa5050-font.ts`: 96 glyphs as `#`/`.` pictures, **sampled by a throwaway script from a high-res render of the data sheet's Fig. 11** (every square clearly black or white) and spot-checked by eye; 25 symmetric glyphs mirror-tested. `glyphRow`, `glyphPicture`, `teletextCharacter` (12 English swaps: &23 £, &5F #, &7F ■...). `video/mode7-renderer.ts`: pure, 480 × 500 colour numbers (dot = 2 × 2, gap column 0 and gap line 0). `web/screen-canvas.ts`: one `ImageData` + 8-word palette (endianness checked), ≈1.3 ms/frame. Canvas 480 × 500 at 5:4, `pixelated`. Text grid kept but transparent (a11y, copy, e2e) and now shows `£`. `mode7DisplayCode` replaced by `teletextCharacter`. `demo:font`. `e2e/boot.spec.ts` reads canvas pixels. |
-| 32 | Teletext colours & graphics | not started | | `stage/32-teletext-colour-graphics` | [doc](./stages/32-teletext-colour-graphics.md) | |
+| 32 | Teletext colours & graphics | done | ✅ | `stage/32-teletext-colour-graphics` | [doc](./stages/32-teletext-colour-graphics.md) | `video/teletext-attributes.ts`: `TELETEXT` (all 32 codes, Table 1 names), `TeletextState` + `startRow` (Table 1's `**` defaults), `decodeCell` = **set-at → draw → set-after** (no pending flags), `mosaicLine` (Fig. 9 bits, bit 6 bottom-right; 3/4/3 lines; separated gaps on the **left and bottom** of each block, measured from Fig. 10), `teletextCellText` (mosaics as Unicode block sextants). Hold: last mosaic, cleared at row start and on text↔graphics, keeps its separated flag (ETS 300 706 rule; **unverified on a real SAA5050**). Renderer: one state + one cell per frame, background fills the gap column/line; median draw 1.1 ms. Text layer + `mode7Text` decode through the same machine. `teletext-test-page.ts` (`pageRow` checks 40 cells / 7-bit). **Test page** button (MOS mode) + `workbench.testPage()`. `demo:teletext` (ANSI preview + per-cell trace). `e2e/teletext.spec.ts` (playground, no ROMs). Stage 33 codes are blank and inert. Facts checked against the data sheet (Fig. 9, Fig. 10, Table 1, LOSE pin). |
 | 33 | Double height, flash & conceal | not started | | `stage/33-teletext-double-height-flash` | [doc](./stages/33-teletext-double-height-flash.md) | |
 
 ## Part 7: Keyboard
@@ -128,6 +128,8 @@ Pick from the menu in BUILD-PLAN.md §8 once Part 11 is done, and add a row here
 
 Things to come back to: questions raised during a stage, known inaccuracies, ideas.
 
+- Held mosaic + separated: we keep the separated flag it was drawn with (ETS 300 706). Check against a real SAA5050 / BBC if one is ever to hand; the data sheet is silent. (Stage 32)
+- Stage 33's hold reset on a change of height (normal ↔ double) still to add in `teletext-attributes.ts`. (Stage 32)
 - `typescript-eslint` supports TypeScript `<6.1.0`. Watch for this if TypeScript is upgraded.
 - ~~Side-effect-free `peek(address)` for debug views.~~ Done in Stage 21: `BbcMemoryMap.peek` and `IoDevice.peek`. (`hexdump` still uses `read()`, but only ever on a `TestBus`.) (Stage 02)
 - Workbench `refresh()` rebuilds the whole table. Measure it once it runs every frame (Stage 30), and switch to text-only updates if it's slow. (Stage 03)

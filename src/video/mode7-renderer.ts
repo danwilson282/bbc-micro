@@ -15,11 +15,15 @@
 //             same dots.
 // So a cell is 12 × 20 pixels and the screen is 40 × 12 = 480 by 25 × 20 = 500.
 //
-// Stage 31 draws white on black only. Control codes (&00-&1F once bit 7 is
-// dropped) are blank cells until Stage 32 gives them meaning.
+// Colours and mosaic graphics (Stage 32) come from the control codes along
+// each row: teletext-attributes.ts decodes each cell into a foreground, a
+// background, and a letter, a mosaic or a blank. Here we just draw it. A
+// letter fills dots 1-5 of lines 1-9; a mosaic fills the whole cell, which
+// is how blocks join up into pictures.
 
-import { GLYPH_COLUMNS, glyphRow } from './saa5050-font';
+import { glyphRow } from './saa5050-font';
 import { MODE7_COLUMNS, MODE7_ROWS, mode7CellAddress } from './mode7-text';
+import { type TeletextCell, createTeletextCell, createTeletextState, decodeCell, mosaicLine, startRow } from './teletext-attributes';
 
 /** The SAA5050's dots per character (TR6 6 MHz ÷ F1 1 MHz, data sheet timing table). */
 const DOTS_PER_CELL = 6;
@@ -47,25 +51,38 @@ export const COLOUR_WHITE = 7;
  * be reused frame after frame.
  */
 export function renderMode7(peek: (address: number) => number, start: number, pixels: Uint8Array): void {
+  // Made once per frame and reused for every cell: nothing is allocated per cell.
+  const state = createTeletextState();
+  const cell = createTeletextCell();
   for (let row = 0; row < MODE7_ROWS; row++) {
+    startRow(state);
     for (let column = 0; column < MODE7_COLUMNS; column++) {
-      const code = peek(mode7CellAddress(start, row * MODE7_COLUMNS + column));
-      drawCell(pixels, row * CELL_HEIGHT * MODE7_PIXEL_WIDTH + column * CELL_WIDTH, code);
+      decodeCell(state, peek(mode7CellAddress(start, row * MODE7_COLUMNS + column)), cell);
+      drawCell(pixels, row * CELL_HEIGHT * MODE7_PIXEL_WIDTH + column * CELL_WIDTH, cell);
     }
   }
 }
 
+/**
+ * The 6 dots (bit 5 = dot 0, the leftmost) that a decoded cell lights on
+ * one of its 10 lines.
+ */
+function cellLine(cell: TeletextCell, line: number): number {
+  if (cell.kind === 'mosaic') return mosaicLine(cell.code, cell.separated, line);
+  // A letter: line 0 is the gap, and matrix lines 0-8 are cell lines 1-9.
+  // glyphRow's 5 bits are dots 1-5, so dot 0 (bit 5), the gap, is never lit.
+  if (cell.kind === 'letter' && line > 0) return glyphRow(cell.code, line - 1);
+  return 0;
+}
+
 /** One 12 × 20 cell whose top-left pixel is at index origin. */
-function drawCell(pixels: Uint8Array, origin: number, code: number): void {
+function drawCell(pixels: Uint8Array, origin: number, cell: TeletextCell): void {
   for (let line = 0; line < LINES_PER_CELL; line++) {
-    // Line 0 is the gap; matrix lines 0-8 are cell lines 1-9. (glyphRow gives
-    // 0 for control codes, so they come out as background.)
-    const dots = line === 0 ? 0 : glyphRow(code, line - 1);
+    const dots = cellLine(cell, line);
     const lineStart = origin + line * PIXELS_PER_LINE * MODE7_PIXEL_WIDTH;
     for (let dot = 0; dot < DOTS_PER_CELL; dot++) {
-      // Dot 0 is the gap; dots 1-5 are the font's bits 4-0.
-      const lit = dot > 0 && (dots >> (GLYPH_COLUMNS - dot)) & 1;
-      const colour = lit ? COLOUR_WHITE : COLOUR_BLACK;
+      const lit = (dots >> (DOTS_PER_CELL - 1 - dot)) & 1;
+      const colour = lit ? cell.foreground : cell.background;
       const x = lineStart + dot * PIXELS_PER_DOT;
       for (let dy = 0; dy < PIXELS_PER_LINE; dy++) {
         const p = x + dy * MODE7_PIXEL_WIDTH;

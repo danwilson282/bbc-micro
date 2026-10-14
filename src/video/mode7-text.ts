@@ -9,6 +9,8 @@
 // flash...). Each takes a cell and shows as a space, so we show a space. The
 // SAA5050 ignores bit 7. The rest is shown as the character the SAA5050
 // draws, which is mostly ASCII but not quite (&23 is £): see saa5050-font.ts.
+// In graphics mode (Stage 32) a mosaic shows as a Unicode block sextant, so
+// each row goes through the same attribute decoder as the dots.
 //
 // Where the screen starts (Stage 30). When the MOS scrolls MODE 7 it doesn't
 // move the bytes: it moves the CRTC's start address (R12/R13) on by a row,
@@ -21,7 +23,7 @@
 // so &7C00 is &2800. 1,000 cells are shown; the wrap is every 1,024.
 
 import { hex16 } from '../util/bits';
-import { teletextCharacter } from './saa5050-font';
+import { createTeletextCell, createTeletextState, decodeCell, startRow, teletextCellText } from './teletext-attributes';
 
 /** Where MODE 7's screen starts on a 32K machine (AUG, MODE 7). */
 export const MODE7_SCREEN_START = 0x7c00;
@@ -46,10 +48,14 @@ export function mode7CellAddress(start: number, cell: number): number {
 /** The screen, as 25 strings of 40 characters. Reads with peek, so it has no side effects. */
 export function mode7Text(peek: (address: number) => number, start = MODE7_SCREEN_START): string[] {
   const rows: string[] = [];
+  const state = createTeletextState();
+  const cell = createTeletextCell();
   for (let row = 0; row < MODE7_ROWS; row++) {
+    startRow(state);
     let text = '';
     for (let column = 0; column < MODE7_COLUMNS; column++) {
-      text += teletextCharacter(peek(mode7CellAddress(start, row * MODE7_COLUMNS + column)));
+      decodeCell(state, peek(mode7CellAddress(start, row * MODE7_COLUMNS + column)), cell);
+      text += teletextCellText(cell);
     }
     rows.push(text);
   }
