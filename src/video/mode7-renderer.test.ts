@@ -30,6 +30,32 @@ function cellPicture(pixels: Uint8Array, row: number, column: number): string[] 
   return lines;
 }
 
+/** One cell's dots as colour numbers ('0'-'7'), checking each 2 × 2 square is one colour. */
+function cellColours(pixels: Uint8Array, row: number, column: number): string[] {
+  const lines: string[] = [];
+  for (let line = 0; line < 10; line++) {
+    let text = '';
+    for (let dot = 0; dot < 6; dot++) {
+      const x = column * 12 + dot * 2;
+      const y = row * 20 + line * 2;
+      const colour = pixel(pixels, x, y);
+      for (const [dx, dy] of [[1, 0], [0, 1], [1, 1]] as const) expect(pixel(pixels, x + dx, y + dy)).toBe(colour);
+      text += String(colour);
+    }
+    lines.push(text);
+  }
+  return lines;
+}
+
+/** Puts bytes and strings into screen memory from row, column. */
+function put(memory: Uint8Array, row: number, column: number, ...parts: readonly (number | string)[]): void {
+  let address = 0x7c00 + row * 40 + column;
+  for (const part of parts) {
+    if (typeof part === 'number') memory[address++] = part;
+    else for (const ch of part) memory[address++] = ch.charCodeAt(0);
+  }
+}
+
 describe('renderMode7: screen memory to SAA5050 dots', () => {
   test('the screen is 480 × 500 pixels: 40 cells of 12, 25 rows of 20', () => {
     expect(MODE7_PIXEL_WIDTH).toBe(40 * 12);
@@ -80,7 +106,7 @@ describe('renderMode7: screen memory to SAA5050 dots', () => {
     expect(render(b)).toEqual(render(a));
   });
 
-  test('control codes (&81 red, &0D) draw as blank cells until Stage 32', () => {
+  test('a control code is a blank cell in the background colour', () => {
     const memory = blankScreen();
     memory[0x7c00] = 0x81;
     memory[0x7c01] = 0x0d;
@@ -113,5 +139,82 @@ describe('renderMode7: screen memory to SAA5050 dots', () => {
     memory[0x7c00] = 0x20;
     renderMode7((address) => memory[address] ?? 0, MODE7_SCREEN_START, pixels);
     expect(pixels.every((p) => p === COLOUR_BLACK)).toBe(true);
+  });
+});
+
+describe('renderMode7: colours and graphics (Stage 32)', () => {
+  test('&81 A: the A is drawn in red (1) on black, and the control cell is all black', () => {
+    const memory = blankScreen();
+    put(memory, 0, 0, 0x81, 'A');
+    const pixels = render(memory);
+    expect(cellColours(pixels, 0, 0)).toEqual(Array<string>(10).fill('000000'));
+    const a = cellColours(pixels, 0, 1);
+    expect(a[1]).toBe('000100'); // the A's top dot, in red
+    expect(a.join('').replace(/[01]/g, '')).toBe('');
+  });
+
+  test('&84 &9D: the background (gap column and gap line included) is blue from the &9D cell', () => {
+    const memory = blankScreen();
+    put(memory, 0, 0, 0x84, 0x9d, 0x87, 'I');
+    const pixels = render(memory);
+    expect(cellColours(pixels, 0, 0)).toEqual(Array<string>(10).fill('000000'));
+    expect(cellColours(pixels, 0, 1)).toEqual(Array<string>(10).fill('444444'));
+    expect(cellColours(pixels, 0, 2)).toEqual(Array<string>(10).fill('444444'));
+    const i = cellColours(pixels, 0, 3);
+    expect(i[0]).toBe('444444'); // the gap line is background
+    expect(i[1]).toBe('447774'); // I's top bar, white on blue
+    // The rest of the row stays blue: the background lasts to the end of the row...
+    expect(cellColours(pixels, 0, 39)).toEqual(Array<string>(10).fill('444444'));
+    // ...and no further.
+    expect(cellColours(pixels, 1, 0)).toEqual(Array<string>(10).fill('000000'));
+  });
+
+  test('&92 &FF: a solid green mosaic fills the whole 6 × 10 cell, gap column and line included', () => {
+    const memory = blankScreen();
+    put(memory, 3, 5, 0x92, 0xff);
+    expect(cellColours(render(memory), 3, 6)).toEqual(Array<string>(10).fill('222222'));
+  });
+
+  test('separated &FF: green blocks with black gaps on the left and bottom of each', () => {
+    const memory = blankScreen();
+    put(memory, 0, 0, 0x92, 0x9a, 0xff);
+    expect(cellColours(render(memory), 0, 2)).toEqual([
+      '022022', '022022', '000000',
+      '022022', '022022', '022022', '000000',
+      '022022', '022022', '000000',
+    ]);
+  });
+
+  test('separated gaps show the background colour, not black', () => {
+    const memory = blankScreen();
+    put(memory, 0, 0, 0x94, 0x9d, 0x93, 0x9a, 0xb5);
+    // &B5 = left column; blue background, yellow blocks.
+    expect(cellColours(render(memory), 0, 4)).toEqual([
+      '433444', '433444', '444444',
+      '433444', '433444', '433444', '444444',
+      '433444', '433444', '444444',
+    ]);
+  });
+
+  test('two mosaics side by side join up with no gap between them', () => {
+    const memory = blankScreen();
+    put(memory, 0, 0, 0x97, 0xff, 0xff);
+    const pixels = render(memory);
+    for (let x = 12; x < 36; x++) expect(pixel(pixels, x, 0)).toBe(COLOUR_WHITE);
+  });
+
+  test('a blast-through capital in graphics mode is a letter in the graphics colour', () => {
+    const memory = blankScreen();
+    put(memory, 0, 0, 0x96, 'A');
+    expect(cellColours(render(memory), 0, 1)[1]).toBe('000600');
+  });
+
+  test('hold graphics: the &93 cell repeats the red block, so the bar has no gap', () => {
+    const memory = blankScreen();
+    put(memory, 0, 0, 0x91, 0x9e, 0xff, 0x93, 0xff);
+    const pixels = render(memory);
+    expect(cellColours(pixels, 0, 2)).toEqual(Array<string>(10).fill('111111'));
+    expect(cellColours(pixels, 0, 3)).toEqual(Array<string>(10).fill('111111'));
+    expect(cellColours(pixels, 0, 4)).toEqual(Array<string>(10).fill('333333'));
   });
 });

@@ -19,7 +19,8 @@ import { createFrameLoop } from './web/frame-loop';
 import { createRunControls } from './web/run-controls';
 import { createScreenCanvas } from './web/screen-canvas';
 import { createTextScreen } from './web/text-screen';
-import { mode7StartAddress } from './video/mode7-text';
+import { mode7CellAddress, mode7StartAddress } from './video/mode7-text';
+import { teletextTestPage } from './video/teletext-test-page';
 import type { ListingLine } from './playground/listing';
 import { EXAMPLES, findExample } from './playground/examples';
 import { PROGRAM_PAGE, installProgram, pokeWriter } from './playground/setup';
@@ -148,6 +149,21 @@ function run(): void {
   controls.update(true, framesRun, loop.speed);
 }
 
+/**
+ * Stage 32's test page: pauses, then pokes the 1,000 bytes into screen
+ * memory from wherever the screen starts now (after a scroll that isn't
+ * &7C00), so it fills the screen top to bottom.
+ */
+function showTestPage(): void {
+  if (loop.running) pause();
+  const start = mode7StartAddress(machine.crtc.register(12), machine.crtc.register(13));
+  teletextTestPage().forEach((byte, cell) => {
+    machine.poke(mode7CellAddress(start, cell), byte);
+  });
+  refreshAll();
+  controls.say('Paused, showing the teletext test page. Run carries on (the MOS only redraws what it prints).');
+}
+
 const controls = createRunControls({
   onToggle: () => {
     if (loop.running) pause();
@@ -165,6 +181,7 @@ const controls = createRunControls({
     refreshAll();
     if (!loop.running) controls.update(false, framesRun, loop.speed);
   },
+  onTestPage: showTestPage,
   onPowerOn: () => {
     machine.powerOn();
     framesRun = 0;
@@ -304,6 +321,7 @@ Object.assign(window, {
     },
     machine,
     screen: screenCanvas,
+    testPage: showTestPage,
     loop,
     pause,
     run,
@@ -324,6 +342,6 @@ Object.assign(window, {
       target.pulseNmi();
       refreshAll();
     },
-    help: `workbench.pause(), workbench.run(), workbench.loop.speed, workbench.machine.runFrame(), workbench.powerOn(), workbench.poke(0x${hex16(PROGRAM_PAGE + 1)}, 0xff), workbench.step(), workbench.peek(addr), workbench.goTo(addr), workbench.trace(20), workbench.map.ioLog.recent(), workbench.userVia.pins('b'), workbench.systemVia.setControlLine('ca1', 0), workbench.irq(), workbench.nmi(), workbench.cpu.regs`,
+    help: `workbench.testPage(), workbench.pause(), workbench.run(), workbench.loop.speed, workbench.machine.runFrame(), workbench.powerOn(), workbench.poke(0x${hex16(PROGRAM_PAGE + 1)}, 0xff), workbench.step(), workbench.peek(addr), workbench.goTo(addr), workbench.trace(20), workbench.map.ioLog.recent(), workbench.userVia.pins('b'), workbench.systemVia.setControlLine('ca1', 0), workbench.irq(), workbench.nmi(), workbench.cpu.regs`,
   },
 });
