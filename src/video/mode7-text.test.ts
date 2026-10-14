@@ -69,6 +69,28 @@ describe('mode7Text: MODE 7 screen memory read as text', () => {
     expect(mode7Text((a) => mem[a] ?? 0)[1]?.[0]).toBe('■');
   });
 
+  it('double height (Stage 33): both rows of a pair show the text; normal text on the bottom row is hidden, as on screen', () => {
+    const mem = memory();
+    mem.fill(0x20, 0x7c00, 0x8000);
+    mem[0x7c00] = 0x8d;
+    put(mem, 0x7c01, 'Hi');
+    put(mem, 0x7c28, 'ab');
+    mem[0x7c2a] = 0x8d;
+    put(mem, 0x7c2b, 'Hi');
+    const rows = mode7Text((a) => mem[a] ?? 0);
+    expect(rows[0]?.slice(0, 3)).toBe(' Hi');
+    expect(rows[1]?.slice(0, 5)).toBe('   Hi'); // 'ab' is normal height on a bottom row
+  });
+
+  it('flashing text is always shown in the text (it is in memory); concealed text is not (Stage 33)', () => {
+    const mem = memory();
+    mem[0x7c00] = 0x88;
+    put(mem, 0x7c01, 'Flash');
+    mem[0x7c06] = 0x98;
+    put(mem, 0x7c07, '42');
+    expect(mode7Text((a) => mem[a] ?? 0)[0]?.slice(0, 9)).toBe(' Flash   ');
+  });
+
   it('starts wherever it is told, and wraps inside &7C00-&7FFF: after the last byte comes &7C00', () => {
     const mem = memory();
     put(mem, 0x7db8, 'TOP');

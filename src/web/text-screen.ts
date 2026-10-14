@@ -6,25 +6,23 @@
 // a control code changes the cells after it).
 //
 // One text node per row, built once. draw() runs after every BBC frame (50 a
-// second), so it remembers the code each cell last showed and only rebuilds
-// a row when one of its 40 cells changed. A rebuilt row is decoded from its
-// first cell, as the SAA5050 does. At the > prompt that's no DOM
-// writes at all. (A first version had a <span> per cell: 1,000 boxes to lay
-// out cost 9 ms whenever the whole screen changed. 25 lines of text cost
-// far less. The CSS also gives the grid `contain: strict`, so a change
-// can't relayout the rest of the page.)
+// second). It decodes the whole screen top to bottom, as the SAA5050 does:
+// since Stage 33 a row can't be decoded on its own, because an &8D in one
+// row makes the next a bottom row, which hides its normal-height text. So
+// it builds all 25 row strings (cheap) and writes only the ones that
+// changed to the DOM (the expensive part). At the > prompt that's no DOM
+// writes at all. Flashing text is always shown here: this layer is for
+// reading and copying, and blinking would only get in the way. (A first
+// version had a <span> per cell: 1,000 boxes to lay out cost 9 ms whenever
+// the whole screen changed. 25 lines of text cost far less. The CSS also
+// gives the grid `contain: strict`, so a change can't relayout the rest of
+// the page.)
 //
 // Which bytes: the CRTC's start address (R12/R13), so it follows the MOS's
 // hardware scrolling and wraps inside &7C00-&7FFF (see mode7-text.ts).
 
 import { MODE7_COLUMNS, MODE7_ROWS, mode7CellAddress } from '../video/mode7-text';
 import { createTeletextCell, createTeletextState, decodeCell, startRow, teletextCellText } from '../video/teletext-attributes';
-
-const CELLS = MODE7_COLUMNS * MODE7_ROWS;
-/** The SAA5050 sees 7 bits (bit 7 isn't wired). */
-const CODE_MASK = 0x7f;
-/** Not a 7-bit code, so the first draw writes every row. */
-const NOTHING_SHOWN = 0xff;
 
 export interface TextScreen {
   readonly element: HTMLElement;
@@ -48,31 +46,21 @@ export function createTextScreen(): TextScreen {
     element.append(line, '\n');
   }
 
-  const shown = new Uint8Array(CELLS).fill(NOTHING_SHOWN);
-  const state = createTeletextState();
   const cell = createTeletextCell();
 
   return {
     element,
     draw(peek, start) {
+      // A fresh state each frame: the top of the page.
+      const state = createTeletextState();
       for (let row = 0; row < MODE7_ROWS; row++) {
-        const first = row * MODE7_COLUMNS;
-        let changed = false;
-        for (let i = first; i < first + MODE7_COLUMNS; i++) {
-          const code = peek(mode7CellAddress(start, i)) & CODE_MASK;
-          if (code !== shown[i]) {
-            shown[i] = code;
-            changed = true;
-          }
-        }
-        if (!changed) continue;
-        let text = '';
         startRow(state);
-        for (let i = first; i < first + MODE7_COLUMNS; i++) {
-          decodeCell(state, shown[i] ?? 0, cell);
+        let text = '';
+        for (let column = 0; column < MODE7_COLUMNS; column++) {
+          decodeCell(state, peek(mode7CellAddress(start, row * MODE7_COLUMNS + column)), cell);
           text += teletextCellText(cell);
         }
-        rows[row].data = text;
+        if (rows[row].data !== text) rows[row].data = text;
       }
     },
   };

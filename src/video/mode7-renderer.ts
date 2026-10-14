@@ -9,11 +9,16 @@
 // one 6 MHz dot later. Which line is the gap is from Fig. 10's drawing.)
 //
 // One dot is 2 × 2 of our pixels:
-//   2 across: Stage 33's character rounding adds half dots.
+//   2 across: half-dots, for character rounding.
 //   2 down:   MODE 7 is interlaced. The second field's 10 lines per row fall
-//             between the first field's, and without rounding they draw the
-//             same dots.
+//             between the first field's: our odd pixel rows.
 // So a cell is 12 × 20 pixels and the screen is 40 × 12 = 480 by 25 × 20 = 500.
+//
+// Stage 33: letters are drawn from the rounded font (character-rounding.ts),
+// whose odd half-lines add half-dots on diagonals. A double-height cell
+// draws half of the character's 20 half-lines, each 2 pixel rows tall: the
+// top 10 on a top row, the bottom 10 on a bottom row. Flashing cells are
+// spaces in the flash's off phase.
 //
 // Colours and mosaic graphics (Stage 32) come from the control codes along
 // each row: teletext-attributes.ts decodes each cell into a foreground, a
@@ -21,21 +26,17 @@
 // letter fills dots 1-5 of lines 1-9; a mosaic fills the whole cell, which
 // is how blocks join up into pictures.
 
-import { glyphRow } from './saa5050-font';
+import { HALF_DOTS_PER_CELL, HALF_LINES_PER_CELL, doubleDots, roundedGlyphLine } from './character-rounding';
 import { MODE7_COLUMNS, MODE7_ROWS, mode7CellAddress } from './mode7-text';
 import { type TeletextCell, createTeletextCell, createTeletextState, decodeCell, mosaicLine, startRow } from './teletext-attributes';
 
-/** The SAA5050's dots per character (TR6 6 MHz ÷ F1 1 MHz, data sheet timing table). */
-const DOTS_PER_CELL = 6;
-/** TV lines per character row, per field (Fig. 10). */
-const LINES_PER_CELL = 10;
-/** Our pixels per dot, across (half dots, for Stage 33's rounding). */
-const PIXELS_PER_DOT = 2;
-/** Our pixels per line, down (two interlaced fields). */
-const PIXELS_PER_LINE = 2;
-
-const CELL_WIDTH = DOTS_PER_CELL * PIXELS_PER_DOT; // 12
-const CELL_HEIGHT = LINES_PER_CELL * PIXELS_PER_LINE; // 20
+// The SAA5050's 6 dots per character (TR6 6 MHz ÷ F1 1 MHz, data sheet
+// timing table) as half-dots, and its 10 lines per row (Fig. 10) in both
+// fields: one pixel each.
+const CELL_WIDTH = HALF_DOTS_PER_CELL; // 12
+const CELL_HEIGHT = HALF_LINES_PER_CELL; // 20
+/** A double-height cell shows half the character's half-lines. */
+const HALF_CHARACTER = HALF_LINES_PER_CELL / 2;
 
 export const MODE7_PIXEL_WIDTH = MODE7_COLUMNS * CELL_WIDTH; // 480
 export const MODE7_PIXEL_HEIGHT = MODE7_ROWS * CELL_HEIGHT; // 500
@@ -48,9 +49,10 @@ export const COLOUR_WHITE = 7;
  * Draws the 1,000 cells that start at start (a RAM address in &7C00-&7FFF,
  * from the CRTC's R12/R13) into pixels, one colour number per pixel, row by
  * row. pixels must hold 480 × 500. Every pixel is written, so the buffer can
- * be reused frame after frame.
+ * be reused frame after frame. flashVisible is the flash phase
+ * (teletextFlashVisible): false draws flashing cells as spaces.
  */
-export function renderMode7(peek: (address: number) => number, start: number, pixels: Uint8Array): void {
+export function renderMode7(peek: (address: number) => number, start: number, pixels: Uint8Array, flashVisible: boolean): void {
   // Made once per frame and reused for every cell: nothing is allocated per cell.
   const state = createTeletextState();
   const cell = createTeletextCell();
@@ -58,37 +60,33 @@ export function renderMode7(peek: (address: number) => number, start: number, pi
     startRow(state);
     for (let column = 0; column < MODE7_COLUMNS; column++) {
       decodeCell(state, peek(mode7CellAddress(start, row * MODE7_COLUMNS + column)), cell);
-      drawCell(pixels, row * CELL_HEIGHT * MODE7_PIXEL_WIDTH + column * CELL_WIDTH, cell);
+      drawCell(pixels, row * CELL_HEIGHT * MODE7_PIXEL_WIDTH + column * CELL_WIDTH, cell, flashVisible);
     }
   }
 }
 
 /**
- * The 6 dots (bit 5 = dot 0, the leftmost) that a decoded cell lights on
- * one of its 10 lines.
+ * The 12 half-dots (bit 11 = the leftmost) that a decoded cell lights on
+ * pixel row y (0-19) of its cell.
  */
-function cellLine(cell: TeletextCell, line: number): number {
-  if (cell.kind === 'mosaic') return mosaicLine(cell.code, cell.separated, line);
-  // A letter: line 0 is the gap, and matrix lines 0-8 are cell lines 1-9.
-  // glyphRow's 5 bits are dots 1-5, so dot 0 (bit 5), the gap, is never lit.
-  if (cell.kind === 'letter' && line > 0) return glyphRow(cell.code, line - 1);
-  return 0;
+function cellHalfDots(cell: TeletextCell, y: number, flashVisible: boolean): number {
+  if (cell.kind === 'blank' || (cell.flash && !flashVisible)) return 0;
+  // Which half-line of the character this pixel row shows.
+  let halfLine = y;
+  if (cell.height === 'top') halfLine = y >> 1;
+  else if (cell.height === 'bottom') halfLine = HALF_CHARACTER + (y >> 1);
+  // Mosaics are blocks: never rounded, so both fields of a line are the same.
+  if (cell.kind === 'mosaic') return doubleDots(mosaicLine(cell.code, cell.separated, halfLine >> 1));
+  return roundedGlyphLine(cell.code, halfLine);
 }
 
 /** One 12 × 20 cell whose top-left pixel is at index origin. */
-function drawCell(pixels: Uint8Array, origin: number, cell: TeletextCell): void {
-  for (let line = 0; line < LINES_PER_CELL; line++) {
-    const dots = cellLine(cell, line);
-    const lineStart = origin + line * PIXELS_PER_LINE * MODE7_PIXEL_WIDTH;
-    for (let dot = 0; dot < DOTS_PER_CELL; dot++) {
-      const lit = (dots >> (DOTS_PER_CELL - 1 - dot)) & 1;
-      const colour = lit ? cell.foreground : cell.background;
-      const x = lineStart + dot * PIXELS_PER_DOT;
-      for (let dy = 0; dy < PIXELS_PER_LINE; dy++) {
-        const p = x + dy * MODE7_PIXEL_WIDTH;
-        for (let dx = 0; dx < PIXELS_PER_DOT; dx++) pixels[p + dx] = colour;
-      }
+function drawCell(pixels: Uint8Array, origin: number, cell: TeletextCell, flashVisible: boolean): void {
+  for (let y = 0; y < CELL_HEIGHT; y++) {
+    const halfDots = cellHalfDots(cell, y, flashVisible);
+    const rowStart = origin + y * MODE7_PIXEL_WIDTH;
+    for (let x = 0; x < CELL_WIDTH; x++) {
+      pixels[rowStart + x] = (halfDots >> (CELL_WIDTH - 1 - x)) & 1 ? cell.foreground : cell.background;
     }
   }
 }
-

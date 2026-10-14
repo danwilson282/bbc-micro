@@ -78,3 +78,62 @@ test('the text layer shows mosaics as block sextants, so copying the screen keep
   expect(await canvasPixel(page, ...dotPixel(19, 17, 3, 3))).toBe('0,255,255'); // T's stem, in cyan: blast-through
   expect(await canvasPixel(page, ...dotPixel(2, 0, 3, 1))).toBe(WHITE); // the T of "Text colours"
 });
+
+// Stage 33: test page 2. The flash phase is drawn through the page's own
+// screen handle (workbench.screen.draw), because the playground's fake vsync
+// is off and the flash only advances with vsyncs.
+test.describe('Stage 33: double height, flash & conceal', () => {
+  test.beforeEach(async ({ page }) => {
+    await page.evaluate(() => {
+      // window.workbench is the page's console handle (src/main.ts); the cast describes the one method used.
+      (window as unknown as { workbench: { testPage(page: number): void } }).workbench.testPage(2);
+    });
+    await expect(page.getByLabel('Screen (MODE 7 as text)')).toContainText('Double height, flash & conceal');
+  });
+
+  /** Redraws the canvas in one flash phase. */
+  async function drawInPhase(page: Page, visible: boolean): Promise<void> {
+    await page.evaluate((flash) => {
+      // The console handle (src/main.ts); the cast describes the parts used.
+      const { workbench } = window as unknown as {
+        workbench: { screen: { draw(peek: (a: number) => number, start: number, flash: boolean): void }; machine: { peek(a: number): number } };
+      };
+      workbench.screen.draw((a) => workbench.machine.peek(a), 0x7c00, flash);
+    }, visible);
+  }
+
+  test('the title is double height: D\'s top half on row 0 and its bottom half on row 1, from the same bytes', async ({ page }) => {
+    await drawInPhase(page, true);
+    // D (column 5) is #### / #...# ×5 / ####: its stem (dot 1) runs down both rows.
+    expect(await canvasPixel(page, 5 * 12 + 2, 0 * 20 + 6)).toBe(YELLOW);
+    expect(await canvasPixel(page, 5 * 12 + 2, 1 * 20 + 6)).toBe(YELLOW);
+    // Matrix line 0 is the top bar: at double height it's 4 pixel rows tall, y 4-7 of row 0.
+    for (const y of [4, 5, 6, 7]) expect(await canvasPixel(page, 5 * 12 + 6, y)).toBe(YELLOW);
+    expect(await canvasPixel(page, 5 * 12 + 6, 8)).toBe(BLUE);
+  });
+
+  test('the title flashes: in the off phase its dots go and the blue background stays', async ({ page }) => {
+    await drawInPhase(page, false);
+    expect(await canvasPixel(page, 5 * 12 + 2, 6)).toBe(BLUE);
+    await drawInPhase(page, true);
+    expect(await canvasPixel(page, 5 * 12 + 2, 6)).toBe(YELLOW);
+  });
+
+  test('normal-height text on a bottom row is hidden, in the text layer too', async ({ page }) => {
+    await expect(page.locator('.text-row').nth(9)).toHaveText(/^ Normal Double Normal/);
+    await expect(page.locator('.text-row').nth(10)).toHaveText(/^ {8}Double +$/);
+  });
+
+  test('concealed text is hidden', async ({ page }) => {
+    await expect(page.locator('.text-row').nth(18)).toHaveText(/^ Answer: {7}shown/);
+  });
+
+  test('rounding fills a diagonal with a half-dot on the second-field row', async ({ page }) => {
+    // Row 21 is a double-height top row; A is at column 2. A's top dot (dot 3, x 6-7) on half-line 2
+    // (pixel rows 4-5); half-line 3 (rows 6-7) adds half-dots at x 5 and x 8.
+    await drawInPhase(page, true);
+    expect(await canvasPixel(page, 2 * 12 + 5, 21 * 20 + 4)).toBe(BLACK);
+    expect(await canvasPixel(page, 2 * 12 + 5, 21 * 20 + 6)).toBe(WHITE);
+    expect(await canvasPixel(page, 2 * 12 + 8, 21 * 20 + 6)).toBe(WHITE);
+  });
+});

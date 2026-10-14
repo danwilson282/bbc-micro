@@ -1,5 +1,5 @@
 // The buttons under the screen (MOS mode): Pause / Run, Step frame, BREAK,
-// Power on, Test page (Stage 32), and a status line saying how fast it's really going.
+// Power on, Test page (Stages 32-33), and a status line saying how fast it's really going.
 //
 // It only builds elements and reports clicks. main.ts decides what they do.
 
@@ -14,7 +14,7 @@ export interface RunControlsActions {
   onBreak(): void;
   /** Switch off and on: every chip reset. */
   onPowerOn(): void;
-  /** Pause, and poke the Stage 32 teletext test page into screen memory. */
+  /** Poke the next teletext test page (Stages 32-33) into screen memory. */
   onTestPage(): void;
 }
 
@@ -42,7 +42,7 @@ export function createRunControls(actions: RunControlsActions): RunControls {
   const stepFrame = button('Step frame', 'Run one 20 ms frame (40,000 cycles)');
   const breakKey = button('BREAK', 'Press BREAK (reset the CPU only)');
   const powerOn = button('Power on', 'Switch off and on again (reset every chip)');
-  const testPage = button('Test page', 'Pause and show the teletext test page (pokes screen memory)');
+  const testPage = button('Test page', 'Show the next teletext test page (pokes screen memory)');
   const status = document.createElement('span');
   status.className = 'run-status';
   status.setAttribute('role', 'status');

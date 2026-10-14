@@ -38,7 +38,8 @@
     "demo:timers": "tsx scripts/demo-timers.ts",
     "demo:boot": "tsx scripts/demo-boot.ts",
     "demo:font": "tsx scripts/demo-font.ts",
-    "demo:teletext": "tsx scripts/demo-teletext.ts"
+    "demo:teletext": "tsx scripts/demo-teletext.ts",
+    "demo:rounding": "tsx scripts/demo-rounding.ts"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
