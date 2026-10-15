@@ -19,13 +19,31 @@
 // hardware has (drive a column, see its rows). Stage 35's "is any key down
 // in this column?" for CA2 is then one read and an AND.
 //
-// With autoscan on (IC32 bit 3 = 1), the keyboard's own counter picks the
-// column and a key down raises CA2. That's Stage 35; until then PA7 is
-// driven low in autoscan (unconfirmed: the MOS doesn't read PA7 then).
+// Stage 35 adds the keyboard PCB's scan logic. A 4-bit counter picks the
+// column: with autoscan on (IC32 bit 3 = 1) it counts 0-15 at 1 MHz by
+// itself; with it off it's loaded from PA0-PA3, so the CPU picks. Either
+// way, "is any key in rows 1-7 of this column down?" goes out on CA2, and
+// the System VIA interrupts on its rising edge (PCR &04). Columns 10-15
+// select nothing. Row 0 (SHIFT, CTRL, the links) is left out of CA2, or a
+// closed link would interrupt for ever.
+//
+// PA7 is still driven low in autoscan: a real board would show a row of the
+// counter's column, but the MOS never reads it then (see the Stage 35 doc).
+
+import type { Clocked } from './clocked';
 
 /** 10 columns (0-9) by 8 rows (0-7). */
 export const MATRIX_COLUMNS = 10;
 export const MATRIX_ROWS = 8;
+
+/** The column counter is 4 bits wide: 0-15. */
+const COUNTER_MASK = 0x0f;
+
+/** CA2's NAND gate sees rows 1-7 only. */
+const CA2_ROWS = 0xfe;
+
+/** The counter is clocked at 1 MHz: one step per 2 CPU (2 MHz) cycles. */
+const CPU_CYCLES_PER_SCAN_STEP = 2;
 
 /** All links open: &028F = &FF, MODE 7. A sensible default, not a fact about every Model B (see the Stage 28 doc). */
 export const DEFAULT_LINKS = 0xff;
@@ -126,13 +144,25 @@ export interface KeyboardSwitches {
   release(key: number): void;
 }
 
-export class Keyboard implements KeyboardSwitches {
+/** Where the keyboard's CA2 output goes: the machine wires it to the System VIA. */
+export type Ca2Listener = (level: 0 | 1) => void;
+
+export class Keyboard implements KeyboardSwitches, Clocked {
   /** The eight links as the MOS will see them in &028F: bit b is column 9 - b, 1 = open, 0 = closed. */
   links: number;
 
   /** Bit r of columns[c] = the key at row r, column c is held. Links aren't in here. */
   private readonly columns = new Uint8Array(MATRIX_COLUMNS);
   private readonly onChange: (() => void) | undefined;
+
+  // The scan logic (Stage 35).
+  private autoscan = false;
+  private counter = 0;
+  /** A CPU cycle left over from the last tick: half a microsecond. */
+  private phase = 0;
+  private ca2Level: 0 | 1 = 0;
+  private rises = 0;
+  private ca2Listener: Ca2Listener | undefined;
 
   /** onChange is called after any switch opens or closes (the machine recomputes PA7). */
   constructor(links = DEFAULT_LINKS, onChange?: () => void) {
@@ -154,7 +184,90 @@ export class Keyboard implements KeyboardSwitches {
   releaseAll(): void {
     if (this.columns.every((rows) => rows === 0)) return;
     this.columns.fill(0);
+    this.updateCa2();
     this.onChange?.();
+  }
+
+  // ── Scanning (Stage 35) ────────────────────────────────────────────────
+
+  /**
+   * Wires CA2: the listener hears the level now, then every change, as it
+   * happens. The gate always drives the line, so the VIA's floating-high
+   * input is pulled to the keyboard's level at once. Otherwise the first
+   * key would be 1 → 1, which isn't a rising edge. One listener; undefined disconnects.
+   */
+  connectCa2(listener: Ca2Listener | undefined): void {
+    this.ca2Listener = listener;
+    listener?.(this.ca2Level);
+  }
+
+  /** IC32 bit 3: true = the counter counts by itself, false = it follows PA0-PA3. */
+  setAutoscan(on: boolean): void {
+    this.autoscan = on;
+  }
+
+  /** PA0-PA3 as they are now (higher bits ignored). Loads the counter, but only while autoscan is off. */
+  selectColumn(pins: number): void {
+    if (this.autoscan) return;
+    this.counter = pins & COUNTER_MASK;
+    this.updateCa2();
+  }
+
+  /** The column the counter is on (0-15; 10-15 select nothing). */
+  get scanColumn(): number {
+    return this.counter;
+  }
+
+  /** The level on CA2: 1 while the counter's column has a key down in rows 1-7. */
+  get ca2(): 0 | 1 {
+    return this.ca2Level;
+  }
+
+  /** Rising edges on CA2 since the last resetScan(). For the panel. */
+  get ca2Rises(): number {
+    return this.rises;
+  }
+
+  /** Is autoscan on (IC32 bit 3 = 1)? */
+  get scanning(): boolean {
+    return this.autoscan;
+  }
+
+  /** Power-on: counter at 0, CA2 low, count cleared. The keys stay as they are. */
+  resetScan(): void {
+    this.counter = 0;
+    this.phase = 0;
+    this.setCa2(0);
+    this.rises = 0;
+  }
+
+  /**
+   * The 1 MHz counter moves on while autoscan is on, one column per µs, and
+   * every change on CA2 is sent as it happens: a 1 µs pulse in the middle of
+   * a 4 µs instruction still reaches the VIA. The hot path: no allocation,
+   * and at most 4 steps an instruction.
+   */
+  tick(cpuCycles: number): void {
+    if (!this.autoscan) return;
+    this.phase += cpuCycles;
+    while (this.phase >= CPU_CYCLES_PER_SCAN_STEP) {
+      this.phase -= CPU_CYCLES_PER_SCAN_STEP;
+      this.counter = (this.counter + 1) & COUNTER_MASK;
+      this.updateCa2();
+    }
+  }
+
+  /** The NAND gate: any of rows 1-7 closed in the counter's column. */
+  private updateCa2(): void {
+    const rows = this.counter < MATRIX_COLUMNS ? (this.columns[this.counter] ?? 0) : 0;
+    this.setCa2((rows & CA2_ROWS) !== 0 ? 1 : 0);
+  }
+
+  private setCa2(level: 0 | 1): void {
+    if (level === this.ca2Level) return;
+    this.ca2Level = level;
+    if (level === 1) this.rises++;
+    this.ca2Listener?.(level);
   }
 
   /** Is the switch at this position closed: a held key or a closed link? Reads only bits 0-6. */
@@ -186,6 +299,7 @@ export class Keyboard implements KeyboardSwitches {
     const after = down ? before | bit : before & ~bit & 0xff;
     if (after === before) return;
     this.columns[column] = after;
+    if (column === this.counter) this.updateCa2();
     this.onChange?.();
   }
 }

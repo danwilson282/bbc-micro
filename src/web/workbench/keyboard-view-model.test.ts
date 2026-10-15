@@ -1,5 +1,5 @@
 import { Keyboard, MATRIX_COLUMNS, MATRIX_ROWS } from '../../devices/keyboard';
-import { DESK_ROWS, describeDown, matrixCells } from './keyboard-view-model';
+import { DESK_ROWS, describeDown, describeScan, matrixCells } from './keyboard-view-model';
 
 function capsIn(row: number): string[] {
   return (DESK_ROWS[row] ?? []).map((cap) => (cap.kind === 'key' ? cap.legend : cap.kind));
@@ -74,5 +74,27 @@ describe('describeDown: what is held, in words', () => {
 
   it('leaves out the links: they are not keys anyone is holding', () => {
     expect(describeDown(new Keyboard(0x00))).toBe('No keys down.');
+  });
+});
+
+describe('describeScan: what the keyboard scan logic is doing (Stage 35)', () => {
+  it('idle at the prompt: autoscan on and the CA2 interrupt enabled (IER &F3): waiting for a key', () => {
+    const kb = new Keyboard();
+    kb.setAutoscan(true);
+    expect(describeScan(kb, 0xf3)).toBe('Autoscan on · CA2 interrupt on: waiting for a key · CA2 rises: 0');
+  });
+
+  it('a key down: the MOS has turned CA2 off (IER &F2) and scans from its 100 Hz timer', () => {
+    const kb = new Keyboard();
+    kb.setAutoscan(true);
+    kb.press(0x41);
+    kb.tick(2);
+    expect(describeScan(kb, 0xf2)).toBe('Autoscan on · CA2 interrupt off: the MOS scans every 10 ms · CA2 rises: 1');
+  });
+
+  it('autoscan off: names the column the CPU picked', () => {
+    const kb = new Keyboard();
+    kb.selectColumn(0x41);
+    expect(describeScan(kb, 0xf2)).toBe('Autoscan off: the CPU picks column 1 · CA2 interrupt off: the MOS scans every 10 ms · CA2 rises: 0');
   });
 });

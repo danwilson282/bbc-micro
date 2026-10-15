@@ -30,6 +30,13 @@
 // "was it the ACIA?" gets "no" and it goes on to the System VIA), and a
 // fake 50 Hz vsync on the System VIA's CA1.
 //
+// Stage 35 lets the keyboard interrupt. Its column counter is ticked with
+// the VIAs; it counts by itself while latch bit 3 is 1, and follows PA0-PA3
+// while it's 0. Its CA2 output ("a key in rows 1-7 of this column") goes
+// straight to the System VIA's CA2, edge by edge.
+//
+//   keyboard counter ──▶ column ──▶ any key? ──▶ System VIA CA2 ──▶ IFR bit 0 ──▶ /IRQ
+//
 // step() and runCycles() are the hot path: no objects, closures or arrays
 // are made in them, and the device lists are walked with indexed loops.
 
@@ -82,7 +89,7 @@ export class BbcModelB implements PinListener, DataBus, CycleClock {
   readonly hardwareLog: HardwareLog;
   /** IC32, on the System VIA's PB0-PB3. */
   readonly latch: AddressableLatch;
-  /** The key matrix (Stage 34). A press or release recomputes PA7 at once. */
+  /** The key matrix (Stage 34) and its scan counter (Stage 35). A press or release recomputes PA7 and CA2 at once. */
   readonly keyboard: Keyboard;
   /** Stubs until their stages: CRTC (Stage 37), Video ULA (Stage 40). */
   readonly crtc: CrtcStub;
@@ -119,6 +126,10 @@ export class BbcModelB implements PinListener, DataBus, CycleClock {
     this.keyboard = new Keyboard(undefined, () => {
       this.answerKeyboard();
     });
+    // Made once here, so the hot path (the keyboard's tick) only calls it.
+    this.keyboard.connectCa2((level) => {
+      this.systemVia.setControlLine('ca2', level);
+    });
     this.map = new BbcMemoryMap({
       devices: { acia: this.acia, systemVia: this.systemVia, userVia: this.userVia, crtc: this.crtc, videoUla: this.videoUla },
     });
@@ -128,7 +139,7 @@ export class BbcModelB implements PinListener, DataBus, CycleClock {
     this.systemVia.connectPins(this);
     this.latchFollowsPins();
     this.trace = new Tracer((address) => this.map.peek(address));
-    this.clocked = [this.systemVia, this.userVia, this.vsync];
+    this.clocked = [this.systemVia, this.userVia, this.vsync, this.keyboard];
     this.irqSources = [this.systemVia, this.userVia];
     this.irqNames = [SYSTEM_VIA_NAME, USER_VIA_NAME];
   }
@@ -197,6 +208,7 @@ export class BbcModelB implements PinListener, DataBus, CycleClock {
     this.systemVia.reset();
     this.userVia.reset();
     this.vsync.reset();
+    this.keyboard.resetScan();
     this.latchFollowsPins();
     return this.reset();
   }
@@ -247,14 +259,19 @@ export class BbcModelB implements PinListener, DataBus, CycleClock {
   }
 
   /**
-   * The keyboard drives PA7: high if the key on PA0-PA6 is down. Only PA7:
-   * the other lines keep whatever else pulls them (a VIA panel button).
-   * Setting it calls pinsChanged again; the key number is the same, so the
-   * answer is too, and it settles.
+   * The keyboard sees latch bit 3 (autoscan) and port A. With autoscan off
+   * its counter follows PA0-PA3 (and CA2 may change with it, Stage 35). It
+   * drives PA7: high if the key on PA0-PA6 is down. Only PA7: the other
+   * lines keep whatever else pulls them (a VIA panel button). Setting it
+   * calls pinsChanged again; the key number is the same, so the answer is
+   * too, and it settles.
    */
   private answerKeyboard(): void {
     const autoscan = this.latch.bit(LATCH_KEYBOARD_ENABLE) === 1;
-    const down = this.keyboard.pa7(this.systemVia.pins('a'), autoscan) === 1;
+    const pins = this.systemVia.pins('a');
+    this.keyboard.setAutoscan(autoscan);
+    this.keyboard.selectColumn(pins);
+    const down = this.keyboard.pa7(pins, autoscan) === 1;
     const others = this.systemVia.outside('a') & ~PA7 & 0xff;
     this.systemVia.setOutside('a', down ? others | PA7 : others);
   }

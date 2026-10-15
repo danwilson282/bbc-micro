@@ -2,7 +2,7 @@
 
 Tracks where the build is up to. The `/start-stage` and `/finish-stage` skills keep this file up to date. For what each stage involves, see [`BUILD-PLAN.md`](./BUILD-PLAN.md).
 
-**Current stage:** 35 — Scanning & keyboard interrupts (not started)
+**Current stage:** 36 — Modifiers, BREAK & LEDs (not started)
 
 **Status values:**
 - `not started`
@@ -82,7 +82,7 @@ Tracks where the build is up to. The `/start-stage` and `/finish-stage` skills k
 | # | Stage | Status | Seen? | Branch | Doc | Notes |
 |---|---|---|---|---|---|---|
 | 34 | Key matrix & PC mapping | done | ✅ | `stage/34-key-matrix` | [doc](./stages/34-key-matrix.md) | `devices/keyboard.ts` replaces `KeyboardStub`: `BBC_KEYS` (**72** keys from the AUG, 35 checked against `INKEY` numbers), one byte per column (`Uint8Array(10)`, bit = row), links folded in as row 0, `onChange` → machine recomputes PA7 at once. `web/key-map.ts`: **by place** (`event.code`), UK PC layout (`'`→`:`, `#`→`]`, `` ` ``→`_`, End→COPY, F10→f0); `PcKeyTracker` counts both Shifts, releases only its own presses. `web/keyboard-input.ts`: screen-focus only, repeats ignored, blur/⌘ let go, `preventDefault` on mapped keys. Keyboard panel (first under the screen): desk view + 8 × 10 matrix, built once, sticky click (SHIFT LOCK). **Found: CTRL+BREAK already hard-resets** (`&028D` = 2) via `keyTest`; ROM test added. `e2e/keyboard.spec.ts` (7). |
-| 35 | Scanning & keyboard interrupts | not started | | `stage/35-keyboard-scanning` | [doc](./stages/35-keyboard-scanning.md) | |
+| 35 | Scanning & keyboard interrupts | done | ✅ | `stage/35-keyboard-scanning` | [doc](./stages/35-keyboard-scanning.md) | **🎉 Typing into BASIC works** (browser and headless). `Keyboard` gains the scan logic: 4-bit column counter at 1 MHz while latch bit 3 = 1, loaded from PA0-PA3 while 0; CA2 = any key in **rows 1-7** of the counter's column (10-15 empty), pushed to System VIA CA2 edge by edge from `tick()` (no missed 1 µs pulses). `connectCa2` drives the level at once (the VIA's CA2 floats high: the first key wasn't an edge). Read from the **MOS 1.20 disassembly**: PCR &04, IER &81 at &EEE2 / &01 at &EF04 (every KEYV call while a key is down), column test at &F0EB-&F0FD (&0F first, clear IFR bit 0, column, `BIT &FE4D`). `machine/type-text.ts`: `keysFor` (symbolic, from `BBC_KEYS`), `typeText` (2 frames down, 2 up; min hold measured: none < 10 ms, all from 25 ms). Panel scan line (`describeScan`). `demo:typing`. `e2e/typing.spec.ts` (real-time project, 2). |
 | 36 | Modifiers, BREAK & LEDs | not started | | `stage/36-modifiers-break-leds` | [doc](./stages/36-modifiers-break-leds.md) | |
 
 ## Part 8: The 6845 CRTC
@@ -217,3 +217,7 @@ Things to come back to: questions raised during a stage, known inaccuracies, ide
 - A PC key-up releases a BBC key even if it was clicked down in the panel too (the tracker only knows its own presses). Rare, harmless. (Stage 34)
 - The desk view's key order (`← →` ending the number row, `↑ ↓` after `_`, `DELETE COPY` after right SHIFT) is from memory of the Model B, not a measured photo. The matrix positions don't depend on it. (Stage 34)
 - Keys pressed from the console (`workbench.keyboard.press(0x41)`) light the panel only at the next panel refresh. (Stage 34)
+- ~~Keyboard stub drives PA7 low whenever autoscan is on; Stage 35 builds the counter.~~ Stage 35 built the counter but still drives PA7 low in autoscan: modelling "row PA4-PA6 of the counter's column" would cost a pin update per µs, and the MOS never reads PA7 then. (Stage 35)
+- A browser keydown + keyup between two animation frames gives the machine no emulated time with the key down (Playwright's instant `press` is lost). The MOS ignores presses under ~10 ms anyway (measured), but frame batching adds up to ~16 ms of jitter. A minimum hold in the web layer (release no earlier than N emulated ms after press) would make very fast taps reliable. Idea only. (Stage 35)
+- Keyboard chip numbers (74LS163 counter, 74LS145 decoder, 74LS251 selector, 74LS30 NAND) are BeebWiki's, unchecked against the circuit diagram; the behaviour is what the MOS's code requires. The counter is assumed to power up at 0. (Stage 35)
+- Inside the scan loop the MOS turns autoscan back on and does `CLI : SEI` for every column (`&F0E3` → `&F129`), a brief window for other interrupts. Not investigated further. (Stage 35)
