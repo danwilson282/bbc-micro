@@ -185,3 +185,125 @@ describe('Keyboard: the links and PA7 (as the Stage 28 stub did)', () => {
     expect(kb.pa7(0x89, false)).toBe(1);
   });
 });
+
+describe('Keyboard: the autoscan counter and CA2 (Stage 35)', () => {
+  /** A keyboard with autoscan on and CA2 wired to a recorder of every change (the level sent on connecting is dropped). */
+  function scanning(): { keyboard: Keyboard; levels: number[] } {
+    const levels: number[] = [];
+    const keyboard = new Keyboard();
+    keyboard.connectCa2((level) => {
+      levels.push(level);
+    });
+    levels.length = 0;
+    keyboard.setAutoscan(true);
+    return { keyboard, levels };
+  }
+
+  it('the counter steps once per microsecond (2 CPU cycles) and wraps after 15: 16 columns, 10-15 empty', () => {
+    const { keyboard } = scanning();
+    keyboard.selectColumn(0); // ignored: autoscan is on
+    expect(keyboard.scanColumn).toBe(0);
+    keyboard.tick(1);
+    expect(keyboard.scanColumn).toBe(0); // half a microsecond, kept for later
+    keyboard.tick(1);
+    expect(keyboard.scanColumn).toBe(1);
+    keyboard.tick(2 * 15);
+    expect(keyboard.scanColumn).toBe(0); // 1 + 15 = 16 = 0 again
+  });
+
+  it('with nothing pressed CA2 stays low for a whole sweep, and no edge is sent', () => {
+    const { keyboard, levels } = scanning();
+    keyboard.tick(2 * 32);
+    expect(keyboard.ca2).toBe(0);
+    expect(levels).toEqual([]);
+    expect(keyboard.ca2Rises).toBe(0);
+  });
+
+  it('A (&41) held: CA2 rises for the 1 µs the counter is on column 1, once every 16 µs', () => {
+    const { keyboard, levels } = scanning();
+    keyboard.press(0x41);
+    keyboard.tick(2); // counter 0 → 1
+    expect(keyboard.ca2).toBe(1);
+    keyboard.tick(2); // 1 → 2
+    expect(keyboard.ca2).toBe(0);
+    keyboard.tick(2 * 32); // two more sweeps: column 1 at µs 17 and 33
+    expect(levels).toEqual([1, 0, 1, 0, 1, 0]);
+    expect(keyboard.ca2Rises).toBe(3);
+  });
+
+  it('a pulse inside one long tick is still sent: a 7-cycle instruction passing column 1 gives a rise and a fall', () => {
+    const { keyboard, levels } = scanning();
+    keyboard.press(0x41);
+    keyboard.tick(7); // 3 µs: counter 0 → 1 → 2 → 3 (and half a µs over)
+    expect(levels).toEqual([1, 0]);
+    expect(keyboard.ca2).toBe(0);
+  });
+
+  it('keys in neighbouring columns keep CA2 high across both: one rise, not two', () => {
+    const { keyboard, levels } = scanning();
+    keyboard.press(0x41); // A, column 1
+    keyboard.press(0x42); // X, column 2
+    keyboard.tick(2 * 3); // columns 1, 2, 3
+    expect(levels).toEqual([1, 0]);
+  });
+
+  it('row 0 never reaches CA2: SHIFT, CTRL and closed links are invisible to the scan', () => {
+    const { keyboard, levels } = scanning();
+    keyboard.links = 0x00; // every link closed
+    keyboard.press(0x00); // SHIFT
+    keyboard.press(0x01); // CTRL
+    keyboard.tick(2 * 32);
+    expect(levels).toEqual([]);
+  });
+
+  it('autoscan off: the counter follows PA0-PA3 at once, and CA2 says whether that column has a key in rows 1-7', () => {
+    const { keyboard, levels } = scanning();
+    keyboard.press(0x41);
+    keyboard.setAutoscan(false);
+    keyboard.selectColumn(0x0f); // the MOS's dummy column: no keys there
+    expect(keyboard.ca2).toBe(0);
+    keyboard.selectColumn(0x41); // only PA0-PA3 count: column 1
+    expect(keyboard.scanColumn).toBe(1);
+    expect(keyboard.ca2).toBe(1);
+    keyboard.tick(2 * 10); // the counter doesn't count while the CPU picks
+    expect(keyboard.scanColumn).toBe(1);
+    expect(levels).toEqual([1]);
+  });
+
+  it('a key pressed in the column already selected raises CA2 straight away, and releasing it drops CA2', () => {
+    const { keyboard, levels } = scanning();
+    keyboard.setAutoscan(false);
+    keyboard.selectColumn(1);
+    keyboard.press(0x41);
+    expect(keyboard.ca2).toBe(1);
+    keyboard.release(0x41);
+    expect(levels).toEqual([1, 0]);
+  });
+
+  it('autoscan back on counts on from the CPU\'s last column', () => {
+    const { keyboard } = scanning();
+    keyboard.setAutoscan(false);
+    keyboard.selectColumn(7);
+    keyboard.setAutoscan(true);
+    keyboard.tick(2);
+    expect(keyboard.scanColumn).toBe(8);
+  });
+
+  it('resetScan (power-on) puts the counter at 0 and CA2 low, and clears the rise count', () => {
+    const { keyboard } = scanning();
+    keyboard.press(0x41);
+    keyboard.tick(2);
+    keyboard.resetScan();
+    expect([keyboard.scanColumn, keyboard.ca2, keyboard.ca2Rises]).toEqual([0, 0, 0]);
+  });
+});
+
+describe('Keyboard: CA2 is always driven (Stage 35)', () => {
+  it('connecting CA2 sends the current level at once, so a VIA input floating high is pulled low before the first key', () => {
+    const levels: number[] = [];
+    new Keyboard().connectCa2((level) => {
+      levels.push(level);
+    });
+    expect(levels).toEqual([0]);
+  });
+});

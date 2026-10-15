@@ -103,3 +103,17 @@ export function describeDown(keyboard: Keyboard): string {
     .map((key) => `${key.name} &${hex8(key.key)}`);
   return down.length === 0 ? 'No keys down.' : `Down: ${down.join(', ')}`;
 }
+
+/** IER bit 0: the System VIA's CA2 interrupt. */
+const IER_CA2 = 0x01;
+
+/**
+ * The scan logic in words (Stage 35): who picks the column, whether the MOS
+ * is waiting for a CA2 interrupt (IER bit 0) or scanning by itself, and
+ * how many times CA2 has risen. `ier` is the System VIA's IER (&FE4E).
+ */
+export function describeScan(keyboard: Keyboard, ier: number): string {
+  const who = keyboard.scanning ? 'Autoscan on' : `Autoscan off: the CPU picks column ${String(keyboard.scanColumn)}`;
+  const ca2 = (ier & IER_CA2) !== 0 ? 'CA2 interrupt on: waiting for a key' : 'CA2 interrupt off: the MOS scans every 10 ms';
+  return `${who} · ${ca2} · CA2 rises: ${keyboard.ca2Rises.toLocaleString('en-GB')}`;
+}

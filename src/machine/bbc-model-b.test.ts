@@ -348,6 +348,61 @@ describe('BbcModelB: the System VIA\'s pins, the IC32 latch and the keyboard (St
   });
 });
 
+describe('BbcModelB: keyboard scanning and CA2 (Stage 35)', () => {
+  /** The MOS's set-up: DDRB &0F (latch lines out), DDRA &7F, PCR &04 (CA2 rising edge). */
+  function wired(): BbcModelB {
+    const m = machineWith(JMP_LOOP);
+    m.map.write(0xfe42, 0x0f);
+    m.map.write(0xfe43, 0x7f);
+    m.map.write(0xfe4c, 0x04);
+    return m;
+  }
+
+  it('autoscan on (&0B to &FE40) with A held: within 16 µs CA2 rises, IFR bit 0 is set, and with IER &81 /IRQ goes low', () => {
+    const m = wired();
+    m.map.write(0xfe40, 0x0b);
+    m.map.write(SYSTEM_VIA_IER, 0x81);
+    m.keyboard.press(0x41);
+    expect(m.peek(SYSTEM_VIA_IFR) & 0x01).toBe(0);
+    m.runCycles(32);
+    expect(m.peek(SYSTEM_VIA_IFR) & 0x01).toBe(1);
+    expect(m.irqHolders).toEqual(['System VIA']);
+  });
+
+  it('autoscan on with only SHIFT held: no CA2, no interrupt', () => {
+    const m = wired();
+    m.map.write(0xfe40, 0x0b);
+    m.keyboard.press(0x00);
+    m.runCycles(200);
+    expect(m.peek(SYSTEM_VIA_IFR) & 0x01).toBe(0);
+  });
+
+  it("autoscan off: the MOS's column test (&0F to &FE4F, clear IFR bit 0, column to &FE4F) finds A in column 1 and nothing in column 9", () => {
+    const m = wired();
+    m.keyboard.press(0x41);
+    m.map.write(0xfe40, 0x03);
+    const columnHasKey = (column: number): boolean => {
+      m.map.write(0xfe4f, 0x0f);
+      m.map.write(SYSTEM_VIA_IFR, 0x01);
+      m.map.write(0xfe4f, column);
+      return (m.map.read(SYSTEM_VIA_IFR) & 0x01) === 1;
+    };
+    expect(columnHasKey(9)).toBe(false);
+    expect(columnHasKey(1)).toBe(true);
+  });
+
+  it('the keyboard is ticked with the rest: the counter moves only while autoscan is on', () => {
+    const m = wired();
+    m.map.write(0xfe40, 0x03);
+    m.map.write(0xfe4f, 0x05);
+    m.runCycles(30);
+    expect(m.keyboard.scanColumn).toBe(5);
+    m.map.write(0xfe40, 0x0b);
+    m.runCycles(30);
+    expect(m.keyboard.scanColumn).not.toBe(5);
+  });
+});
+
 describe('BbcModelB: with MOS 1.20', () => {
   /** A powered-on machine with the ROMs from roms/, run for some frames. */
   function booted(frames: number, setUp: (m: BbcModelB) => void = () => undefined): BbcModelB {

@@ -110,8 +110,8 @@ const refreshAll = (): void => {
 //
 // The screen takes focus (click it), and while it has it, PC keys close
 // BBC key switches by position (key-map.ts). The Keyboard panel lights
-// them at once, not at the next 10 Hz refresh. Until Stage 35 the MOS
-// doesn't scan the keyboard, so BASIC doesn't see the keys yet.
+// them at once, not at the next 10 Hz refresh. Since Stage 35 a key
+// down raises CA2, the MOS scans, and BASIC sees what you type.
 screenFrame.tabIndex = 0;
 screenFrame.setAttribute('aria-label', 'BBC Micro screen: click to type on the BBC keyboard');
 const typing = (): boolean => document.activeElement === screenFrame;
@@ -120,6 +120,7 @@ const keyboardPanel = createKeyboardPanel(machine.keyboard, {
     keyboardPanel.refresh();
   },
   typing,
+  ier: () => machine.peek(0xfe4e), // System VIA IER
 });
 const pcKeys = new PcKeyTracker(machine.keyboard);
 attachKeyboardInput(screenFrame, pcKeys, () => {

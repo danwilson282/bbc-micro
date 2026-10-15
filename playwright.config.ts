@@ -6,11 +6,11 @@ export default defineConfig({
     baseURL: 'http://localhost:5173',
   },
   projects: [
-    { name: 'chromium', use: { ...devices['Desktop Chrome'] }, testIgnore: /boot\.spec\.ts/ },
+    { name: 'chromium', use: { ...devices['Desktop Chrome'] }, testIgnore: /(boot|typing)\.spec\.ts/ },
     // Stage 30: the real-time frame loop's tests measure speed, and a free-running
     // machine competes for CPU with the Run tests (one slice per animation frame).
     // So they run on their own, after everything else.
-    { name: 'real-time', use: { ...devices['Desktop Chrome'] }, testMatch: /boot\.spec\.ts/, dependencies: ['chromium'] },
+    { name: 'real-time', use: { ...devices['Desktop Chrome'] }, testMatch: /(boot|typing)\.spec\.ts/, dependencies: ['chromium'] },
   ],
   webServer: {
     command: 'npm run dev',

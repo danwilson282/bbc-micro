@@ -15,7 +15,7 @@
 
 import { MATRIX_COLUMNS, type Keyboard } from '../../devices/keyboard';
 import { hex8 } from '../../util/bits';
-import { DESK_ROWS, describeDown, matrixCells } from './keyboard-view-model';
+import { DESK_ROWS, describeDown, describeScan, matrixCells } from './keyboard-view-model';
 import type { Panel } from './panel';
 
 export interface KeyboardPanelOptions {
@@ -23,6 +23,8 @@ export interface KeyboardPanelOptions {
   readonly onChange: () => void;
   /** Is the screen focused, so PC keys reach the BBC? */
   readonly typing: () => boolean;
+  /** The System VIA's IER, for the scan line (Stage 35). */
+  readonly ier: () => number;
 }
 
 export function createKeyboardPanel(keyboard: Keyboard, options: KeyboardPanelOptions): Panel {
@@ -36,6 +38,10 @@ export function createKeyboardPanel(keyboard: Keyboard, options: KeyboardPanelOp
   const down = document.createElement('span');
   down.dataset.field = 'down';
   status.append(hint, ' ', down);
+
+  // Stage 35: who picks the column, and is the MOS waiting for CA2?
+  const scan = document.createElement('p');
+  scan.className = 'keyboard-scan';
 
   // Everything that lights up, with the key number it shows.
   const lit: { readonly element: HTMLElement; readonly key: number }[] = [];
@@ -112,12 +118,13 @@ export function createKeyboardPanel(keyboard: Keyboard, options: KeyboardPanelOp
     }
   });
 
-  element.append(status, desk, matrix);
+  element.append(status, scan, desk, matrix);
 
   function refresh(): void {
     hint.textContent = options.typing() ? 'Typing goes to the BBC.' : 'Click the screen to type.';
     hint.classList.toggle('active', options.typing());
     down.textContent = describeDown(keyboard);
+    scan.textContent = describeScan(keyboard, options.ier());
     for (const { element: e, key } of lit) {
       const isDown = keyboard.isDown(key);
       e.classList.toggle('down', isDown);
