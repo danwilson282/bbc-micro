@@ -69,16 +69,24 @@ export function typeText(machine: BbcModelB, text: string, options: TypingOption
     if (keys === undefined) throw new RangeError(`typeText: no BBC key types ${JSON.stringify(char)} (lowercase needs the CAPS LOCK state)`);
     presses.push(keys);
   }
-  const run = (frames: number): void => {
-    for (let i = 0; i < frames; i++) {
-      machine.runFrame();
-      options.onFrame?.();
-    }
-  };
-  for (const keys of presses) {
-    for (const key of keys) machine.keyboard.press(key);
-    run(options.holdFrames);
-    for (const key of keys) machine.keyboard.release(key);
-    run(options.gapFrames);
+  for (const keys of presses) tapKeys(machine, keys, options);
+}
+
+/**
+ * Holds `keys` down together for holdFrames, then lets them all go for
+ * gapFrames: one chord, like SHIFT + A or CTRL + A (Stage 36). Pressed in
+ * order, released in order.
+ */
+export function tapKeys(machine: BbcModelB, keys: readonly number[], options: TypingOptions = DEFAULT_TYPING): void {
+  for (const key of keys) machine.keyboard.press(key);
+  runFrames(machine, options.holdFrames, options);
+  for (const key of keys) machine.keyboard.release(key);
+  runFrames(machine, options.gapFrames, options);
+}
+
+function runFrames(machine: BbcModelB, frames: number, options: TypingOptions): void {
+  for (let i = 0; i < frames; i++) {
+    machine.runFrame();
+    options.onFrame?.();
   }
 }

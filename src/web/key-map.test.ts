@@ -1,5 +1,5 @@
 import { BBC_KEYS, Keyboard, bbcKey } from '../devices/keyboard';
-import { PC_KEY_MAP, PcKeyTracker, pcKeysFor } from './key-map';
+import { BREAK_PC_CODES, PC_KEY_MAP, PcKeyTracker, isBbcKeyCode, pcKeysFor, type BreakSwitch } from './key-map';
 
 /** The BBC key name a PC code closes, for readable expectations. */
 function bbcNameFor(code: string): string | undefined {
@@ -40,8 +40,13 @@ describe('PC_KEY_MAP: KeyboardEvent.code → BBC switch, by position', () => {
     expect(unmapped).toEqual(['SHIFT LOCK']);
   });
 
-  it('does not map the Mac Cmd keys, Alt, or F12 (BREAK is not on the matrix)', () => {
-    for (const code of ['MetaLeft', 'MetaRight', 'AltLeft', 'AltRight', 'F12']) expect(PC_KEY_MAP.has(code)).toBe(false);
+  it('does not map the Mac Cmd keys, Alt, or F12 into the matrix (F12 is BREAK, which is not on the matrix)', () => {
+    for (const code of ['MetaLeft', 'MetaRight', 'AltLeft', 'AltRight', 'F12', 'Pause']) expect(PC_KEY_MAP.has(code)).toBe(false);
+  });
+
+  it('F12 and Pause (the PC\'s Pause/Break key) are BREAK (Stage 36), and count as BBC keys', () => {
+    expect([...BREAK_PC_CODES]).toEqual(['F12', 'Pause']);
+    expect([isBbcKeyCode('F12'), isBbcKeyCode('Pause'), isBbcKeyCode('KeyA'), isBbcKeyCode('AltLeft')]).toEqual([true, true, true, false]);
   });
 
   it('pcKeysFor lists the PC keys for a BBC key, as a person would name them', () => {
@@ -95,5 +100,56 @@ describe('PcKeyTracker: PC key presses → BBC switches', () => {
     kb.press(0x50); // SHIFT LOCK, clicked in the panel
     pc.releaseAll();
     expect([kb.isDown(0x41), kb.isDown(0x00), kb.isDown(0x50)]).toEqual([false, false, true]);
+  });
+});
+
+describe('PcKeyTracker: BREAK (Stage 36)', () => {
+  /** A BREAK switch that remembers every change it was told about. */
+  function breakSwitch(): BreakSwitch & { readonly changes: boolean[] } {
+    const changes: boolean[] = [];
+    return {
+      changes,
+      setBreak(down) {
+        changes.push(down);
+      },
+    };
+  }
+
+  it('F12 down holds BREAK, and F12 up lets go: the switch, not the matrix', () => {
+    const kb = new Keyboard();
+    const brk = breakSwitch();
+    const pc = new PcKeyTracker(kb, brk);
+    expect(pc.keyDown('F12')).toBe(true);
+    expect(brk.changes).toEqual([true]);
+    expect(BBC_KEYS.some((k) => kb.isDown(k.key))).toBe(false);
+    expect(pc.keyUp('F12')).toBe(true);
+    expect(brk.changes).toEqual([true, false]);
+  });
+
+  it('F12 and Pause are one BREAK: it is let go only when the last of them comes up', () => {
+    const brk = breakSwitch();
+    const pc = new PcKeyTracker(new Keyboard(), brk);
+    pc.keyDown('F12');
+    pc.keyDown('Pause');
+    pc.keyUp('F12');
+    expect(brk.changes).toEqual([true]);
+    pc.keyUp('Pause');
+    expect(brk.changes).toEqual([true, false]);
+  });
+
+  it('with no BREAK switch wired, F12 is left to the browser (false)', () => {
+    const pc = new PcKeyTracker(new Keyboard());
+    expect(pc.keyDown('F12')).toBe(false);
+  });
+
+  it('releaseAll lets go of BREAK too (a lost focus would leave the CPU held for ever)', () => {
+    const kb = new Keyboard();
+    const brk = breakSwitch();
+    const pc = new PcKeyTracker(kb, brk);
+    pc.keyDown('ControlLeft');
+    pc.keyDown('F12');
+    pc.releaseAll();
+    expect(brk.changes).toEqual([true, false]);
+    expect(kb.isDown(0x01)).toBe(false);
   });
 });

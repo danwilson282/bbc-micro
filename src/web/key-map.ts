@@ -12,6 +12,10 @@
 // so PC SHIFT + ' is BBC SHIFT + :, which is *. Places are from a UK PC
 // keyboard (where "Backslash" is the #~ key beside Enter).
 //
+// BREAK isn't in the matrix (Stage 36): it's a switch on the 6502's /RES.
+// F12 and Pause (the PC's "Pause/Break" key) work it, through a separate
+// BreakSwitch, which the machine provides.
+//
 // No DOM in here: it only ever sees code strings, so Jest can test it.
 // The panel and main.ts do the event listening.
 
@@ -48,6 +52,22 @@ const MAPPING: readonly (readonly [code: string, key: number, pcName: string])[]
 /** KeyboardEvent.code → BBC internal key number. */
 export const PC_KEY_MAP: ReadonlyMap<string, number> = new Map(MAPPING.map(([code, key]) => [code, key]));
 
+/** The PC keys that work BREAK. F12 is the usual one; Pause is labelled "Pause/Break", but few laptops have it. */
+export const BREAK_PC_CODES: ReadonlySet<string> = new Set(['F12', 'Pause']);
+
+/** Does this PC key mean something to the BBC: a matrix key or BREAK? */
+export function isBbcKeyCode(code: string): boolean {
+  return PC_KEY_MAP.has(code) || BREAK_PC_CODES.has(code);
+}
+
+/** The BREAK key's switch: down holds the CPU in reset, up lets it go (BbcModelB.setBreak). */
+export interface BreakSwitch {
+  setBreak(down: boolean): void;
+}
+
+/** What `held` stores for a PC key that's holding BREAK: not a matrix position (those are &00-&7F). */
+const BREAK_HELD = 0x100;
+
 /** The PC keys that close a BBC key, as a person would name them (both Shifts are "Shift" once). */
 export function pcKeysFor(key: number): readonly string[] {
   const names = MAPPING.filter(([, k]) => k === key).map(([, , pcName]) => pcName);
@@ -57,34 +77,38 @@ export function pcKeysFor(key: number): readonly string[] {
 /**
  * Turns PC key-downs and key-ups into BBC presses and releases. It counts:
  * a BBC key is down while ANY PC key mapped to it is held (both Shifts are
- * one BBC SHIFT). It only lets go of what it pressed, so a key clicked
- * down in the panel stays down.
+ * one BBC SHIFT; F12 and Pause are one BREAK). It only lets go of what it
+ * pressed, so a key clicked down in the panel stays down.
  */
 export class PcKeyTracker {
   private readonly keyboard: KeyboardSwitches;
-  /** PC codes held now, each with the BBC key it pressed. */
+  private readonly breakSwitch: BreakSwitch | undefined;
+  /** PC codes held now, each with the BBC key it pressed (or BREAK_HELD). */
   private readonly held = new Map<string, number>();
 
-  constructor(keyboard: KeyboardSwitches) {
+  /** Without a breakSwitch, F12 and Pause are left to the browser. */
+  constructor(keyboard: KeyboardSwitches, breakSwitch?: BreakSwitch) {
     this.keyboard = keyboard;
+    this.breakSwitch = breakSwitch;
   }
 
   /** A PC key went down. Returns true if it's a BBC key (so the caller can stop the browser using it). */
   keyDown(code: string): boolean {
-    const key = PC_KEY_MAP.get(code);
+    const key = this.bbcKeyFor(code);
     if (key === undefined) return false;
     if (!this.held.has(code)) {
+      const first = !this.isHeld(key);
       this.held.set(code, key);
-      this.keyboard.press(key);
+      if (first) this.down(key);
     }
     return true;
   }
 
   /** A PC key came up. Returns true if it's a BBC key. */
   keyUp(code: string): boolean {
-    const key = PC_KEY_MAP.get(code);
+    const key = this.bbcKeyFor(code);
     if (key === undefined) return false;
-    if (this.held.delete(code) && !this.isHeld(key)) this.keyboard.release(key);
+    if (this.held.delete(code) && !this.isHeld(key)) this.up(key);
     return true;
   }
 
@@ -92,7 +116,23 @@ export class PcKeyTracker {
   releaseAll(): void {
     const keys = new Set(this.held.values());
     this.held.clear();
-    for (const key of keys) this.keyboard.release(key);
+    for (const key of keys) this.up(key);
+  }
+
+  /** The matrix key, BREAK_HELD, or undefined if the BBC doesn't use this PC key. */
+  private bbcKeyFor(code: string): number | undefined {
+    if (this.breakSwitch !== undefined && BREAK_PC_CODES.has(code)) return BREAK_HELD;
+    return PC_KEY_MAP.get(code);
+  }
+
+  private down(key: number): void {
+    if (key === BREAK_HELD) this.breakSwitch?.setBreak(true);
+    else this.keyboard.press(key);
+  }
+
+  private up(key: number): void {
+    if (key === BREAK_HELD) this.breakSwitch?.setBreak(false);
+    else this.keyboard.release(key);
   }
 
   private isHeld(key: number): boolean {

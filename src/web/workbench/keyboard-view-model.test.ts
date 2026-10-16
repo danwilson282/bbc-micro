@@ -1,5 +1,5 @@
 import { Keyboard, MATRIX_COLUMNS, MATRIX_ROWS } from '../../devices/keyboard';
-import { DESK_ROWS, describeDown, describeScan, matrixCells } from './keyboard-view-model';
+import { BREAK_TITLE, DESK_ROWS, describeDown, describeScan, matrixCells } from './keyboard-view-model';
 
 function capsIn(row: number): string[] {
   return (DESK_ROWS[row] ?? []).map((cap) => (cap.kind === 'key' ? cap.legend : cap.kind));
@@ -74,6 +74,19 @@ describe('describeDown: what is held, in words', () => {
 
   it('leaves out the links: they are not keys anyone is holding', () => {
     expect(describeDown(new Keyboard(0x00))).toBe('No keys down.');
+  });
+
+  it('puts a held BREAK first, with what it does: it is not in the matrix, so it has no key number (Stage 36)', () => {
+    const kb = new Keyboard();
+    expect(describeDown(kb, true)).toBe('Down: BREAK (the 6502 is held in reset)');
+    kb.press(0x01);
+    expect(describeDown(kb, true)).toBe('Down: BREAK (the 6502 is held in reset), CTRL &01');
+  });
+});
+
+describe('the BREAK keycap (Stage 36)', () => {
+  it('says what BREAK is wired to, which PC keys press it, and that a click holds it', () => {
+    expect(BREAK_TITLE).toBe('BREAK: not in the matrix, it pulls the 6502\'s /RES low. PC key: F12 or Pause. Click to hold it down, click again to let go (the reset runs then).');
   });
 });
 

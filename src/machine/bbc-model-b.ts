@@ -37,13 +37,22 @@
 //
 //   keyboard counter ──▶ column ──▶ any key? ──▶ System VIA CA2 ──▶ IFR bit 0 ──▶ /IRQ
 //
+// Stage 36 makes BREAK a switch you hold. It isn't in the key matrix: it
+// pulls the 6502's /RES low. While it's held the CPU runs nothing, but the
+// clock goes on, so the devices are still ticked. Letting go runs the reset
+// sequence (6502 datasheet: the sequence starts when /RES goes high). And
+// the two lock LEDs are read from IC32 bits 6 and 7 (0 = lit).
+//
+//   BREAK ──▶ /RES ──▶ 6502 only        IC32 bit 6 ──▶ CAPS LOCK LED
+//                                       IC32 bit 7 ──▶ SHIFT LOCK LED
+//
 // step() and runCycles() are the hot path: no objects, closures or arrays
 // are made in them, and the device lists are walked with indexed loops.
 
 import { Cpu6502, type InterruptKind } from '../cpu/cpu6502';
 import type { Registers } from '../cpu/registers';
 import { Tracer } from '../cpu/trace';
-import { AddressableLatch, LATCH_KEYBOARD_ENABLE } from '../devices/addressable-latch';
+import { AddressableLatch, LATCH_CAPS_LOCK_LED, LATCH_KEYBOARD_ENABLE, LATCH_SHIFT_LOCK_LED } from '../devices/addressable-latch';
 import type { Clocked } from '../devices/clocked';
 import { HardwareLog, type CycleClock } from '../devices/hardware-log';
 import { Keyboard } from '../devices/keyboard';
@@ -70,6 +79,12 @@ export const HARDWARE_LOG_CAPACITY = 4096;
 
 /** PA7: the keyboard's "that key is down" line (Advanced User Guide, System VIA port A). */
 const PA7 = 0x80;
+
+/**
+ * While BREAK holds /RES low, step() moves time on by this much: one 1 MHz
+ * tick, the smallest step the VIAs and the keyboard's counter take.
+ */
+const BREAK_HELD_STEP_CYCLES = 2;
 
 /**
  * A card on the 1 MHz bus: it answers FRED (&FC00-&FCFF), can pull /IRQ
@@ -115,6 +130,8 @@ export class BbcModelB implements PinListener, DataBus, CycleClock {
    * budget; the debt is carried into the next call, so time never drifts.
    */
   private budget = 0;
+  /** BREAK is down: /RES is low and the CPU is held (Stage 36). */
+  private breakDown = false;
 
   constructor(name = 'BBC Model B') {
     this.name = name;
@@ -163,6 +180,7 @@ export class BbcModelB implements PinListener, DataBus, CycleClock {
    * cycles it took. Returns those cycles. May throw UnimplementedOpcodeError.
    */
   step(): number {
+    if (this.breakDown) return this.stepHeldInReset();
     // The debugger may have changed a device since the last step (a VIA panel button).
     this.syncIrq();
     this.trace.record(this.cpu);
@@ -188,6 +206,17 @@ export class BbcModelB implements PinListener, DataBus, CycleClock {
       ran += cycles;
     }
     return ran;
+  }
+
+  /**
+   * BREAK is held: the 6502 does nothing, but its clock still runs, and so
+   * do the VIAs, the vsync and the keyboard's counter. The cycles are added
+   * to the CPU's count so the frame budget and the logs' timestamps move.
+   */
+  private stepHeldInReset(): number {
+    this.cpu.cycles += BREAK_HELD_STEP_CYCLES;
+    this.tick(BREAK_HELD_STEP_CYCLES);
+    return BREAK_HELD_STEP_CYCLES;
   }
 
   /** One 50 Hz frame's worth: runCycles(40,000). */
@@ -228,6 +257,23 @@ export class BbcModelB implements PinListener, DataBus, CycleClock {
     this.tick(cycles);
     this.syncIrq();
     return cycles;
+  }
+
+  /**
+   * The BREAK key as a switch (Stage 36). Pressing it holds the CPU in
+   * reset; letting go runs reset() (the CPU's reset sequence). Pressing a
+   * held BREAK, or letting go of one that's up, does nothing. reset() is
+   * still the quick tap: down and up at once.
+   */
+  setBreak(down: boolean): void {
+    if (down === this.breakDown) return;
+    this.breakDown = down;
+    if (!down) this.reset();
+  }
+
+  /** Is BREAK held down (/RES low)? */
+  get breakHeld(): boolean {
+    return this.breakDown;
   }
 
   /** One pulse on /NMI (asserted then released): one falling edge for the CPU's latch. */
@@ -276,6 +322,18 @@ export class BbcModelB implements PinListener, DataBus, CycleClock {
     this.systemVia.setOutside('a', down ? others | PA7 : others);
   }
 
+  // ── The lock LEDs ──────────────────────────────────────────────────────
+
+  /** Is the CAPS LOCK LED lit? IC32 bit 6, active low (Advanced User Guide, addressable latch). */
+  get capsLockLed(): boolean {
+    return this.latch.bit(LATCH_CAPS_LOCK_LED) === 0;
+  }
+
+  /** Is the SHIFT LOCK LED lit? IC32 bit 7, active low. */
+  get shiftLockLed(): boolean {
+    return this.latch.bit(LATCH_SHIFT_LOCK_LED) === 0;
+  }
+
   /** The last byte on the data bus: what a read nobody answers sees. */
   get dataBus(): number {
     return this.map.dataBus;
@@ -304,8 +362,9 @@ export class BbcModelB implements PinListener, DataBus, CycleClock {
     return this.cpu.nmiPending;
   }
 
-  /** What the next step() will do instead of an instruction, if anything. */
+  /** What the next step() will do instead of an instruction, if anything. Nothing while BREAK holds the CPU. */
   get pendingInterrupt(): InterruptKind | undefined {
+    if (this.breakDown) return undefined;
     this.syncIrq();
     return this.cpu.pendingInterrupt;
   }

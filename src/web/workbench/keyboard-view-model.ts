@@ -96,11 +96,16 @@ export function matrixCells(): readonly (readonly MatrixCell[])[] {
   return rows;
 }
 
-/** "Down: SHIFT &00, A &41", in matrix order; links aren't listed. */
-export function describeDown(keyboard: Keyboard): string {
+/** The BREAK keycap's tooltip (Stage 36). */
+export const BREAK_TITLE =
+  "BREAK: not in the matrix, it pulls the 6502's /RES low. PC key: F12 or Pause. Click to hold it down, click again to let go (the reset runs then).";
+
+/** "Down: SHIFT &00, A &41", in matrix order; links aren't listed. A held BREAK comes first. */
+export function describeDown(keyboard: Keyboard, breakHeld = false): string {
   const down = BBC_KEYS.filter((key) => keyboard.isDown(key.key))
     .sort((a, b) => a.key - b.key)
     .map((key) => `${key.name} &${hex8(key.key)}`);
+  if (breakHeld) down.unshift('BREAK (the 6502 is held in reset)');
   return down.length === 0 ? 'No keys down.' : `Down: ${down.join(', ')}`;
 }
 

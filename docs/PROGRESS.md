@@ -2,7 +2,7 @@
 
 Tracks where the build is up to. The `/start-stage` and `/finish-stage` skills keep this file up to date. For what each stage involves, see [`BUILD-PLAN.md`](./BUILD-PLAN.md).
 
-**Current stage:** 36 — Modifiers, BREAK & LEDs (not started)
+**Current stage:** 37 — CRTC registers & geometry (not started)
 
 **Status values:**
 - `not started`
@@ -83,7 +83,7 @@ Tracks where the build is up to. The `/start-stage` and `/finish-stage` skills k
 |---|---|---|---|---|---|---|
 | 34 | Key matrix & PC mapping | done | ✅ | `stage/34-key-matrix` | [doc](./stages/34-key-matrix.md) | `devices/keyboard.ts` replaces `KeyboardStub`: `BBC_KEYS` (**72** keys from the AUG, 35 checked against `INKEY` numbers), one byte per column (`Uint8Array(10)`, bit = row), links folded in as row 0, `onChange` → machine recomputes PA7 at once. `web/key-map.ts`: **by place** (`event.code`), UK PC layout (`'`→`:`, `#`→`]`, `` ` ``→`_`, End→COPY, F10→f0); `PcKeyTracker` counts both Shifts, releases only its own presses. `web/keyboard-input.ts`: screen-focus only, repeats ignored, blur/⌘ let go, `preventDefault` on mapped keys. Keyboard panel (first under the screen): desk view + 8 × 10 matrix, built once, sticky click (SHIFT LOCK). **Found: CTRL+BREAK already hard-resets** (`&028D` = 2) via `keyTest`; ROM test added. `e2e/keyboard.spec.ts` (7). |
 | 35 | Scanning & keyboard interrupts | done | ✅ | `stage/35-keyboard-scanning` | [doc](./stages/35-keyboard-scanning.md) | **🎉 Typing into BASIC works** (browser and headless). `Keyboard` gains the scan logic: 4-bit column counter at 1 MHz while latch bit 3 = 1, loaded from PA0-PA3 while 0; CA2 = any key in **rows 1-7** of the counter's column (10-15 empty), pushed to System VIA CA2 edge by edge from `tick()` (no missed 1 µs pulses). `connectCa2` drives the level at once (the VIA's CA2 floats high: the first key wasn't an edge). Read from the **MOS 1.20 disassembly**: PCR &04, IER &81 at &EEE2 / &01 at &EF04 (every KEYV call while a key is down), column test at &F0EB-&F0FD (&0F first, clear IFR bit 0, column, `BIT &FE4D`). `machine/type-text.ts`: `keysFor` (symbolic, from `BBC_KEYS`), `typeText` (2 frames down, 2 up; min hold measured: none < 10 ms, all from 25 ms). Panel scan line (`describeScan`). `demo:typing`. `e2e/typing.spec.ts` (real-time project, 2). |
-| 36 | Modifiers, BREAK & LEDs | not started | | `stage/36-modifiers-break-leds` | [doc](./stages/36-modifiers-break-leds.md) | |
+| 36 | Modifiers, BREAK & LEDs | done | ✅ | `stage/36-modifiers-break-leds` | [doc](./stages/36-modifiers-break-leds.md) | **BREAK is a held switch on /RES**: `machine.setBreak(down)`; held → CPU not stepped, devices ticked 2 cycles a step (clock runs), `pendingInterrupt` undefined; release → `reset()`. `reset()` stays the tap. LEDs: `capsLockLed`/`shiftLockLed` = IC32 bits 6/7 == 0. Modifiers needed no emulation code: measured from the MOS (`&025A`, `keyLeds` &EEEB). **Found:** CTRL+BREAK doesn't clear RAM (only power-on or `*FX200,2`, &D9DC); soft BREAK keeps TIME (&0292-&029B), hard zeroes it; SHIFT doesn't undo CAPS LOCK; both LEDs lit ~12 ms at power-on. `tapKeys`. PC: F12/Pause = BREAK (`BreakSwitch` in `PcKeyTracker`). Panel BREAK keycap sticky, LED dots on lock keycaps; LED strip by the run controls (`web/lock-leds.ts`). `demo:break`. `e2e/basic-program.spec.ts` (real-time, 3); keyboard.spec BREAK test updated. |
 
 ## Part 8: The 6845 CRTC
 
@@ -221,3 +221,7 @@ Things to come back to: questions raised during a stage, known inaccuracies, ide
 - A browser keydown + keyup between two animation frames gives the machine no emulated time with the key down (Playwright's instant `press` is lost). The MOS ignores presses under ~10 ms anyway (measured), but frame batching adds up to ~16 ms of jitter. A minimum hold in the web layer (release no earlier than N emulated ms after press) would make very fast taps reliable. Idea only. (Stage 35)
 - Keyboard chip numbers (74LS163 counter, 74LS145 decoder, 74LS251 selector, 74LS30 NAND) are BeebWiki's, unchecked against the circuit diagram; the behaviour is what the MOS's code requires. The counter is assumed to power up at 0. (Stage 35)
 - Inside the scan loop the MOS turns autoscan back on and does `CLI : SEI` for every column (`&F0E3` → `&F129`), a brief window for other interrupts. Not investigated further. (Stage 35)
+- How the Model B board conditions the BREAK switch (debounce, minimum /RES pulse) is unchecked; we model held → CPU stopped, released → reset sequence. (Stage 36)
+- F12 may still open developer tools in some browsers despite `preventDefault`; Pause and the panel keycap are the fallbacks. (Stage 36)
+- The cassette motor LED (serial ULA motor control) isn't shown; cassette is out of scope. Where the LEDs sit on a real Model B's case isn't modelled: the strip under the screen is for convenience. (Stage 36)
+- Held BREAK costs 20,000 tiny 2-cycle steps a frame (vs ~10,000 instructions). Unmeasured; fine for a moment's hold. (Stage 36)
