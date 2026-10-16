@@ -67,7 +67,14 @@ test.describe('Keyboard panel', () => {
     await page.keyboard.up('a');
   });
 
-  test('BREAK is shown but disabled: it is not in the matrix', async ({ page }) => {
-    await expect(page.locator('.bbc-key.not-in-matrix')).toBeDisabled();
+  test('BREAK is a keycap but not a matrix key (Stage 36): a click holds the 6502 in reset, a second click lets go', async ({ page }) => {
+    const brk = page.locator('.bbc-key.not-in-matrix');
+    await expect(brk).toHaveText('BREAK');
+    await brk.click();
+    await expect(brk).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.locator('.keyboard-status')).toContainText('Down: BREAK (the 6502 is held in reset)');
+    await brk.click();
+    await expect(brk).toHaveAttribute('aria-pressed', 'false');
+    await expect(page.locator('.keyboard-status')).toContainText('No keys down.');
   });
 });

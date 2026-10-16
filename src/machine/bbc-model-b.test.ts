@@ -112,6 +112,105 @@ describe('BbcModelB: power-on and BREAK', () => {
   });
 });
 
+describe('BbcModelB: the BREAK key is a switch on /RES (Stage 36)', () => {
+  /** INX : JMP &0400, so X counts while the CPU runs. */
+  const COUNTING_LOOP = [0xe8, 0x4c, 0x00, 0x04];
+
+  it('holding BREAK stops the 6502: no instruction runs, so PC and X stay put', () => {
+    const m = machineWith(COUNTING_LOOP);
+    m.runCycles(100);
+    const { pc, x } = m.registers;
+    m.setBreak(true);
+    expect(m.breakHeld).toBe(true);
+    m.runFrame();
+    expect(m.registers.pc).toBe(pc);
+    expect(m.registers.x).toBe(x);
+  });
+
+  it('while BREAK is held the clock still runs: cycles advance and System VIA T1 keeps counting down', () => {
+    const m = machineWith(COUNTING_LOOP);
+    m.map.write(0xfe44, 0xff); // T1 latch low
+    m.map.write(0xfe45, 0xff); // T1 high: load and start, &FFFF
+    m.setBreak(true);
+    m.runCycles(10); // past the VIA's one-cycle load delay (Stage 25)
+    const cycles = m.cycles;
+    const t1 = m.peek(0xfe44) | (m.peek(0xfe45) << 8);
+    const ran = m.runCycles(1000);
+    expect(ran).toBe(1000); // 2-cycle steps: exactly the budget
+    expect(m.cycles - cycles).toBe(1000);
+    expect(t1 - (m.peek(0xfe44) | (m.peek(0xfe45) << 8))).toBe(500); // 1 MHz: one count per 2 CPU cycles
+  });
+
+  it('letting go of BREAK runs the reset sequence: 7 cycles, PC from &FFFC, and the VIAs keep their IER', () => {
+    const m = machineWith(COUNTING_LOOP, 0x0400);
+    m.map.write(SYSTEM_VIA_IER, 0x82);
+    m.runCycles(100);
+    m.setBreak(true);
+    m.runCycles(100);
+    const before = m.cycles;
+    m.setBreak(false);
+    expect(m.breakHeld).toBe(false);
+    expect(m.cycles - before).toBe(7);
+    expect(m.registers.pc).toBe(0x0400);
+    expect(m.peek(SYSTEM_VIA_IER)).toBe(0x82);
+  });
+
+  it('pressing an already-held BREAK, or letting go of one that is up, does nothing: no second reset', () => {
+    const m = machineWith(COUNTING_LOOP);
+    m.setBreak(false);
+    m.runCycles(100);
+    const pc = m.registers.pc;
+    const cycles = m.cycles;
+    m.setBreak(false);
+    expect(m.cycles).toBe(cycles);
+    expect(m.registers.pc).toBe(pc);
+    m.setBreak(true);
+    m.setBreak(true);
+    m.setBreak(false);
+    expect(m.cycles - cycles).toBe(7); // one reset sequence
+  });
+
+  it('a held BREAK ignores /IRQ: the line is low, but no interrupt sequence runs', () => {
+    const m = machineWith([0x58, ...COUNTING_LOOP.map((b, i) => (i === 2 ? 0x01 : b))]); // CLI, then INX : JMP &0401
+    m.runCycles(20);
+    const { pc, s } = m.registers;
+    m.setBreak(true);
+    raiseCa1(m, m.systemVia, SYSTEM_VIA_IER);
+    m.runCycles(100);
+    expect(m.irqLine).toBe(true);
+    expect([m.registers.pc, m.registers.s]).toEqual([pc, s]); // nothing pushed
+    expect(m.pendingInterrupt).toBeUndefined(); // the debugger mustn't promise an IRQ the held CPU won't take
+  });
+});
+
+describe('BbcModelB: the lock LEDs hang off IC32 (Stage 36)', () => {
+  /** DDRB = &0F, then each value to ORB at &FE40: the latch sees PB0-PB3. */
+  function latchWrites(...values: number[]): BbcModelB {
+    const m = machineWith(JMP_LOOP);
+    m.map.write(0xfe42, 0x0f);
+    for (const value of values) m.map.write(0xfe40, value);
+    return m;
+  }
+
+  it('&06 to &FE40 (address 6, data 0) lights the CAPS LOCK LED; &0E puts it out', () => {
+    expect(latchWrites(0x06).capsLockLed).toBe(true);
+    expect(latchWrites(0x06, 0x0e).capsLockLed).toBe(false);
+  });
+
+  it('&07 lights the SHIFT LOCK LED (bit 7); &0F puts it out; neither touches the other LED', () => {
+    const m = latchWrites(0x0e, 0x07);
+    expect([m.capsLockLed, m.shiftLockLed]).toEqual([false, true]);
+    m.map.write(0xfe40, 0x0f);
+    expect([m.capsLockLed, m.shiftLockLed]).toEqual([false, false]);
+  });
+
+  it('at power-on, before any instruction, PB0-PB3 float high: bit 7 = 1 (SHIFT LOCK off), and the cleared bit 6 lights CAPS LOCK', () => {
+    const m = new BbcModelB();
+    m.powerOn();
+    expect([m.capsLockLed, m.shiftLockLed]).toEqual([true, false]);
+  });
+});
+
 describe('BbcModelB: one step', () => {
   it('ticks both VIAs by the cycles the instruction took, so T1 counts down as a lone VIA ticked the same way would', () => {
     // LDA #1 (2), INC &70 (5), NOP (2), JMP &0400 (3): odd and even lengths, so the 1 MHz half-cycles matter.

@@ -800,7 +800,27 @@
       }
       .bbc-key.not-in-matrix {
         border-style: dashed;
-        cursor: not-allowed;
+      }
+      /* Stage 36: the lock LEDs, on the keycaps and under the screen. */
+      .key-led,
+      .led-light {
+        display: inline-block;
+        width: 0.55em;
+        height: 0.55em;
+        margin-right: 0.3em;
+        border-radius: 50%;
+        background: var(--border);
+        vertical-align: baseline;
+      }
+      .key-led.lit,
+      .lock-led.lit .led-light {
+        background: #e53935;
+        box-shadow: 0 0 4px #e53935;
+      }
+      .lock-leds {
+        display: inline-flex;
+        gap: 10px;
+        font-size: 0.75rem;
         color: var(--muted);
       }
       .bbc-key.down,

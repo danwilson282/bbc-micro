@@ -9,13 +9,18 @@
 // lights in both. Click a key to hold it down, and click again to let go:
 // the only way to press SHIFT LOCK, which has no PC twin.
 //
+// Stage 36: BREAK is a keycap too, though not a matrix key. Click it to
+// hold BREAK down (the 6502 stops), click again to let go (the reset
+// runs). The CAPS LOCK and SHIFT LOCK keycaps carry their LEDs, read from
+// IC32 bits 6 and 7.
+//
 // The buttons and cells are built once. refresh() only flips a class on
 // each, so a click can't land on an element that has just been replaced
 // (the problem the older panels have while running; see Stage 26).
 
 import { MATRIX_COLUMNS, type Keyboard } from '../../devices/keyboard';
 import { hex8 } from '../../util/bits';
-import { DESK_ROWS, describeDown, describeScan, matrixCells } from './keyboard-view-model';
+import { BREAK_TITLE, DESK_ROWS, describeDown, describeScan, matrixCells } from './keyboard-view-model';
 import type { Panel } from './panel';
 
 export interface KeyboardPanelOptions {
@@ -25,7 +30,15 @@ export interface KeyboardPanelOptions {
   readonly typing: () => boolean;
   /** The System VIA's IER, for the scan line (Stage 35). */
   readonly ier: () => number;
+  /** The BREAK switch (Stage 36): BbcModelB.breakHeld and setBreak. */
+  readonly breakKey: { held(): boolean; setBreak(down: boolean): void };
+  /** The lock LEDs (Stage 36): lit or not. */
+  readonly leds: () => { readonly capsLock: boolean; readonly shiftLock: boolean };
 }
+
+/** Matrix keys with an LED in them. */
+const CAPS_LOCK = 0x40;
+const SHIFT_LOCK = 0x50;
 
 export function createKeyboardPanel(keyboard: Keyboard, options: KeyboardPanelOptions): Panel {
   const element = document.createElement('div');
@@ -45,6 +58,9 @@ export function createKeyboardPanel(keyboard: Keyboard, options: KeyboardPanelOp
 
   // Everything that lights up, with the key number it shows.
   const lit: { readonly element: HTMLElement; readonly key: number }[] = [];
+  let breakCap: HTMLButtonElement | undefined;
+  const capsLed: HTMLElement[] = [];
+  const shiftLed: HTMLElement[] = [];
 
   const desk = document.createElement('div');
   desk.className = 'bbc-keyboard';
@@ -57,11 +73,20 @@ export function createKeyboardPanel(keyboard: Keyboard, options: KeyboardPanelOp
       b.type = 'button';
       b.className = 'bbc-key';
       b.style.flexGrow = String(cap.width);
+      // Keep focus on the screen, so you can click SHIFT LOCK (or BREAK) and go on typing.
+      b.addEventListener('mousedown', (event) => {
+        event.preventDefault();
+      });
       if (cap.kind === 'break') {
         b.textContent = 'BREAK';
-        b.disabled = true;
         b.classList.add('not-in-matrix');
-        b.title = 'BREAK is not in the matrix: it is wired to the reset circuit (Stage 36). Use the BREAK button under the screen.';
+        b.title = BREAK_TITLE;
+        b.setAttribute('aria-label', 'BREAK');
+        b.addEventListener('click', () => {
+          options.breakKey.setBreak(!options.breakKey.held());
+          options.onChange();
+        });
+        breakCap = b;
       } else {
         if (cap.shifted !== undefined) {
           const top = document.createElement('span');
@@ -70,14 +95,17 @@ export function createKeyboardPanel(keyboard: Keyboard, options: KeyboardPanelOp
           b.append(top, document.createElement('br'));
         }
         b.append(cap.legend);
+        if (cap.key === CAPS_LOCK || cap.key === SHIFT_LOCK) {
+          const led = document.createElement('span');
+          led.className = 'key-led';
+          led.setAttribute('aria-hidden', 'true');
+          b.prepend(led);
+          (cap.key === CAPS_LOCK ? capsLed : shiftLed).push(led);
+        }
         b.title = cap.title;
         b.dataset.key = hex8(cap.key);
         b.setAttribute('aria-label', cap.title);
         const key = cap.key;
-        // Keep focus on the screen, so you can click SHIFT LOCK and go on typing.
-        b.addEventListener('mousedown', (event) => {
-          event.preventDefault();
-        });
         b.addEventListener('click', () => {
           if (keyboard.isDown(key)) keyboard.release(key);
           else keyboard.press(key);
@@ -123,7 +151,15 @@ export function createKeyboardPanel(keyboard: Keyboard, options: KeyboardPanelOp
   function refresh(): void {
     hint.textContent = options.typing() ? 'Typing goes to the BBC.' : 'Click the screen to type.';
     hint.classList.toggle('active', options.typing());
-    down.textContent = describeDown(keyboard);
+    const breakHeld = options.breakKey.held();
+    down.textContent = describeDown(keyboard, breakHeld);
+    if (breakCap !== undefined) {
+      breakCap.classList.toggle('down', breakHeld);
+      breakCap.setAttribute('aria-pressed', String(breakHeld));
+    }
+    const leds = options.leds();
+    for (const led of capsLed) led.classList.toggle('lit', leds.capsLock);
+    for (const led of shiftLed) led.classList.toggle('lit', leds.shiftLock);
     scan.textContent = describeScan(keyboard, options.ier());
     for (const { element: e, key } of lit) {
       const isDown = keyboard.isDown(key);

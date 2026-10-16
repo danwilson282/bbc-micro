@@ -10,7 +10,7 @@ export interface RunControlsActions {
   /** Pause if running, run if paused. */
   onToggle(): void;
   onStepFrame(): void;
-  /** The BREAK key: the CPU's reset only (Stage 27). */
+  /** A tap of the BREAK key: the CPU's reset only (Stage 27). Holding it is the keyboard's job (Stage 36). */
   onBreak(): void;
   /** Switch off and on: every chip reset. */
   onPowerOn(): void;
@@ -40,7 +40,7 @@ export function createRunControls(actions: RunControlsActions): RunControls {
   const toggle = button('Pause', 'Pause the machine');
   toggle.dataset.field = 'toggle';
   const stepFrame = button('Step frame', 'Run one 20 ms frame (40,000 cycles)');
-  const breakKey = button('BREAK', 'Press BREAK (reset the CPU only)');
+  const breakKey = button('BREAK', 'Tap BREAK (reset the CPU only). Hold F12 to hold it down.');
   const powerOn = button('Power on', 'Switch off and on again (reset every chip)');
   const testPage = button('Test page', 'Show the next teletext test page (pokes screen memory)');
   const status = document.createElement('span');

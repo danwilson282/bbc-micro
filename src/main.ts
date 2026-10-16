@@ -19,6 +19,7 @@ import { fetchStandardRoms } from './web/rom-fetch';
 import { createFrameLoop } from './web/frame-loop';
 import { PcKeyTracker } from './web/key-map';
 import { attachKeyboardInput } from './web/keyboard-input';
+import { createLockLeds } from './web/lock-leds';
 import { createRunControls } from './web/run-controls';
 import { createScreenCanvas } from './web/screen-canvas';
 import { createTextScreen } from './web/text-screen';
@@ -95,10 +96,13 @@ const peekScreen = (address: number): number => machine.peek(address);
 // The SAA5050 times its own flash by counting fields (Stage 33), so the
 // phase comes from the vsyncs so far: paused, it stops blinking. (In the
 // playground the fake vsync is off, so flashing text stays shown.)
+// The keyboard LEDs (Stage 36) are drawn with the screen: they're cheap, and they change as you type.
+const lockLeds = createLockLeds();
 const drawScreen = (): void => {
   const start = mode7StartAddress(machine.crtc.register(12), machine.crtc.register(13));
   screenCanvas.draw(peekScreen, start, teletextFlashVisible(machine.vsync.pulses));
   textScreen.draw(peekScreen, start);
+  lockLeds.update(machine.capsLockLed, machine.shiftLockLed);
 };
 
 const refreshAll = (): void => {
@@ -121,8 +125,22 @@ const keyboardPanel = createKeyboardPanel(machine.keyboard, {
   },
   typing,
   ier: () => machine.peek(0xfe4e), // System VIA IER
+  breakKey: {
+    held: () => machine.breakHeld,
+    setBreak: (down) => {
+      machine.setBreak(down);
+      if (!loop.running) refreshAll();
+    },
+  },
+  leds: () => ({ capsLock: machine.capsLockLed, shiftLock: machine.shiftLockLed }),
 });
-const pcKeys = new PcKeyTracker(machine.keyboard);
+// F12 or Pause is BREAK (Stage 36): held on key-down, let go (the reset) on key-up.
+const pcKeys = new PcKeyTracker(machine.keyboard, {
+  setBreak: (down) => {
+    machine.setBreak(down);
+    if (!loop.running) refreshAll();
+  },
+});
 attachKeyboardInput(screenFrame, pcKeys, () => {
   screenFrame.classList.toggle('typing', typing());
   keyboardPanel.refresh();
@@ -210,7 +228,9 @@ const controls = createRunControls({
     controls.update(false, framesRun, loop.speed);
   },
   onBreak: () => {
-    machine.reset();
+    // A tap: down and up at once. Hold F12, or click the panel's BREAK keycap, to hold it (Stage 36).
+    machine.setBreak(true);
+    machine.setBreak(false);
     target.writes.clear();
     refreshAll();
     if (!loop.running) controls.update(false, framesRun, loop.speed);
@@ -224,6 +244,7 @@ const controls = createRunControls({
     if (!loop.running) controls.update(false, framesRun, loop.speed);
   },
 });
+controls.element.append(lockLeds.element);
 if (mosMode) screenFrame.after(controls.element);
 
 // The switch between the two modes, at the top of the workbench column.

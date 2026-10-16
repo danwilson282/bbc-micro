@@ -3,7 +3,7 @@ import { loadStandardRoms } from '../memory/rom-files';
 import { withRoms } from '../memory/with-roms';
 import { mode7StartAddress, mode7Text } from '../video/mode7-text';
 import { BbcModelB } from './bbc-model-b';
-import { DEFAULT_TYPING, keysFor, typeText } from './type-text';
+import { DEFAULT_TYPING, keysFor, tapKeys, typeText } from './type-text';
 
 describe('keysFor: which BBC switches type a character', () => {
   it('a capital letter or digit is its own key: A is &41, P is &37, 2 is &31', () => {
@@ -68,6 +68,27 @@ describe('typeText', () => {
       [1, 0, 1], [1, 0, 1], [0, 0, 0], [0, 0, 0],
     ]);
     expect(m.cycles - before).toBeGreaterThanOrEqual(8 * 40_000);
+  });
+});
+
+describe('tapKeys: one chord (Stage 36)', () => {
+  it('holds CTRL and A together for holdFrames, then lets both go for gapFrames', () => {
+    const m = new BbcModelB();
+    [0x4c, 0x00, 0x04].forEach((b, i) => {
+      m.poke(0x0400 + i, b);
+    });
+    m.poke(RESET_VECTOR, 0x00);
+    m.poke(RESET_VECTOR + 1, 0x04);
+    m.powerOn();
+    const seen: number[][] = [];
+    tapKeys(m, [0x01, 0x41], {
+      holdFrames: 1,
+      gapFrames: 2,
+      onFrame: () => {
+        seen.push([m.keyboard.isDown(0x01) ? 1 : 0, m.keyboard.isDown(0x41) ? 1 : 0]);
+      },
+    });
+    expect(seen).toEqual([[1, 1], [0, 0], [0, 0]]);
   });
 });
 
