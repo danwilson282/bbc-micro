@@ -19,7 +19,7 @@
 //
 // Stage 28 plugs in the parts the MOS talks to while it starts up, built
 // just well enough: the IC32 latch on the System VIA's PB0-PB3, a keyboard
-// on its port A (a stub then; the real matrix since Stage 34), and storage stubs for the CRTC and Video ULA. They
+// on its port A (a stub then; the real matrix since Stage 34), and storage stubs for the CRTC (the real register file since Stage 37) and Video ULA. They
 // report what they're told to the hardware log, by name.
 //
 //   System VIA PB0-PB3 ──▶ IC32 latch ──▶ bit 3: keyboard enable ─┐
@@ -59,7 +59,7 @@ import { Keyboard } from '../devices/keyboard';
 import type { IrqSource } from '../devices/irq-source';
 import { AciaStub } from '../devices/stubs/acia-stub';
 import { FakeVsync } from '../devices/stubs/fake-vsync';
-import { CrtcStub } from '../devices/stubs/crtc-stub';
+import { Crtc6845 } from '../devices/crtc6845';
 import { VideoUlaStub } from '../devices/stubs/video-ula-stub';
 import { Via6522, type PinListener, type ViaPort } from '../devices/via6522';
 import { BbcMemoryMap } from '../memory/bbc-memory-map';
@@ -106,8 +106,8 @@ export class BbcModelB implements PinListener, DataBus, CycleClock {
   readonly latch: AddressableLatch;
   /** The key matrix (Stage 34) and its scan counter (Stage 35). A press or release recomputes PA7 and CA2 at once. */
   readonly keyboard: Keyboard;
-  /** Stubs until their stages: CRTC (Stage 37), Video ULA (Stage 40). */
-  readonly crtc: CrtcStub;
+  /** The 6845's registers (Stage 37). Its counters and VSYNC are Stage 38. */
+  readonly crtc: Crtc6845;
   /** Always idle: serial and cassette are out of scope. The MOS asks it first on every IRQ (Stage 29). */
   readonly acia = new AciaStub();
   /** A 50 Hz pulse on the System VIA's CA1, until the CRTC makes a real one (Stage 38). */
@@ -138,7 +138,7 @@ export class BbcModelB implements PinListener, DataBus, CycleClock {
     // The log asks this machine the time (its cycles), and the ULA asks it for the floating bus.
     this.hardwareLog = new HardwareLog(this, HARDWARE_LOG_CAPACITY);
     this.latch = new AddressableLatch(this.hardwareLog);
-    this.crtc = new CrtcStub(this.hardwareLog);
+    this.crtc = new Crtc6845(this.hardwareLog);
     this.videoUla = new VideoUlaStub(this, this.hardwareLog);
     this.keyboard = new Keyboard(undefined, () => {
       this.answerKeyboard();

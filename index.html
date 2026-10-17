@@ -999,6 +999,87 @@
         font-size: 0.8rem;
         color: var(--muted);
       }
+      /* CRTC panel (Stage 37) */
+      .crtc-summary {
+        margin: 0 0 6px;
+        font-weight: 600;
+      }
+      .crtc-frame {
+        position: relative;
+        width: 100%;
+        max-width: 320px;
+        aspect-ratio: 4 / 3;
+        border: 1px solid var(--muted);
+        background: color-mix(in srgb, var(--muted) 12%, transparent);
+        overflow: hidden;
+      }
+      .crtc-frame > div {
+        position: absolute;
+      }
+      .crtc-displayed {
+        background: var(--panel);
+        outline: 1px solid var(--fg);
+        outline-offset: -1px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 0.75rem;
+        color: var(--muted);
+      }
+      .crtc-hsync {
+        background: color-mix(in srgb, var(--written) 55%, transparent);
+      }
+      .crtc-vsync {
+        background: color-mix(in srgb, var(--accent) 70%, transparent);
+        min-height: 2px;
+      }
+      .crtc-legend {
+        margin: 2px 0 8px;
+        font-size: 0.75rem;
+        color: var(--muted);
+      }
+      .crtc-geometry {
+        display: grid;
+        grid-template-columns: max-content 1fr;
+        gap: 1px 10px;
+        margin: 0 0 8px;
+        font-size: 0.85rem;
+      }
+      .crtc-geometry dt {
+        color: var(--muted);
+      }
+      .crtc-geometry dd {
+        margin: 0;
+        font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+      }
+      .crtc-table {
+        border-collapse: collapse;
+        font-size: 0.85rem;
+      }
+      .crtc-table th {
+        color: var(--muted);
+        font-weight: normal;
+        padding: 1px 8px 1px 2px;
+        text-align: left;
+      }
+      .crtc-table td {
+        padding: 1px 8px 1px 3px;
+      }
+      .crtc-table td.hex,
+      .crtc-table td.access {
+        font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+      }
+      .crtc-table td.hex.changed {
+        background: var(--changed);
+      }
+      .crtc-table td.access,
+      .crtc-table td.meaning {
+        color: var(--muted);
+      }
+      .crtc-table tr.selected {
+        outline: 2px solid var(--accent);
+        outline-offset: -1px;
+      }
     </style>
   </head>
   <body>

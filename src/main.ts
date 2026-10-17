@@ -34,6 +34,7 @@ import { hex16, hex8 } from './util/bits';
 import { createAddressingPanel } from './web/workbench/addressing-panel';
 import { createAssemblerPanel } from './web/workbench/assembler-panel';
 import { createConverterPanel } from './web/workbench/converter-panel';
+import { createCrtcPanel } from './web/workbench/crtc-panel';
 import { createDisassemblyPanel } from './web/workbench/disassembly-panel';
 import { labelsFromSymbols } from './web/workbench/disassembly-view-model';
 import { createInterruptsPanel } from './web/workbench/interrupts-panel';
@@ -335,6 +336,9 @@ workbench.add(
     { initial: 0, onChange: refreshAll },
   ),
 );
+// The CRTC (Stage 37): its registers and the picture they describe. The
+// clock comes from the Video ULA's control byte, so both are passed.
+workbench.add(createCrtcPanel({ crtc: machine.crtc, ulaControl: () => machine.videoUla.control }));
 workbench.add(createAddressingPanel(target));
 workbench.add(createConverterPanel());
 
@@ -389,6 +393,7 @@ Object.assign(window, {
     },
     systemVia,
     userVia,
+    crtc: machine.crtc,
     keyboard: machine.keyboard,
     trace: (count = 20): string => [TRACE_HEADER, ...target.trace.recent(count).map((entry) => formatTraceLine(entry, labels))].join('\n'),
     irq: (): void => {
