@@ -2,7 +2,7 @@
 
 Tracks where the build is up to. The `/start-stage` and `/finish-stage` skills keep this file up to date. For what each stage involves, see [`BUILD-PLAN.md`](./BUILD-PLAN.md).
 
-**Current stage:** 37 — CRTC registers & geometry (not started)
+**Current stage:** 38 — CRTC counters & sync (not started)
 
 **Status values:**
 - `not started`
@@ -89,7 +89,7 @@ Tracks where the build is up to. The `/start-stage` and `/finish-stage` skills k
 
 | # | Stage | Status | Seen? | Branch | Doc | Notes |
 |---|---|---|---|---|---|---|
-| 37 | CRTC registers & geometry | not started | | `stage/37-crtc-registers` | [doc](./stages/37-crtc-registers.md) | |
+| 37 | CRTC registers & geometry | done | ✅ | `stage/37-crtc-registers` | [doc](./stages/37-crtc-registers.md) | `devices/crtc6845.ts` replaces `CrtcStub` (same `register`/`registers`/`addressRegister` API): per-register widths (`CRTC_REGISTER_BITS`), access table (R0-R13 W, R14-R15 R/W, R16-R17 R; others and `&FE00` read &00), log records the byte as sent. `devices/crtc-geometry.ts` (pure): `crtcGeometry(regs, clockHz)`, `describeCrtcGeometry`, `characterClockHz(ulaControl)` (bit 4). **Found: MOS R7 = table + `*TV` offset + 1** (`CPY #7` carry into `ADC &0290` at &C95E), so VSYNC is on line 280 in every MODE. Interlaced = 312.5 lines = 50.00 Hz (plan's "50.08 Hz, interlaced" was loose). CRTC panel: register table with meanings, worked geometry, to-scale field drawing; built once, text updates. ROM test types MODE 0-7. `e2e/crtc.spec.ts` (real-time, 2). |
 | 38 | CRTC counters & sync | not started | | `stage/38-crtc-counters-sync` | [doc](./stages/38-crtc-counters-sync.md) | |
 | 39 | CRTC addressing, scrolling & cursor | not started | | `stage/39-crtc-addressing-cursor` | [doc](./stages/39-crtc-addressing-cursor.md) | |
 
@@ -199,7 +199,6 @@ Things to come back to: questions raised during a stage, known inaccuracies, ide
 - Keyboard links default to all open (`&028F` = &FF, MODE 7). How Acorn shipped them is unconfirmed. (Stage 28)
 - Keyboard stub drives PA7 low whenever autoscan is on. A real board would show the counter's column (a closed link could appear). The MOS doesn't read PA7 then; Stage 35 builds the counter. (Stage 28)
 - The keyboard now owns the System VIA's PA7: the VIA panel's PA7 pull-low button is overridden at the next pin change (PA0-PA6 buttons still work). (Stage 28)
-- CRTC stub reads give &00 (the real 6845 reads R14-R17 only); Stage 37. (Stage 28)
 - ACIA stub status is fixed at &02: if RS423/cassette ever turned its interrupts on, a real 6850 would raise IRQ on TDRE; ours never will. /DCD and /CTS (bits 2-3 = 0) for an unconnected Model B port are unchecked. Serial/cassette are out of scope. (Stage 29)
 - Which VSYNC edge reaches System VIA CA1 (is the 6845's active-high VSYNC inverted?) is unconfirmed; with PCR &04 our IRQ comes at the start of the pulse. Stage 38. (Stage 29)
 - ~~`mode7Text` reads from &7C00 only; after BASIC scrolls, the MOS moves CRTC R12/R13 and the screen wraps inside &7C00-&7FFF. Stage 30's text grid needs the start address. (Stage 29)~~ Done in Stage 30: `mode7StartAddress`/`mode7CellAddress`.
@@ -223,5 +222,9 @@ Things to come back to: questions raised during a stage, known inaccuracies, ide
 - Inside the scan loop the MOS turns autoscan back on and does `CLI : SEI` for every column (`&F0E3` → `&F129`), a brief window for other interrupts. Not investigated further. (Stage 35)
 - How the Model B board conditions the BREAK switch (debounce, minimum /RES pulse) is unchecked; we model held → CPU stopped, released → reset sequence. (Stage 36)
 - F12 may still open developer tools in some browsers despite `preventDefault`; Pause and the panel keycap are the fallbacks. (Stage 36)
+- MODE 7 in interlace sync and video: we take a row as ⌊R9 ÷ 2⌋ + 1 lines per field (10 for R9 = 18), the only reading that gives 312½ lines. What the counter does with an odd R9, and which field starts on which line, is for Stage 38. (Stage 37)
+- Which 6845 the Model B has (HD6845SP vs MC6845P) isn't modelled: R12/R13 readability, fixed 16-line VSYNC and HSYNC width 0 differ between variants. We follow the AUG; R8 bits 2-3 are masked off (our reading). Registers power up &00 here, random on a real chip. (Stage 37)
+- The CRTC panel's geometry can briefly be nonsense mid-MODE-change (ULA clock and CRTC registers aren't written together). Cosmetic at 10 Hz refresh. (Stage 37)
+- ~~CRTC stub reads give &00; Stage 37.~~ Done in Stage 37: R14-R17 read back. (Stage 28)
 - The cassette motor LED (serial ULA motor control) isn't shown; cassette is out of scope. Where the LEDs sit on a real Model B's case isn't modelled: the strip under the screen is for convenience. (Stage 36)
 - Held BREAK costs 20,000 tiny 2-cycle steps a frame (vs ~10,000 instructions). Unmeasured; fine for a moment's hold. (Stage 36)
