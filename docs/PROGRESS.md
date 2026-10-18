@@ -2,7 +2,7 @@
 
 Tracks where the build is up to. The `/start-stage` and `/finish-stage` skills keep this file up to date. For what each stage involves, see [`BUILD-PLAN.md`](./BUILD-PLAN.md).
 
-**Current stage:** 41 — Pixel decoding (not started)
+**Current stage:** 42 — Rendering modes 0–6 (not started)
 
 **Status values:**
 - `not started`
@@ -98,7 +98,7 @@ Tracks where the build is up to. The `/start-stage` and `/finish-stage` skills k
 | # | Stage | Status | Seen? | Branch | Doc | Notes |
 |---|---|---|---|---|---|---|
 | 40 | ULA control & palette | done | ✅ | `stage/40-ula-palette` | [doc](./stages/40-ula-palette.md) | `devices/video-ula.ts` replaces `VideoUlaStub` (same `control`; `paletteEntry`, `physicalColour`, `teletext`, `flash`; pure `decodeUlaControl`, `paletteColour`). `ULA_CONTROL_FAST_CLOCK` moved here from crtc-geometry. **Measured:** MOS control table at &C3F7 (`9C D8 F4 9C 88 C4 88 4B`, `mos/mos-video-ula.ts`); OSBYTE &9B at &EA10 does `EOR #&07` (palette stores colour inverted); every bitmap MODE writes all 16 entries (MODE 1: `7766776644004400` → logical colour = index bits 3,1), MODE 7 writes none, power-on writes none; `VDU 19,1,4` in MODE 1 = 4 writes (&23 &33 &63 &73); flash flip from vsync at &DD23 in every MODE (&D8↔&D9). Screen black when control bit 1 = 0 (`ScreenCanvas.clear`, text layer empty); playground writes &4B. Video ULA panel (fields + 16 swatches, flashing live). Log: `ULA palette=&26 (entry &2 = red)`. `e2e/video-ula.spec.ts` (real-time, 3). Cursor segments decoded only (BeebWiki reading; AUG differs) — drawn in Stage 42. |
-| 41 | Pixel decoding | not started | | `stage/41-pixel-decoding` | [doc](./stages/41-pixel-decoding.md) | |
+| 41 | Pixel decoding | done | ✅ | `stage/41-pixel-decoding` | [doc](./stages/41-pixel-decoding.md) | New pure `video/pixel-decode.ts`. **One mechanism for every MODE:** shift register taps bits 7, 5, 3, 1 → palette index 3-0, then shift left 1 per pixel tick, a 1 shifted in (BeebWiki "Video ULA"; `ULA_SHIFT_FILL`). So pixel p's bits are 7 - p, then every pixels-per-byte places lower. Two views: `shiftPixels` (hardware palette indices, writes a caller's `Uint8Array`, no allocation, for Stage 42) and `logicalColour`/`encodePixels` (AUG layout), bridged by `logicalFromIndex` (1 bpp: index bit 3; 2 bpp: 3 and 1; 4 bpp: all). Exhaustive 256-byte tests at each depth, including "MOS default palette + hardware index = logical colour's colour". `MOS_DEFAULT_PALETTE` (Stage 40's measured nibbles) in `mos/mos-video-ula.ts`, ROM-checked in `ula-modes.test.ts`. Unused rates fall out: 16 px/byte → pixels 8-15 entry &F; 1 px/byte → odd bits only. **Byte explorer** panel: bit toggles, owner strips (`p0 p1…`), clickable pixels per MODE 0/1/2, live row with the machine's ULA (MODE 1 &A5 → &C &3 &9 &7; poking entry &C green changes pixel 0 only). `e2e/byte-explorer.spec.ts` (chromium, 5). |
 | 42 | Rendering modes 0–6 | not started | | `stage/42-bitmap-rendering` | [doc](./stages/42-bitmap-rendering.md) | |
 | 43 | Wrap-around & graphics | not started | | `stage/43-wraparound-graphics` | [doc](./stages/43-wraparound-graphics.md) | |
 
@@ -237,3 +237,5 @@ Things to come back to: questions raised during a stage, known inaccuracies, ide
 - HSYNC and DISPEN aren't connected to anything yet; DISPEN is un-skewed (R8 bits 4-7). Stages 39/42. (Stage 38)
 - Video ULA cursor bits 7-5: we follow BeebWiki's segment reading (7 = seg 1, 6 = seg 2, 5 = segs 3+4), which fits all MOS values; the AUG's "master size + width" reading doesn't fit MODE 7's &4B. Check against the real screen when Stage 42 draws the bitmap cursor. Palette power-on contents unknown (we use zeros). (Stage 40)
 - Palette/control writes apply to the whole drawn frame, not from the next pixel: mid-frame raster palette effects need a beam-following renderer. Decide in Stage 42. (Stage 40)
+- The ULA's shifted-in bits are 1s (BeebWiki), "or random values on some machines". We always shift in 1s. It only shows with a non-MOS palette in MODE 0/1 or at 16 pixels a byte. Unused pixel rates (16 or 1 pixel a byte) are the model's prediction, unseen on hardware. (Stage 41)
+- `via-interrupts.spec.ts` "Timer 1 … 100 times a second" failed once while an MCP browser ran a real-time machine at the same time. It passes alone and in a clean full run. It's load-sensitive, like compare-branch's Run test. (Stage 41)

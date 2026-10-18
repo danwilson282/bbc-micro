@@ -21,3 +21,26 @@ export function mosModesFor(control: number): number[] {
   const steady = control & 0xfe;
   return MOS_ULA_CONTROL.flatMap((c, mode) => ((c & 0xfe) === steady ? [mode] : []));
 }
+
+/** A MOS bitmap MODE: the ones that write the palette. */
+export type MosBitmapMode = 0 | 1 | 2 | 3 | 4 | 5 | 6;
+
+function nibbles(hex: string): readonly number[] {
+  return Array.from(hex, (d) => parseInt(d, 16));
+}
+
+/**
+ * The 16 palette nibbles, entry 0 first, as stored (colour EOR 7), after the
+ * MOS's MODE n. Measured in Stage 40 (machine/ula-modes.test.ts checks them
+ * against the ROM). 2-colour MODEs: entries 8-F white. MODE 1 and 5: black,
+ * red, yellow, white by index bits 3 and 1. MODE 2: entry n = colour n.
+ */
+export const MOS_DEFAULT_PALETTE: Readonly<Record<MosBitmapMode, readonly number[]>> = {
+  0: nibbles('7777777700000000'),
+  1: nibbles('7766776644004400'),
+  2: nibbles('76543210FEDCBA98'),
+  3: nibbles('7777777700000000'),
+  4: nibbles('7777777700000000'),
+  5: nibbles('7766776644004400'),
+  6: nibbles('7777777700000000'),
+};

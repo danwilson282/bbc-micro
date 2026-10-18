@@ -4,6 +4,7 @@
 
 import { loadStandardRoms } from '../memory/rom-files';
 import { withRoms } from '../memory/with-roms';
+import { MOS_DEFAULT_PALETTE, type MosBitmapMode } from '../mos/mos-video-ula';
 import { hex8 } from '../util/bits';
 import { BbcModelB } from './bbc-model-b';
 import { typeText } from './type-text';
@@ -64,6 +65,14 @@ describe('MOS 1.20 programs the Video ULA for each MODE', () => {
       // MODE 7 writes no palette: the SAA5050 colours teletext. MODE 6's entries stay.
       '7: &4A 7777777700000000 (0 writes)',
     ]);
+  });
+
+  withRoms(...BOTH_ROMS)('Stage 41: MOS_DEFAULT_PALETTE matches what the MOS writes for MODE 0-6', () => {
+    const m = booted();
+    for (const n of [0, 1, 2, 3, 4, 5, 6] as const satisfies readonly MosBitmapMode[]) {
+      mode(m, n);
+      expect(stored(m)).toBe(MOS_DEFAULT_PALETTE[n].map((e) => e.toString(16).toUpperCase()).join(''));
+    }
   });
 
   withRoms(...BOTH_ROMS)('MODE 0: entries 0-7 are black and 8-F white, so only index bit 3 matters', () => {
