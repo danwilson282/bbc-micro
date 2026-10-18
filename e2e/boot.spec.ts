@@ -76,8 +76,9 @@ test('it never runs faster than real time, whatever the display rate, and Pause,
   expect(percent).toBeLessThanOrEqual(102);
 
   await controls.getByRole('button', { name: 'Pause the machine' }).click();
-  await expect(status).toHaveText(/^Paused at frame [\d,]+$/);
-  const frameOf = async (): Promise<number> => Number((await status.textContent())?.replace(/\D/g, ''));
+  // Since Stage 38 the status also gives the field rate the CRTC measures.
+  await expect(status).toHaveText(/^Paused at frame [\d,]+ · VSYNC 50\.00 Hz$/);
+  const frameOf = async (): Promise<number> => Number(/frame ([\d,]+)/.exec((await status.textContent()) ?? '')?.[1]?.replace(/,/g, ''));
   const paused = await frameOf();
   await page.waitForTimeout(300);
   expect(await frameOf()).toBe(paused);

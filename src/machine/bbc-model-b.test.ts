@@ -599,18 +599,18 @@ describe('BbcModelB: with MOS 1.20', () => {
     expect(m.map.ioLog.recent().some((a) => a.address === 0xfe08 && !a.write && a.value === 0x02)).toBe(true);
   });
 
-  withRoms('roms/os12.rom')('vsync: every falling edge on CA1 is counted down at &0240, 50 a second', () => {
+  withRoms('roms/os12.rom')('vsync: every CRTC VSYNC (its falling edge on CA1) is counted down at &0240, 50 a second', () => {
     const m = booted(25);
     const before = m.peek(0x0240);
-    const pulses = m.vsync.pulses;
+    const pulses = m.crtc.vsyncCount;
     for (let i = 0; i < 10; i++) m.runFrame();
-    expect(m.vsync.pulses - pulses).toBe(10);
+    expect(m.crtc.vsyncCount - pulses).toBe(10);
     expect((before - m.peek(0x0240)) & 0xff).toBe(10);
   });
 
   withRoms('roms/os12.rom')('without vsync the boot still finishes (the clock is Timer 1), but &0240 never moves', () => {
     const m = booted(25, (machine) => {
-      machine.vsync.enabled = false;
+      machine.vsyncWired = false;
     });
     const before = m.peek(0x0240);
     for (let i = 0; i < 10; i++) m.runFrame();
@@ -636,7 +636,7 @@ describe('BbcModelB: with MOS 1.20', () => {
 
   withRoms('roms/os12.rom')('*FX19 never returns without vsync: the MOS loops at &E9B9-&E9BE waiting for &0240 to change', () => {
     const m = booted(25, (machine) => {
-      machine.vsync.enabled = false;
+      machine.vsyncWired = false;
     });
     expect(fx19(m, 50)).toBe(0);
     const loop = m.trace.recent(m.trace.length).map((e) => e.pc).filter((pc) => pc >= 0xe9b6 && pc <= 0xe9be);

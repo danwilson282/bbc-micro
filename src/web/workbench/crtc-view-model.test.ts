@@ -1,5 +1,5 @@
 import { CRTC_REGISTER_COUNT } from '../../devices/crtc6845';
-import { buildCrtcView, type CrtcViewInput } from './crtc-view-model';
+import { buildCrtcView, vsyncRateText, type CrtcCounters, type CrtcViewInput } from './crtc-view-model';
 
 /** What MOS 1.20 leaves in the chip after MODE 0 (R7 is the table's &22 + 1) and MODE 7, R0-R15. */
 const MODE0 = [0x7f, 0x50, 0x62, 0x28, 0x26, 0x00, 0x20, 0x23, 0x01, 0x07, 0x67, 0x08, 0x06, 0x00, 0x06, 0x00];
@@ -97,5 +97,49 @@ describe('buildCrtcView', () => {
         expect(v).toBeLessThanOrEqual(100);
       }
     }
+  });
+
+  describe('the counters (Stage 38)', () => {
+    const atVsync: CrtcCounters = {
+      character: 32, scanline: 1, row: 28, fieldLine: 280, inAdjust: false, oddField: true,
+      hsync: false, vsync: true, displayEnable: false, vsyncCount: 1234, vsyncPeriodCycles: 40_000,
+    };
+
+    it('says where the beam is, what the three outputs are, and the field rate measured from VSYNC', () => {
+      expect(buildCrtcView({ ...input(MODE7, 0x4b), counters: atVsync }).counters).toEqual([
+        { label: 'Beam', value: 'line 280 of the field, character 32' },
+        { label: 'Counters', value: 'row 28, scanline 1' },
+        { label: 'Outputs', value: 'DISPEN low, HSYNC low, VSYNC high' },
+        { label: 'Fields', value: 'odd field; 1,234 VSYNCs since power-on' },
+        { label: 'Measured', value: 'VSYNC every 40,000 cycles = 20.000 ms: 50.00 Hz' },
+      ]);
+    });
+
+    it('non-interlaced there is no odd or even, and 39,936 cycles is 50.08 Hz', () => {
+      const regs = [...MODE0];
+      regs[8] = 0x00;
+      const lines = buildCrtcView({ ...input(regs, 0x9c), counters: { ...atVsync, vsyncPeriodCycles: 39_936 } }).counters;
+      expect(lines[3]?.value).toBe('1,234 VSYNCs since power-on');
+      expect(lines[4]?.value).toBe('VSYNC every 39,936 cycles = 19.968 ms: 50.08 Hz');
+    });
+
+    it('in the vertical adjust there is no row: it says so', () => {
+      const lines = buildCrtcView({ ...input(MODE7, 0x4b), counters: { ...atVsync, inAdjust: true, row: 30, fieldLine: 311 } }).counters;
+      expect(lines[1]?.value).toBe('vertical adjust, after row 30');
+    });
+
+    it('before two VSYNCs there is nothing to measure', () => {
+      expect(buildCrtcView({ ...input(MODE7, 0x4b), counters: { ...atVsync, vsyncPeriodCycles: 0 } }).counters[4]?.value).toBe('waiting for two VSYNCs');
+      expect(vsyncRateText(0)).toBeUndefined();
+    });
+
+    it('puts the beam in the frame drawing: line 280 of 312.5, character 32 of 64', () => {
+      expect(buildCrtcView({ ...input(MODE7, 0x4b), counters: atVsync }).beam).toEqual({ left: 50, top: 89.6, width: 0, height: 0 });
+    });
+
+    it('without counters (Stage 37\'s panel) there are no counter lines and no beam', () => {
+      const view = buildCrtcView(input(MODE7, 0x4b));
+      expect([view.counters, view.beam]).toEqual([[], undefined]);
+    });
   });
 });

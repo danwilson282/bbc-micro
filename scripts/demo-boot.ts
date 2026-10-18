@@ -143,7 +143,7 @@ console.log('  That\'s the stall we want. Part 7 (the keyboard) is what ends it.
 // ── Part 5 ─────────────────────────────────────────────────────────────────
 
 console.log('\n── Part 5: what vsync is for ──');
-console.log('  The fake vsync: a falling edge on System VIA CA1 every 40,000 cycles, low for 256 (2 lines).');
+console.log('  The CRTC\'s VSYNC (Stage 38) on System VIA CA1: high for 2 lines every 312.5, so it falls every 40,000 cycles.');
 console.log(`  PCR = &${hex8(m.peek(0xfe4c))}: bit 0 = 0, CA1 interrupts on a falling edge. IER = &${hex8(m.peek(0xfe4e))} = ${bin8(m.peek(0xfe4e))}: bit 1 (CA1) enabled.`);
 console.log('  The handler\'s vsync branch:');
 for (const a of [0xdd11, 0xdd12, 0xdd13, 0xdd15, 0xdd42]) console.log(mosLine(m, a));
@@ -159,26 +159,26 @@ function fx19(x: BbcModelB, frames: number): number {
   return x.peek(0x70);
 }
 
-console.log('\n  The same machine, one more second, with and without it:');
-console.log('               vsyncs  &0240 moved  ULA flash writes   *FX19 returned?  prompt at boot?');
+console.log('\n  The same machine, one more second, with the VSYNC-to-CA1 wire joined and cut:');
+console.log('         CRTC VSYNCs  &0240 moved  ULA flash writes   *FX19 returned?  prompt at boot?');
 for (const on of [true, false]) {
   const x = booted((machine) => {
-    machine.vsync.enabled = on;
+    machine.vsyncWired = on;
   });
   const prompt = mode7Text((a) => x.peek(a))[PROMPT_ROW]?.startsWith('>') ?? false;
-  const pulses = x.vsync.pulses;
+  const pulses = x.crtc.vsyncCount;
   const before = x.peek(0x0240);
   x.hardwareLog.clear();
   for (let i = 0; i < BOOT_FRAMES; i++) x.runFrame();
-  const vsyncs = x.vsync.pulses - pulses;
+  const vsyncs = x.crtc.vsyncCount - pulses;
   const moved = (before - x.peek(0x0240)) & 0xff;
   const flashes = x.hardwareLog.recent().filter((w) => w.device === 'ulaControl');
   const returned = fx19(x, 10) === 1;
   console.log(
-    `    vsync ${on ? 'on ' : 'off'}  ${String(vsyncs).padStart(6)}  ${String(moved).padStart(11)}  ${`${String(flashes.length)} ${flashes.map((w) => describeHardwareWrite(w).replace('ULA ctrl=', '')).join(' ')}`.padEnd(17)}  ${(returned ? 'yes' : 'no: hangs').padEnd(15)}  ${prompt ? 'yes' : 'no'}`,
+    `    ${on ? 'joined' : 'cut   '}  ${String(vsyncs).padStart(9)}  ${String(moved).padStart(11)}  ${`${String(flashes.length)} ${flashes.map((w) => describeHardwareWrite(w).replace('ULA ctrl=', '')).join(' ')}`.padEnd(17)}  ${(returned ? 'yes' : 'no: hangs').padEnd(15)}  ${prompt ? 'yes' : 'no'}`,
   );
 }
 console.log('  The boot doesn\'t need vsync: the clock and the keyboard run from Timer 1. But &0240 stands still,');
 console.log('  colours never flash, and *FX19 ("wait for the next frame") loops at waitVsync for ever:');
 for (const a of [0xe9b6, 0xe9b9, 0xe9ba, 0xe9bb, 0xe9be]) console.log(mosLine(m, a));
-console.log('  Stage 38\'s CRTC will make the real pulse; this one is its stand-in.');
+console.log('  The CRTC counts its fields either way: cut, the MOS just never hears about them.');

@@ -122,7 +122,7 @@ export function crtcGeometry(r: ArrayLike<number>, clockHz: number): CrtcGeometr
   // Multiply first, so 128 × 1,000,000 ÷ 2,000,000 is exactly 64, with no rounding error.
   const lineMicroseconds = (charactersPerLine * 1_000_000) / clockHz;
 
-  // Interlace sync and video: the scanline counter steps by 2 (Stage 37 doc, "our reading").
+  // Interlace sync and video: the scanline counter steps by 2 and ignores R9 bit 0 (built in Stage 38).
   const scanlinesPerRow = interlace === 'sync-and-video' ? (r9 >> 1) + 1 : r9 + 1;
   const rowsPerField = at(CRTC_R4_VERTICAL_TOTAL) + 1;
   const adjustLines = at(CRTC_R5_VERTICAL_TOTAL_ADJUST);

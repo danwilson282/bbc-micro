@@ -2,7 +2,7 @@
 
 Tracks where the build is up to. The `/start-stage` and `/finish-stage` skills keep this file up to date. For what each stage involves, see [`BUILD-PLAN.md`](./BUILD-PLAN.md).
 
-**Current stage:** 38 — CRTC counters & sync (not started)
+**Current stage:** 39 — CRTC addressing, scrolling & cursor (not started)
 
 **Status values:**
 - `not started`
@@ -90,7 +90,7 @@ Tracks where the build is up to. The `/start-stage` and `/finish-stage` skills k
 | # | Stage | Status | Seen? | Branch | Doc | Notes |
 |---|---|---|---|---|---|---|
 | 37 | CRTC registers & geometry | done | ✅ | `stage/37-crtc-registers` | [doc](./stages/37-crtc-registers.md) | `devices/crtc6845.ts` replaces `CrtcStub` (same `register`/`registers`/`addressRegister` API): per-register widths (`CRTC_REGISTER_BITS`), access table (R0-R13 W, R14-R15 R/W, R16-R17 R; others and `&FE00` read &00), log records the byte as sent. `devices/crtc-geometry.ts` (pure): `crtcGeometry(regs, clockHz)`, `describeCrtcGeometry`, `characterClockHz(ulaControl)` (bit 4). **Found: MOS R7 = table + `*TV` offset + 1** (`CPY #7` carry into `ADC &0290` at &C95E), so VSYNC is on line 280 in every MODE. Interlaced = 312.5 lines = 50.00 Hz (plan's "50.08 Hz, interlaced" was loose). CRTC panel: register table with meanings, worked geometry, to-scale field drawing; built once, text updates. ROM test types MODE 0-7. `e2e/crtc.spec.ts` (real-time, 2). |
-| 38 | CRTC counters & sync | not started | | `stage/38-crtc-counters-sync` | [doc](./stages/38-crtc-counters-sync.md) | |
+| 38 | CRTC counters & sync | done | ✅ | `stage/38-crtc-counters-sync` | [doc](./stages/38-crtc-counters-sync.md) | **The real VSYNC drives CA1**; fake vsync deleted. `Crtc6845.tick()`: 8-bit character, 5-bit scanline, 7-bit row counters, adjust; equality compares, masked widths. Clock from ULA bit 4 (`connectClock`, 1 MHz half-cycle carry); `connectVsync` → CA1 (`machine.vsyncWired` cuts it: playground, `demo:boot`). Interlace: odd field +1 adjust line and VSYNC ⌊(R0+1)/2⌋ characters late → VSYNCs exactly 40,000 cycles apart; sync-and-video steps by 2, ignores R9 bit 0, RA bit 0 = parity. **CA1 follows VSYNC** (jsbeeb behaviour), so with PCR &04 the IRQ is at the pulse's end. Measured rate (`vsyncPeriodCycles`) = Stage 37 formula in every MODE; 50.08 Hz with `*TV 0,1`; MODE 7 with R8 = &00 → 591 lines, 26.44 Hz. CRTC panel counters + beam dot; status line `VSYNC 50.00 Hz`. `demo:crtc`. Cost: machine 1.09 → 1.42 s per 10 emulated s. |
 | 39 | CRTC addressing, scrolling & cursor | not started | | `stage/39-crtc-addressing-cursor` | [doc](./stages/39-crtc-addressing-cursor.md) | |
 
 ## Part 9: Video ULA & bitmap modes
@@ -130,7 +130,7 @@ Things to come back to: questions raised during a stage, known inaccuracies, ide
 
 - Held mosaic + separated: we keep the separated flag it was drawn with (ETS 300 706). Check against a real SAA5050 / BBC if one is ever to hand; the data sheet is silent. (Stage 32)
 - ~~Stage 33's hold reset on a change of height (normal ↔ double).~~ Done in Stage 33. (Stage 32)
-- SAA5050 flash: 3:1 on/off read from the data sheet, but the 64-field cycle (48 on, 16 off) is assumed. The count is the fake vsync's pulses, so it restarts at BREAK/power-on (a real SAA5050's wouldn't). Revisit with Stage 38's CRTC vsync. (Stage 33)
+- SAA5050 flash: 3:1 on/off read from the data sheet, but the 64-field cycle (48 on, 16 off) is assumed. Since Stage 38 it counts the CRTC's real VSYNCs (`crtc.vsyncCount`), which restart at power-on only (a real SAA5050's own counter wouldn't). (Stage 33)
 - Character rounding rule is our reading (field 2 only, compared with the line below); rounding at double height is the 20 half-lines stretched ×2. Neither checked against a real SAA5050. (Stage 33)
 - A concealed mosaic still becomes the held mosaic; a bottom row's normal-height text is hidden with its background kept. Both unconfirmed on hardware. (Stage 33)
 - `typescript-eslint` supports TypeScript `<6.1.0`. Watch for this if TypeScript is upgraded.
@@ -200,9 +200,9 @@ Things to come back to: questions raised during a stage, known inaccuracies, ide
 - Keyboard stub drives PA7 low whenever autoscan is on. A real board would show the counter's column (a closed link could appear). The MOS doesn't read PA7 then; Stage 35 builds the counter. (Stage 28)
 - The keyboard now owns the System VIA's PA7: the VIA panel's PA7 pull-low button is overridden at the next pin change (PA0-PA6 buttons still work). (Stage 28)
 - ACIA stub status is fixed at &02: if RS423/cassette ever turned its interrupts on, a real 6850 would raise IRQ on TDRE; ours never will. /DCD and /CTS (bits 2-3 = 0) for an unconnected Model B port are unchecked. Serial/cassette are out of scope. (Stage 29)
-- Which VSYNC edge reaches System VIA CA1 (is the 6845's active-high VSYNC inverted?) is unconfirmed; with PCR &04 our IRQ comes at the start of the pulse. Stage 38. (Stage 29)
+- ~~Which VSYNC edge reaches System VIA CA1 is unconfirmed. Stage 38. (Stage 29)~~ Stage 38: CA1 follows VSYNC (jsbeeb's behaviour; still not checked against the circuit diagram), so with PCR &04 the IRQ is at the pulse's **end**.
 - ~~`mode7Text` reads from &7C00 only; after BASIC scrolls, the MOS moves CRTC R12/R13 and the screen wraps inside &7C00-&7FFF. Stage 30's text grid needs the start address. (Stage 29)~~ Done in Stage 30: `mode7StartAddress`/`mode7CellAddress`.
-- The playground has the fake vsync switched off (main.ts) so the VIA panel's CA1 button keeps working for Stage 26's example. Revisit when the real CRTC arrives (Stage 38): the panel's CA1 button vs a real vsync on the same pin. (Stage 29)
+- ~~The playground has the fake vsync switched off. Revisit at Stage 38. (Stage 29)~~ Stage 38: the playground cuts `machine.vsyncWired` (its CRTC is never programmed, so VSYNC would sit high).
 - The MOS polls the ADC (&FEC0-&FEC2) from the Timer 1 interrupt and reads the floating &FE; harmless so far (the ADC is "not planned"). (Stage 29)
 - Idea: show the stall detector's verdict in the browser ("Stalled: looping in rdchWait, defaultREM") once Stage 30 runs the machine continuously. It's CLI-only now (`MosRunner`). (Stage 29)
 - The tab-hidden clamp means TIME (and the BBC clock generally) falls behind wall-clock time while the tab is hidden. Deliberate (no catch-up freeze); revisit if anything needs wall-clock sync. (Stage 30)
@@ -222,9 +222,13 @@ Things to come back to: questions raised during a stage, known inaccuracies, ide
 - Inside the scan loop the MOS turns autoscan back on and does `CLI : SEI` for every column (`&F0E3` → `&F129`), a brief window for other interrupts. Not investigated further. (Stage 35)
 - How the Model B board conditions the BREAK switch (debounce, minimum /RES pulse) is unchecked; we model held → CPU stopped, released → reset sequence. (Stage 36)
 - F12 may still open developer tools in some browsers despite `preventDefault`; Pause and the panel keycap are the fallbacks. (Stage 36)
-- MODE 7 in interlace sync and video: we take a row as ⌊R9 ÷ 2⌋ + 1 lines per field (10 for R9 = 18), the only reading that gives 312½ lines. What the counter does with an odd R9, and which field starts on which line, is for Stage 38. (Stage 37)
+- ~~MODE 7 in interlace sync and video: odd R9 and which field starts where are for Stage 38. (Stage 37)~~ Stage 38: the counter steps by 2 and ignores R9 bit 0; odd field = RA bit 0 set, one extra adjust line, VSYNC half a line late. Our reading, matching jsbeeb's behaviour; the field after /RESET is taken as even (unconfirmed).
 - Which 6845 the Model B has (HD6845SP vs MC6845P) isn't modelled: R12/R13 readability, fixed 16-line VSYNC and HSYNC width 0 differ between variants. We follow the AUG; R8 bits 2-3 are masked off (our reading). Registers power up &00 here, random on a real chip. (Stage 37)
 - The CRTC panel's geometry can briefly be nonsense mid-MODE-change (ULA clock and CRTC registers aren't written together). Cosmetic at 10 Hz refresh. (Stage 37)
 - ~~CRTC stub reads give &00; Stage 37.~~ Done in Stage 37: R14-R17 read back. (Stage 28)
 - The cassette motor LED (serial ULA motor control) isn't shown; cassette is out of scope. Where the LEDs sit on a real Model B's case isn't modelled: the strip under the screen is for convenience. (Stage 36)
 - Held BREAK costs 20,000 tiny 2-cycle steps a frame (vs ~10,000 instructions). Unmeasured; fine for a moment's hold. (Stage 36)
+- Does the Model B wire the 6845's /RESET to power-on reset? We reset the CRTC's counters in `powerOn()` (not BREAK). And after /RESET, character 0 of line 0 is taken as already "seen" without its compares (an R7 of 0 would get its first VSYNC a field late). Both unconfirmed, both invisible to the MOS. (Stage 38)
+- A cut VSYNC-to-CA1 wire is taken to float high, so rejoining it is one falling edge (one extra vsync IRQ). (Stage 38)
+- The CRTC is clocked one character at a time: the machine went from 1.09 to 1.42 s per 10 emulated seconds (tsx, MODE 7 prompt), more than the bare CRTC's 0.1 s suggests. Skipping ahead to the next horizontal event would win most of it back if Part 9's renderer needs the time. (Stage 38)
+- HSYNC and DISPEN aren't connected to anything yet; DISPEN is un-skewed (R8 bits 4-7). Stages 39/42. (Stage 38)
