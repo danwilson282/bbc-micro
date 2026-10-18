@@ -10,6 +10,7 @@
 //
 // Either way, MODE 7's screen memory is drawn on the canvas as SAA5050
 // teletext dots (Stage 31), with its text in a transparent layer on top.
+// In MODE 0-6 the canvas shows the machine's own bitmap pixels (Stage 42).
 // Click the screen and PC keys close the BBC's key switches (Stage 34).
 
 import { BbcModelB } from './machine/bbc-model-b';
@@ -119,14 +120,16 @@ const peekScreen = (address: number): number => machine.peek(address);
 // The keyboard LEDs (Stage 36) are drawn with the screen: they're cheap, and they change as you type.
 const lockLeds = createLockLeds();
 // Since Stage 40 the Video ULA's control bit 1 decides: teletext, or the
-// ULA's own pixels. There's no bitmap renderer until Stage 42, so a bitmap
-// MODE shows black (rather than its memory decoded as teletext).
+// ULA's own pixels. Those (Stage 42) are already drawn: the machine's
+// bitmap renderer draws each scanline as the 6845 reaches it, so here we
+// only copy its frame buffer. Paused, the beam stops too: a poke into screen
+// memory shows after the next field. There's no text layer for a bitmap MODE.
 const drawScreen = (): void => {
   if (machine.videoUla.teletext) {
     screenCanvas.draw(peekScreen, mode7ScreenFrom(machine.crtc), teletextFlashVisible(machine.crtc.vsyncCount));
     textScreen.draw(peekScreen, teletextAddress(machine.crtc.displayStart));
   } else {
-    screenCanvas.clear();
+    screenCanvas.drawBitmap(machine.bitmap.pixels);
     textScreen.clear();
   }
   lockLeds.update(machine.capsLockLed, machine.shiftLockLed);

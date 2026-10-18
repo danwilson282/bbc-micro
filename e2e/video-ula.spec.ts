@@ -2,9 +2,9 @@ import { test, expect, type APIRequestContext, type Page } from '@playwright/tes
 
 // Stage 40: the Video ULA panel decodes the control byte and shows the 16
 // palette entries as swatches. Typing MODE 1 and MODE 2 changes them, and
-// the screen goes black, because the ULA is no longer in teletext and the
-// bitmap renderer is Stage 42. In the real-time project, because typing
-// needs the machine running.
+// the ULA leaves teletext: the text layer empties and (since Stage 42) the
+// canvas shows the bitmap renderer's 640 × 256. In the real-time project,
+// because typing needs the machine running.
 
 async function hasRoms(request: APIRequestContext): Promise<boolean> {
   for (const path of ['/roms/os12.rom', '/roms/basic2.rom']) {
@@ -28,15 +28,11 @@ async function typeMode(page: Page, mode: number): Promise<void> {
   for (const key of ['M', 'O', 'D', 'E', ' ', String(mode), 'Enter']) await tap(page, key);
 }
 
-/** Is every pixel of the screen canvas black? */
-async function screenIsBlack(page: Page): Promise<boolean> {
+/** The screen canvas's size, e.g. "640x256". */
+async function canvasSize(page: Page): Promise<string> {
   return page.evaluate(() => {
     const canvas = document.querySelector('#screen');
-    if (!(canvas instanceof HTMLCanvasElement)) return false;
-    const data = canvas.getContext('2d')?.getImageData(0, 0, canvas.width, canvas.height).data;
-    if (data === undefined) return false;
-    for (let i = 0; i < data.length; i += 4) if ((data[i] ?? 0) + (data[i + 1] ?? 0) + (data[i + 2] ?? 0) > 0) return false;
-    return true;
+    return canvas instanceof HTMLCanvasElement ? `${String(canvas.width)}x${String(canvas.height)}` : 'none';
   });
 }
 
@@ -52,7 +48,7 @@ test('after boot the Video ULA panel shows MODE 7\'s control byte: teletext, pal
   await expect(panel.locator('.ula-swatch')).toHaveCount(16);
 });
 
-test('typing MODE 1 changes the swatches to black, red, yellow, white in four entries each, and the screen goes black', async ({ page, request }) => {
+test('typing MODE 1 changes the swatches to black, red, yellow, white in four entries each, and the screen becomes a bitmap', async ({ page, request }) => {
   test.skip(!(await hasRoms(request)), SKIP);
   await page.goto('/?machine=mos');
   await expect(page.locator('.text-row').nth(5)).toHaveText(/^>/);
@@ -62,7 +58,7 @@ test('typing MODE 1 changes the swatches to black, red, yellow, white in four en
   const colours = await panel.locator('.ula-swatch').evaluateAll((items) => items.map((item) => (item instanceof HTMLElement ? item.dataset.colour : '')).join(''));
   expect(colours).toBe('0011001133773377');
   await expect(page.locator('.text-row').nth(0)).toHaveText(/^ +$/);
-  expect(await screenIsBlack(page)).toBe(true);
+  expect(await canvasSize(page)).toBe('640x256');
 });
 
 test('MODE 2 shows 16 colours with 8-F flashing; back in MODE 7 the teletext screen returns', async ({ page, request }) => {
@@ -80,4 +76,5 @@ test('MODE 2 shows 16 colours with 8-F flashing; back in MODE 7 the teletext scr
   await typeMode(page, 7);
   await expect(panel.locator('.ula-summary')).toHaveText(/^&4[AB]: MODE 7/);
   await expect(page.locator('.text-row').nth(0)).toHaveText(/^>/);
+  expect(await canvasSize(page)).toBe('480x500');
 });

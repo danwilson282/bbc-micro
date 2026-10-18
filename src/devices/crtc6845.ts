@@ -39,8 +39,12 @@
 // output (CUDISP) is MA = R14/R15 on R10-R11's lines, blinked by counting
 // fields.
 //
-// tick() is the hot path: no allocation, and the clock and VSYNC callbacks
-// are made once, by whoever connects them.
+// Stage 42 adds a scanline listener: told at the start of every scanline,
+// so a renderer can draw the line from the MA and RA the chip has then, as
+// the beam would. Once a line, not once a character: 15,625 calls a second.
+//
+// tick() is the hot path: no allocation, and the clock, VSYNC and scanline
+// callbacks are made once, by whoever connects them.
 
 import type { IoDevice } from '../memory/io-device';
 import type { Clocked } from './clocked';
@@ -102,6 +106,9 @@ export const CRTC_REGISTER_ACCESS: readonly CrtcAccess[] = [
 /** Told VSYNC's new level (pin 40): 1 high, 0 low. Only on a change. */
 export type VsyncListener = (level: 0 | 1) => void;
 
+/** Told that scanline `line` of the field (0-312) is starting. lineStartAddress, scanline and rowDisplayed describe it. */
+export type ScanlineListener = (line: number) => void;
+
 /** Is the character clock 2 MHz now (true) or 1 MHz (false)? The Video ULA decides (control bit 4). */
 export type CharacterClock = () => boolean;
 
@@ -152,6 +159,7 @@ export class Crtc6845 implements IoDevice, Clocked {
 
   private clock: CharacterClock = twoMhz;
   private vsyncListener: VsyncListener | undefined;
+  private scanlineListener: ScanlineListener | undefined;
   /** A CPU cycle left over at 1 MHz: half a character. */
   private carry = 0;
 
@@ -254,6 +262,11 @@ export class Crtc6845 implements IoDevice, Clocked {
     listener?.(this.vsyncOn ? 1 : 0);
   }
 
+  /** Wires a renderer to be told as each scanline starts (Stage 42); undefined disconnects it. */
+  connectScanline(listener: ScanlineListener | undefined): void {
+    this.scanlineListener = listener;
+  }
+
   /** CPU cycles (2 MHz) → character clocks: one each at 2 MHz, one per two at 1 MHz. */
   tick(cpuCycles: number): void {
     if (this.clock()) {
@@ -306,6 +319,8 @@ export class Crtc6845 implements IoDevice, Clocked {
       this.vsyncOn = false;
       this.vsyncListener?.(0);
     }
+    // The beam is at the top left: line 0 starts.
+    this.scanlineListener?.(0);
   }
 
   /** One character clock. */
@@ -414,7 +429,8 @@ export class Crtc6845 implements IoDevice, Clocked {
   /**
    * A new scanline: where on it VSYNC may change (half way along in an odd
    * interlaced field), and whether it's its row's last (the same test
-   * endOfLine makes when it ends; never in the adjust lines).
+   * endOfLine makes when it ends; never in the adjust lines). Then the
+   * scanline listener, with the row start and RA already this line's.
    */
   private lineStart(): void {
     const r8 = this.r[CRTC_R8_INTERLACE_AND_SKEW];
@@ -422,6 +438,7 @@ export class Crtc6845 implements IoDevice, Clocked {
     this.vsyncCharacter = interlaced && this.odd ? (this.r[CRTC_R0_HORIZONTAL_TOTAL] + 1) >> 1 : 0;
     const r9 = this.r[CRTC_R9_MAX_SCAN_LINE];
     this.lastLine = !this.adjusting && ((r8 & 0x03) === 0x03 ? this.ra >> 1 === r9 >> 1 : this.ra === r9);
+    this.scanlineListener?.(this.line);
   }
 
   /** Once a line, at vsyncCharacter: VSYNC starts, or counts down a line. */
@@ -487,6 +504,16 @@ export class Crtc6845 implements IoDevice, Clocked {
   /** DISPEN, before any R8 skew (Stages 39/42): a displayed character of a displayed row. */
   get displayEnable(): boolean {
     return this.hDisplay && this.vDisplay;
+  }
+
+  /** The MA this scanline starts at (and every line of its row): the row start (Stage 42). */
+  get lineStartAddress(): number {
+    return this.rowStart;
+  }
+
+  /** The vertical half of display enable: this is one of the R6 displayed rows (Stage 42). */
+  get rowDisplayed(): boolean {
+    return this.vDisplay;
   }
 
   /** The MA0-MA13 pins: the character address being read now (Stage 39). */
