@@ -26,7 +26,7 @@ import { CRTC_R8_CURSOR_SKEW_OFF, CRTC_REGISTER_ACCESS, CRTC_REGISTER_COUNT, typ
 import { characterClockHz, crtcGeometry, describeCrtcGeometry, type CrtcGeometry } from '../../devices/crtc-geometry';
 import { CRTC_REGISTER_NAMES } from '../../devices/hardware-log';
 import { hex16, hex8 } from '../../util/bits';
-import { screenAddress } from '../../video/screen-address';
+import { WRAP_SUBTRACT, screenAddress, type ScreenSize } from '../../video/screen-address';
 
 export interface CrtcViewInput {
   /** R0-R17, as Crtc6845.registers() gives them. */
@@ -38,6 +38,8 @@ export interface CrtcViewInput {
   readonly previous?: readonly number[];
   /** The chip's counters now (Stage 38): a Crtc6845 will do. */
   readonly counters?: CrtcCounters;
+  /** IC32's C0/C1 (Stage 43): the size the board wraps a bitmap screen by when MA12 = 1. */
+  readonly screenSize: ScreenSize;
 }
 
 /** What the 6845's counters and outputs say now. Crtc6845 has all of these. */
@@ -256,9 +258,16 @@ function cursorText(c: CrtcCounters, g: CrtcGeometry, r8: number, r10: number): 
   return `${ma} (${where}), lines ${String(g.cursorStartLine)}-${String(g.cursorEndLine)}, ${BLINK_TEXT[g.cursorBlink]}: ${on}`;
 }
 
-function counterLines(c: CrtcCounters, g: CrtcGeometry, registers: readonly number[]): GeometryLine[] {
+/** "(bitmap: MA13 = 0)", plus the wrap when MA12 = 1: "MA12 = 1: − &5000 (20K)". */
+function schemeText(ma: number, size: ScreenSize): string {
+  if ((ma & 0x2000) !== 0) return 'teletext: MA13 = 1';
+  if ((ma & 0x1000) === 0) return 'bitmap: MA13 = 0';
+  const subtract = WRAP_SUBTRACT[size] ?? 0;
+  return `bitmap, MA12 = 1: wrapped, − &${hex16(subtract)} (${String(subtract / 1024)}K screen)`;
+}
+
+function counterLines(c: CrtcCounters, g: CrtcGeometry, registers: readonly number[], size: ScreenSize): GeometryLine[] {
   const rate = vsyncRateText(c.vsyncPeriodCycles);
-  const teletext = (c.memoryAddress & 0x2000) !== 0;
   const next = g.startAddress;
   const ms = ((c.vsyncPeriodCycles * 1000) / CPU_HZ).toFixed(3);
   const fields = `${thousands(c.vsyncCount)} VSYNCs since power-on`;
@@ -276,11 +285,11 @@ function counterLines(c: CrtcCounters, g: CrtcGeometry, registers: readonly numb
     },
     {
       label: 'Address',
-      value: `MA &${hex16(c.memoryAddress)}, RA ${String(c.scanline)} → &${hex16(screenAddress(c.memoryAddress, c.scanline))} (${teletext ? 'teletext: MA13 = 1' : 'bitmap: MA13 = 0'})`,
+      value: `MA &${hex16(c.memoryAddress)}, RA ${String(c.scanline)} → &${hex16(screenAddress(c.memoryAddress, c.scanline, size))} (${schemeText(c.memoryAddress, size)})`,
     },
     {
       label: 'Start',
-      value: `&${hex16(c.displayStart)} → &${hex16(screenAddress(c.displayStart, 0))}, latched at this field's start${next === c.displayStart ? '' : `; R12/R13 = &${hex16(next)} from the next`}`,
+      value: `&${hex16(c.displayStart)} → &${hex16(screenAddress(c.displayStart, 0, size))}, latched at this field's start${next === c.displayStart ? '' : `; R12/R13 = &${hex16(next)} from the next`}`,
     },
     { label: 'Cursor', value: cursorText(c, g, registers[8] ?? 0, registers[10] ?? 0) },
   ];
@@ -309,7 +318,7 @@ export function buildCrtcView(input: CrtcViewInput): CrtcView {
     rows,
     geometry: geometryLines(g, input.ulaControl),
     frame: frameBoxes(g),
-    counters: c === undefined ? [] : counterLines(c, g, registers),
+    counters: c === undefined ? [] : counterLines(c, g, registers, input.screenSize),
     beam: c === undefined ? undefined : { left: percent(c.character, g.charactersPerLine), top: percent(c.fieldLine, g.linesPerField), width: 0, height: 0 },
   };
 }

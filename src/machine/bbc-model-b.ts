@@ -56,6 +56,11 @@
 //
 //   6845 line start ──▶ MA, RA ──▶ RAM bytes ──▶ ULA shift + palette ──▶ bitmap.pixels
 //
+// Stage 43 finishes the board's address logic: a scroll that runs MA past
+// &0FFF (MA12) wraps by the screen size on IC32 bits 4-5, and RA3 blanks.
+//
+//   IC32 C0, C1 ──▶ screen size ──▶ MA12 wrap ──▶ RAM address
+//
 // step() and runCycles() are the hot path: no objects, closures or arrays
 // are made in them, and the device lists are walked with indexed loops.
 
@@ -169,7 +174,8 @@ export class BbcModelB implements PinListener, DataBus, CycleClock {
       devices: { acia: this.acia, systemVia: this.systemVia, userVia: this.userVia, crtc: this.crtc, videoUla: this.videoUla },
     });
     // The screen is always RAM (A0-A14), and the ULA's reads have no side effects: peek is the bus it sees.
-    this.bitmap = new BitmapRenderer((address) => this.map.peek(address), this.crtc, this.videoUla);
+    // IC32's C0/C1 tell the board how big the screen is, for the MA12 wrap (Stage 43).
+    this.bitmap = new BitmapRenderer((address) => this.map.peek(address), this.crtc, this.videoUla, this.latch);
     this.crtc.connectScanline((line) => {
       this.bitmap.drawLine(line);
     });

@@ -1,3 +1,4 @@
+import { SCREEN_10K, SCREEN_20K } from '../../video/screen-address';
 import { CRTC_REGISTER_COUNT } from '../../devices/crtc6845';
 import { buildCrtcView, vsyncRateText, type CrtcCounters, type CrtcViewInput } from './crtc-view-model';
 
@@ -8,7 +9,7 @@ const MODE7 = [0x3f, 0x28, 0x33, 0x24, 0x1e, 0x02, 0x19, 0x1c, 0x93, 0x12, 0x72,
 function input(registers: readonly number[], ulaControl: number, previous?: readonly number[]): CrtcViewInput {
   const all = new Array<number>(CRTC_REGISTER_COUNT).fill(0);
   registers.forEach((v, i) => (all[i] = v));
-  return { registers: all, addressRegister: 14, ulaControl, previous };
+  return { registers: all, addressRegister: 14, ulaControl, previous, screenSize: SCREEN_20K };
 }
 
 describe('buildCrtcView', () => {
@@ -154,6 +155,18 @@ describe('buildCrtcView', () => {
         const lines = buildCrtcView({ ...input(regs, 0x9c), counters: { ...atVsync, memoryAddress: 0x0601, scanline: 3, displayStart: 0x0600 } }).counters;
         expect(lines[5]?.value).toBe('MA &0601, RA 3 → &300B (bitmap: MA13 = 0)');
         expect(lines[6]?.value).toBe('&0600 → &3000, latched at this field\'s start');
+      });
+
+      it('MA12 = 1 shows the board\'s wrap by IC32\'s screen size: MA &1000 in a 10K screen is &5800', () => {
+        const regs = [...MODE0];
+        regs[12] = 0x0b;
+        regs[13] = 0x28;
+        const lines = buildCrtcView({
+          ...input(regs, 0x88),
+          screenSize: SCREEN_10K,
+          counters: { ...atVsync, memoryAddress: 0x1000, scanline: 2, displayStart: 0x0b28 },
+        }).counters;
+        expect(lines[5]?.value).toBe('MA &1000, RA 2 → &5802 (bitmap, MA12 = 1: wrapped, − &2800 (10K screen))');
       });
 
       it('R12/R13 written since the field began are shown as waiting for the next field', () => {

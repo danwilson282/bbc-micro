@@ -1,4 +1,4 @@
-import { AddressableLatch, LATCH_KEYBOARD_ENABLE, LATCH_SHIFT_LOCK_LED, LATCH_SOUND_WRITE_ENABLE } from './addressable-latch';
+import { AddressableLatch, LATCH_KEYBOARD_ENABLE, LATCH_SCREEN_C0, LATCH_SCREEN_C1, LATCH_SHIFT_LOCK_LED, LATCH_SOUND_WRITE_ENABLE } from './addressable-latch';
 import { HardwareLog } from './hardware-log';
 
 describe('AddressableLatch (IC32, a 74LS259)', () => {
@@ -65,5 +65,19 @@ describe('AddressableLatch (IC32, a 74LS259)', () => {
     latch.drive(0x0f);
     latch.reset();
     expect(latch.value).toBe(0x00);
+  });
+});
+
+describe('AddressableLatch: C0 and C1, the screen size (Stage 43)', () => {
+  it.each([
+    [0, 0, 0], // 16K: MODE 3
+    [1, 0, 1], // 8K: MODE 6
+    [0, 1, 2], // 20K: MODES 0-2
+    [1, 1, 3], // 10K: MODES 4-5
+  ])('C0 (bit 4) = %i and C1 (bit 5) = %i give screen size code %i, (C1 << 1) | C0', (c0, c1, code) => {
+    const latch = new AddressableLatch();
+    latch.drive(LATCH_SCREEN_C0 | (c0 << 3)); // e.g. &0C: address 4, data 1
+    latch.drive(LATCH_SCREEN_C1 | (c1 << 3));
+    expect(latch.screenSize).toBe(code);
   });
 });

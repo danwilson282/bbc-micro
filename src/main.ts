@@ -372,7 +372,7 @@ workbench.add(
 );
 // The CRTC (Stage 37): its registers and the picture they describe. The
 // clock comes from the Video ULA's control byte, so both are passed.
-workbench.add(createCrtcPanel({ crtc: machine.crtc, ulaControl: () => machine.videoUla.control }));
+workbench.add(createCrtcPanel({ crtc: machine.crtc, ulaControl: () => machine.videoUla.control, screenSize: () => machine.latch.screenSize }));
 // The Video ULA (Stage 40): its control byte decoded, and the palette as swatches.
 workbench.add(createVideoUlaPanel(machine.videoUla));
 workbench.add(createByteExplorerPanel(machine.videoUla));
