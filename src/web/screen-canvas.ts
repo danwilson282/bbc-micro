@@ -27,6 +27,8 @@ function paletteWords(): Uint32Array {
 export interface ScreenCanvas {
   /** Renders MODE 7 as the CRTC addresses it (mode7ScreenFrom) and shows it. flashVisible is the SAA5050's flash phase. */
   draw(peek: (address: number) => number, screen: Mode7Screen, flashVisible: boolean): void;
+  /** Shows black: what we draw while the Video ULA isn't in teletext and there's no bitmap renderer yet (Stage 42). */
+  clear(): void;
   /** Milliseconds the last draw took (render + blit), for the curious. */
   readonly lastDrawMs: number;
 }
@@ -41,6 +43,8 @@ export function createScreenCanvas(canvas: HTMLCanvasElement): ScreenCanvas {
   const colours = new Uint8Array(MODE7_PIXEL_WIDTH * MODE7_PIXEL_HEIGHT);
   const palette = paletteWords();
   let lastDrawMs = 0;
+  // Already black: clear() is called every frame in a bitmap MODE, and one blit is enough.
+  let blank = false;
 
   return {
     draw(peek, screen, flashVisible) {
@@ -49,6 +53,13 @@ export function createScreenCanvas(canvas: HTMLCanvasElement): ScreenCanvas {
       for (let i = 0; i < colours.length; i++) words[i] = palette[colours[i] ?? 0] ?? 0;
       context.putImageData(image, 0, 0);
       lastDrawMs = performance.now() - begin;
+      blank = false;
+    },
+    clear() {
+      if (blank) return;
+      words.fill(palette[0]);
+      context.putImageData(image, 0, 0);
+      blank = true;
     },
     get lastDrawMs() {
       return lastDrawMs;

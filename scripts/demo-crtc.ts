@@ -11,7 +11,8 @@
 // typing still work.
 
 import { CRTC_ADDRESS, CRTC_DATA, Crtc6845 } from '../src/devices/crtc6845';
-import { ULA_CONTROL_FAST_CLOCK, characterClockHz, crtcGeometry } from '../src/devices/crtc-geometry';
+import { characterClockHz, crtcGeometry } from '../src/devices/crtc-geometry';
+import { ULA_CONTROL_FAST_CLOCK } from '../src/devices/video-ula';
 import { BbcModelB } from '../src/machine/bbc-model-b';
 import { typeText } from '../src/machine/type-text';
 import { loadStandardRoms } from '../src/memory/rom-files';

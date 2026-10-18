@@ -1092,6 +1092,51 @@
         outline: 2px solid var(--accent);
         outline-offset: -1px;
       }
+      /* Video ULA panel (Stage 40) */
+      .ula-summary {
+        margin: 0 0 6px;
+        font-weight: 600;
+      }
+      .ula-fields {
+        margin-bottom: 8px;
+      }
+      .ula-fields td.value {
+        font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+      }
+      .ula-swatches {
+        display: grid;
+        grid-template-columns: repeat(8, minmax(0, 1fr));
+        gap: 4px;
+        margin: 0;
+        padding: 0;
+        list-style: none;
+        max-width: 480px;
+      }
+      .ula-swatch {
+        font-size: 0.7rem;
+        line-height: 1.2;
+        text-align: center;
+        font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+      }
+      .ula-chip {
+        height: 28px;
+        border: 1px solid var(--muted);
+        border-radius: 3px;
+        margin-bottom: 2px;
+      }
+      .ula-swatch.flashing .ula-chip {
+        outline: 2px dashed var(--accent);
+        outline-offset: 1px;
+      }
+      .ula-swatch .ula-name {
+        color: var(--muted);
+        font-family: system-ui, sans-serif;
+      }
+      .ula-note {
+        margin: 6px 0 0;
+        font-size: 0.75rem;
+        color: var(--muted);
+      }
     </style>
   </head>
   <body>

@@ -65,9 +65,11 @@ describe('describeHardwareWrite', () => {
     expect(describeHardwareWrite(write('crtc', 20, 0x01))).toBe('CRTC R20=&01 (no such register)');
   });
 
-  it('names the Video ULA\'s two registers; a palette byte\'s top nibble is the logical colour', () => {
+  it('names the Video ULA\'s two registers; a palette byte is an entry and its colour, stored EOR 7', () => {
     expect(describeHardwareWrite(write('ulaControl', 0, 0x4b))).toBe('ULA ctrl=&4B');
-    expect(describeHardwareWrite(write('ulaPalette', 0, 0xa7))).toBe('ULA palette=&A7 (logical colour 10)');
+    expect(describeHardwareWrite(write('ulaPalette', 0, 0xa7))).toBe('ULA palette=&A7 (entry &A = black)');
+    expect(describeHardwareWrite(write('ulaPalette', 0, 0x26))).toBe('ULA palette=&26 (entry &2 = red)');
+    expect(describeHardwareWrite(write('ulaPalette', 0, 0x8f))).toBe('ULA palette=&8F (entry &8 = black/white, flashing)');
   });
 
   it('names a latch bit by what it switches, reading active-low outputs the right way round', () => {

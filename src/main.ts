@@ -27,6 +27,8 @@ import { mode7CellAddress } from './video/mode7-text';
 import { mode7ScreenFrom } from './video/mode7-renderer';
 import { teletextAddress } from './video/screen-address';
 import { programMode7NoCursor } from './mos/mos-crtc';
+import { MOS_MODE7_ULA_CONTROL } from './mos/mos-video-ula';
+import { ULA_CONTROL } from './devices/video-ula';
 import { TEST_PAGE_COUNT, teletextTestPage } from './video/teletext-test-page';
 import { teletextFlashVisible } from './video/teletext-attributes';
 import type { ListingLine } from './playground/listing';
@@ -52,6 +54,7 @@ import { createRegistersPanel } from './web/workbench/registers-panel';
 import { createStackPanel } from './web/workbench/stack-panel';
 import { createViaPanel } from './web/workbench/via-panel';
 import { SYSTEM_VIA_BASE, USER_VIA_BASE } from './web/workbench/via-view-model';
+import { createVideoUlaPanel } from './web/workbench/video-ula-panel';
 
 const screenFrame = document.querySelector<HTMLElement>('.screen-frame');
 // instanceof narrows querySelector's Element to the canvas, so no cast is needed.
@@ -84,7 +87,12 @@ if (!mosMode) machine.vsyncWired = false;
 // Since Stage 39 the screen is whatever the 6845 addresses, and a 6845
 // nobody has programmed shows nothing. In MOS mode the MOS programs it; in
 // the playground we write the MOS's MODE 7 values once instead (no cursor).
-if (!mosMode) programMode7NoCursor(machine.crtc);
+// Since Stage 40 the Video ULA must say "teletext" too, or the screen is
+// black, so the playground writes MODE 7's control byte as well.
+if (!mosMode) {
+  programMode7NoCursor(machine.crtc);
+  machine.videoUla.write(ULA_CONTROL, MOS_MODE7_ULA_CONTROL);
+}
 const doorbell = new Doorbell(machine.map);
 machine.plugIn(doorbell);
 const target = machineTarget(machine, doorbell);
@@ -109,9 +117,17 @@ const peekScreen = (address: number): number => machine.peek(address);
 // the playground the CRTC isn't programmed, so flashing text stays shown.)
 // The keyboard LEDs (Stage 36) are drawn with the screen: they're cheap, and they change as you type.
 const lockLeds = createLockLeds();
+// Since Stage 40 the Video ULA's control bit 1 decides: teletext, or the
+// ULA's own pixels. There's no bitmap renderer until Stage 42, so a bitmap
+// MODE shows black (rather than its memory decoded as teletext).
 const drawScreen = (): void => {
-  screenCanvas.draw(peekScreen, mode7ScreenFrom(machine.crtc), teletextFlashVisible(machine.crtc.vsyncCount));
-  textScreen.draw(peekScreen, teletextAddress(machine.crtc.displayStart));
+  if (machine.videoUla.teletext) {
+    screenCanvas.draw(peekScreen, mode7ScreenFrom(machine.crtc), teletextFlashVisible(machine.crtc.vsyncCount));
+    textScreen.draw(peekScreen, teletextAddress(machine.crtc.displayStart));
+  } else {
+    screenCanvas.clear();
+    textScreen.clear();
+  }
   lockLeds.update(machine.capsLockLed, machine.shiftLockLed);
 };
 
@@ -353,6 +369,8 @@ workbench.add(
 // The CRTC (Stage 37): its registers and the picture they describe. The
 // clock comes from the Video ULA's control byte, so both are passed.
 workbench.add(createCrtcPanel({ crtc: machine.crtc, ulaControl: () => machine.videoUla.control }));
+// The Video ULA (Stage 40): its control byte decoded, and the palette as swatches.
+workbench.add(createVideoUlaPanel(machine.videoUla));
 workbench.add(createAddressingPanel(target));
 workbench.add(createConverterPanel());
 

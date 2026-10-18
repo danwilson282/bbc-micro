@@ -31,9 +31,7 @@ import {
   CRTC_R8_INTERLACE_AND_SKEW,
   CRTC_R9_MAX_SCAN_LINE,
 } from './crtc6845';
-
-/** Video ULA control register bit 4: 1 = 2 MHz CRTC clock, 0 = 1 MHz (Advanced User Guide, Video ULA). */
-export const ULA_CONTROL_FAST_CLOCK = 0x10;
+import { ULA_CONTROL_FAST_CLOCK } from './video-ula';
 
 /**
  * R8 bits 0-1 (6845 data sheet): %00 and %10 off, %01 interlace sync (VSYNC
@@ -99,7 +97,7 @@ export interface CrtcGeometry {
   readonly cursorBlink: CursorBlink;
 }
 
-/** The CRTC's character clock from the Video ULA's control byte (&FE20). Only bit 4 matters here; the rest is Stage 40. */
+/** The CRTC's character clock from the Video ULA's control byte (&FE20). Only bit 4 matters here; video-ula.ts decodes the rest. */
 export function characterClockHz(ulaControl: number): number {
   return (ulaControl & ULA_CONTROL_FAST_CLOCK) !== 0 ? 2_000_000 : 1_000_000;
 }

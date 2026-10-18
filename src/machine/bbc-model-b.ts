@@ -19,7 +19,7 @@
 //
 // Stage 28 plugs in the parts the MOS talks to while it starts up, built
 // just well enough: the IC32 latch on the System VIA's PB0-PB3, a keyboard
-// on its port A (a stub then; the real matrix since Stage 34), and storage stubs for the CRTC (the real register file since Stage 37) and Video ULA. They
+// on its port A (a stub then; the real matrix since Stage 34), and storage stubs for the CRTC (the real register file since Stage 37) and Video ULA (the real registers and palette since Stage 40). They
 // report what they're told to the hardware log, by name.
 //
 //   System VIA PB0-PB3 ──▶ IC32 latch ──▶ bit 3: keyboard enable ─┐
@@ -63,8 +63,7 @@ import { Keyboard } from '../devices/keyboard';
 import type { IrqSource } from '../devices/irq-source';
 import { AciaStub } from '../devices/stubs/acia-stub';
 import { Crtc6845 } from '../devices/crtc6845';
-import { ULA_CONTROL_FAST_CLOCK } from '../devices/crtc-geometry';
-import { VideoUlaStub } from '../devices/stubs/video-ula-stub';
+import { ULA_CONTROL_FAST_CLOCK, VideoUla } from '../devices/video-ula';
 import { Via6522, type PinListener, type ViaPort } from '../devices/via6522';
 import { BbcMemoryMap } from '../memory/bbc-memory-map';
 import type { IoDevice } from '../memory/io-device';
@@ -114,7 +113,8 @@ export class BbcModelB implements PinListener, DataBus, CycleClock {
   readonly crtc: Crtc6845;
   /** Always idle: serial and cassette are out of scope. The MOS asks it first on every IRQ (Stage 29). */
   readonly acia = new AciaStub();
-  readonly videoUla: VideoUlaStub;
+  /** Control and palette (Stage 40). */
+  readonly videoUla: VideoUla;
   readonly map: BbcMemoryMap;
   readonly cpu: Cpu6502;
   /** The last 1,024 steps, each recorded just before it ran. */
@@ -143,7 +143,7 @@ export class BbcModelB implements PinListener, DataBus, CycleClock {
     this.hardwareLog = new HardwareLog(this, HARDWARE_LOG_CAPACITY);
     this.latch = new AddressableLatch(this.hardwareLog);
     this.crtc = new Crtc6845(this.hardwareLog);
-    this.videoUla = new VideoUlaStub(this, this.hardwareLog);
+    this.videoUla = new VideoUla(this, this.hardwareLog);
     this.keyboard = new Keyboard(undefined, () => {
       this.answerKeyboard();
     });
