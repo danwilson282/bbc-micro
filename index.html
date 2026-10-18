@@ -1137,6 +1137,89 @@
         font-size: 0.75rem;
         color: var(--muted);
       }
+      /* Byte explorer (Stage 41) */
+      .explorer-form {
+        display: flex;
+        gap: 12px;
+        align-items: baseline;
+        flex-wrap: wrap;
+        margin-bottom: 6px;
+      }
+      .explorer-form input {
+        font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+      }
+      .explorer-form input.invalid {
+        outline: 2px solid #c33;
+      }
+      .explorer-summary {
+        font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+        font-weight: 600;
+      }
+      .explorer-bits,
+      .explorer-owners,
+      .explorer-pixels {
+        display: flex;
+        gap: 2px;
+        max-width: 480px;
+      }
+      .explorer-bits button {
+        flex: 1 1 0;
+        min-width: 0;
+        font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+        font-size: 0.75rem;
+      }
+      .explorer-bits button[aria-pressed='true'] {
+        background: var(--accent);
+        color: #fff;
+      }
+      .explorer-mode {
+        margin-top: 8px;
+      }
+      .explorer-heading {
+        margin: 0 0 2px;
+        font-size: 0.8rem;
+      }
+      .explorer-owners span {
+        flex: 1 1 0;
+        min-width: 0;
+        text-align: center;
+        font-size: 0.65rem;
+        font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+        color: #222;
+        border-radius: 2px;
+      }
+      .explorer-owners .owner-0 { background: #fde2c8; }
+      .explorer-owners .owner-1 { background: #d6e8fb; }
+      .explorer-owners .owner-2 { background: #dff3d6; }
+      .explorer-owners .owner-3 { background: #efdcf5; }
+      .explorer-owners .owner-4 { background: #fbf3c4; }
+      .explorer-owners .owner-5 { background: #d3f1ef; }
+      .explorer-owners .owner-6 { background: #f6d3d9; }
+      .explorer-owners .owner-7 { background: #e1e1e1; }
+      .explorer-pixels {
+        margin-top: 2px;
+      }
+      .explorer-pixel {
+        flex: 1 1 0;
+        min-width: 0;
+        height: 32px;
+        padding: 0;
+        border: 1px solid var(--muted);
+        border-radius: 2px;
+        font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+        font-size: 0.7rem;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        overflow: hidden;
+      }
+      button.explorer-pixel {
+        cursor: pointer;
+      }
+      .explorer-pixel.flashing {
+        outline: 2px dashed var(--accent);
+        outline-offset: -3px;
+      }
     </style>
   </head>
   <body>

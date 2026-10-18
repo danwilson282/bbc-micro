@@ -55,6 +55,7 @@ import { createStackPanel } from './web/workbench/stack-panel';
 import { createViaPanel } from './web/workbench/via-panel';
 import { SYSTEM_VIA_BASE, USER_VIA_BASE } from './web/workbench/via-view-model';
 import { createVideoUlaPanel } from './web/workbench/video-ula-panel';
+import { createByteExplorerPanel } from './web/workbench/byte-explorer-panel';
 
 const screenFrame = document.querySelector<HTMLElement>('.screen-frame');
 // instanceof narrows querySelector's Element to the canvas, so no cast is needed.
@@ -371,6 +372,7 @@ workbench.add(
 workbench.add(createCrtcPanel({ crtc: machine.crtc, ulaControl: () => machine.videoUla.control }));
 // The Video ULA (Stage 40): its control byte decoded, and the palette as swatches.
 workbench.add(createVideoUlaPanel(machine.videoUla));
+workbench.add(createByteExplorerPanel(machine.videoUla));
 workbench.add(createAddressingPanel(target));
 workbench.add(createConverterPanel());
 
