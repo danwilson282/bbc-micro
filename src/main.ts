@@ -56,6 +56,7 @@ import { createStackPanel } from './web/workbench/stack-panel';
 import { createViaPanel } from './web/workbench/via-panel';
 import { SYSTEM_VIA_BASE, USER_VIA_BASE } from './web/workbench/via-view-model';
 import { createVideoUlaPanel } from './web/workbench/video-ula-panel';
+import { createSoundPanel } from './web/workbench/sound-panel';
 import { createByteExplorerPanel } from './web/workbench/byte-explorer-panel';
 
 const screenFrame = document.querySelector<HTMLElement>('.screen-frame');
@@ -376,6 +377,8 @@ workbench.add(createCrtcPanel({ crtc: machine.crtc, ulaControl: () => machine.vi
 // The Video ULA (Stage 40): its control byte decoded, and the palette as swatches.
 workbench.add(createVideoUlaPanel(machine.videoUla));
 workbench.add(createByteExplorerPanel(machine.videoUla));
+// The SN76489 (Stage 44): its registers, written through port A when IC32 bit 0 falls.
+workbench.add(createSoundPanel(machine.sound, machine.hardwareLog));
 workbench.add(createAddressingPanel(target));
 workbench.add(createConverterPanel());
 

@@ -141,6 +141,14 @@ describe('Keyboard: the links and PA7 (as the Stage 28 stub did)', () => {
     expect(kb.pa7(KEY_Q, false)).toBe(0);
   });
 
+  it('with autoscan on, the keyboard drives nothing on PA7 (its 74LS251 is switched off), even with the key down (Stage 44)', () => {
+    const kb = new Keyboard(0x00);
+    kb.press(KEY_A);
+    expect(kb.pa7(KEY_A, true)).toBeUndefined();
+    expect(kb.pa7(0x09, true)).toBeUndefined();
+    expect(kb.pa7(KEY_Q, true)).toBeUndefined();
+  });
+
   it('with all links open (the default, &FF) every link reads "not pressed"', () => {
     const kb = new Keyboard();
     expect(kb.links).toBe(DEFAULT_LINKS);
@@ -171,13 +179,6 @@ describe('Keyboard: the links and PA7 (as the Stage 28 stub did)', () => {
     const kb = new Keyboard(0x00);
     expect(kb.pa7(0x0a, false)).toBe(0);
     expect(kb.pa7(0x0f, false)).toBe(0);
-  });
-
-  it('with autoscan on (latch bit 3 = 1) the CPU isn\'t picking the key: PA7 is driven low (Stage 35 builds the scan)', () => {
-    const kb = new Keyboard(0x00);
-    kb.press(KEY_A);
-    expect(kb.pa7(0x09, true)).toBe(0);
-    expect(kb.pa7(KEY_A, true)).toBe(0);
   });
 
   it('reads only PA0-PA6: bit 7 of the key number is PA7 itself, the answer', () => {

@@ -405,16 +405,25 @@ describe('BbcModelB: the System VIA\'s pins, the IC32 latch and the keyboard (St
     expect(m.map.read(0xfe4f)).toBe(0x41);
   });
 
-  it('with autoscan on (&0B: latch bit 3 = 1) the keyboard isn\'t answering the CPU: even a closed link reads PA7 low', () => {
+  it('with autoscan on (&0B: latch bit 3 = 1) the keyboard lets go of PA7 (Stage 44): an input PA7 floats high, whatever the key', () => {
     const m = machineWith(JMP_LOOP);
-    m.keyboard.links = 0xfe;
     m.map.write(0xfe42, 0x0f);
     m.map.write(0xfe43, 0x7f);
-    m.map.write(0xfe4f, 0x09);
+    m.map.write(0xfe4f, 0x09); // link 9 open: "not down"
     m.map.write(0xfe40, 0x0b);
-    expect(m.map.read(0xfe4f)).toBe(0x09);
-    m.map.write(0xfe40, 0x03); // autoscan off: now it answers
+    expect(m.systemVia.outside('a') & 0x80).toBe(0x80);
     expect(m.map.read(0xfe4f)).toBe(0x89);
+    m.map.write(0xfe40, 0x03); // autoscan off: now it answers, and the open link pulls PA7 low
+    expect(m.map.read(0xfe4f)).toBe(0x09);
+  });
+
+  it('with autoscan on, an output PA7 carries the VIA\'s own bit: &D0 written to port A is &D0 on the pins (the sound chip\'s latch byte)', () => {
+    const m = machineWith(JMP_LOOP);
+    m.map.write(0xfe42, 0x0f);
+    m.map.write(0xfe40, 0x0b);
+    m.map.write(0xfe43, 0xff);
+    m.map.write(0xfe4f, 0xd0);
+    expect(m.systemVia.pins('a')).toBe(0xd0);
   });
 
   it('the keyboard drives only PA7: a line someone else pulls low (a VIA panel button) stays low', () => {

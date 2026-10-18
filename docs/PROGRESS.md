@@ -2,7 +2,7 @@
 
 Tracks where the build is up to. The `/start-stage` and `/finish-stage` skills keep this file up to date. For what each stage involves, see [`BUILD-PLAN.md`](./BUILD-PLAN.md).
 
-**Current stage:** 44 — SN76489 register protocol (not started)
+**Current stage:** 45 — Tone & noise generation (not started)
 
 **Status values:**
 - `not started`
@@ -106,7 +106,7 @@ Tracks where the build is up to. The `/start-stage` and `/finish-stage` skills k
 
 | # | Stage | Status | Seen? | Branch | Doc | Notes |
 |---|---|---|---|---|---|---|
-| 44 | SN76489 register protocol | not started | | `stage/44-sn76489-registers` | [doc](./stages/44-sn76489-registers.md) | |
+| 44 | SN76489 register protocol | done | ✅ | `stage/44-sn76489-registers` | [doc](./stages/44-sn76489-registers.md) | New `devices/sn76489.ts`: 8 registers in a `Uint16Array` indexed by a latch byte's bits 6-4 (R0 tone 0 … R6 noise, R7 att 3); latch byte (bit 7 = 1) latches + writes low 4 bits, data byte writes N's high 6 (or, for narrow registers, the low bits: common reading, unconfirmed). **Wiring:** `pinsChanged` sees IC32 bit 0 fall (/WE) and calls `sound.write(systemVia.pins('a'))`. **Bug fixed:** the keyboard pulled PA7 low in autoscan, so every latch byte lost bit 7 (`&D0` arrived as `&50`); now `Keyboard.pa7()` is `undefined` in autoscan (the '251 is off). **Measured:** MOS write routine at &EB21 (DDRA &FF, byte to &FE4F, &00/&08 to &FE40, /WE low 17 cycles = 8.5 µs); channel table at &EB40 (`E0 C0 A0 80`: SOUND c → chip 3-c); boot bytes `9F 82 3F BF A1 3F DF C0 3F FF E0` then bleep `92 8F 0E`, `9F`; `SOUND 1,-15,53,20` → `D0 C5 1D` (N &1D5, 266.5 Hz); BASIC volume v → attenuation v+15. Power-on silent (our choice: no reset pin); BREAK leaves it. Hardware log device `'sound'`. **Sound** panel (4 rows, latched register, recent bytes). `demo:sound-regs`. `e2e/sound-panel.spec.ts` (real-time, 2). |
 | 45 | Tone & noise generation | not started | | `stage/45-tone-noise` | [doc](./stages/45-tone-noise.md) | |
 | 46 | Web Audio output | not started | | `stage/46-web-audio` | [doc](./stages/46-web-audio.md) | |
 
@@ -204,7 +204,7 @@ Things to come back to: questions raised during a stage, known inaccuracies, ide
 - The ULA cursor "inverts" (EOR 7) per BeebWiki; not checked against a schematic. (Stage 42)
 - R8 skew is modelled only as "%11 = off"; real display/cursor delays (MODE 7: 1 and 2 characters) belong with the scanline renderer (Stage 42). (Stage 39)
 - MODE 7 is still drawn from memory as it is at draw time, not as the beam passes; mid-field screen writes (raster tricks) won't show until Stage 42. The text layer ignores R1/R6. (Stage 39)
-- Keyboard stub drives PA7 low whenever autoscan is on. A real board would show the counter's column (a closed link could appear). The MOS doesn't read PA7 then; Stage 35 builds the counter. (Stage 28)
+- ~~Keyboard stub drives PA7 low whenever autoscan is on. A real board would show the counter's column (a closed link could appear). The MOS doesn't read PA7 then; Stage 35 builds the counter. (Stage 28)~~ Settled in Stage 44: with autoscan on the keyboard's 74LS251 is switched off and drives nothing on PA7 (the MOS writes sound bytes through port A then, with PA7 = 1).
 - The keyboard now owns the System VIA's PA7: the VIA panel's PA7 pull-low button is overridden at the next pin change (PA0-PA6 buttons still work). (Stage 28)
 - ACIA stub status is fixed at &02: if RS423/cassette ever turned its interrupts on, a real 6850 would raise IRQ on TDRE; ours never will. /DCD and /CTS (bits 2-3 = 0) for an unconnected Model B port are unchecked. Serial/cassette are out of scope. (Stage 29)
 - ~~Which VSYNC edge reaches System VIA CA1 is unconfirmed. Stage 38. (Stage 29)~~ Stage 38: CA1 follows VSYNC (jsbeeb's behaviour; still not checked against the circuit diagram), so with PCR &04 the IRQ is at the pulse's **end**.
@@ -223,7 +223,7 @@ Things to come back to: questions raised during a stage, known inaccuracies, ide
 - A PC key-up releases a BBC key even if it was clicked down in the panel too (the tracker only knows its own presses). Rare, harmless. (Stage 34)
 - The desk view's key order (`← →` ending the number row, `↑ ↓` after `_`, `DELETE COPY` after right SHIFT) is from memory of the Model B, not a measured photo. The matrix positions don't depend on it. (Stage 34)
 - Keys pressed from the console (`workbench.keyboard.press(0x41)`) light the panel only at the next panel refresh. (Stage 34)
-- ~~Keyboard stub drives PA7 low whenever autoscan is on; Stage 35 builds the counter.~~ Stage 35 built the counter but still drives PA7 low in autoscan: modelling "row PA4-PA6 of the counter's column" would cost a pin update per µs, and the MOS never reads PA7 then. (Stage 35)
+- ~~Keyboard stub drives PA7 low whenever autoscan is on; Stage 35 builds the counter.~~ Stage 35 built the counter but still drives PA7 low in autoscan: modelling "row PA4-PA6 of the counter's column" would cost a pin update per µs, and the MOS never reads PA7 then. (Stage 35) **Settled in Stage 44:** the keyboard lets go of PA7 in autoscan.
 - A browser keydown + keyup between two animation frames gives the machine no emulated time with the key down (Playwright's instant `press` is lost). The MOS ignores presses under ~10 ms anyway (measured), but frame batching adds up to ~16 ms of jitter. A minimum hold in the web layer (release no earlier than N emulated ms after press) would make very fast taps reliable. Idea only. (Stage 35)
 - Keyboard chip numbers (74LS163 counter, 74LS145 decoder, 74LS251 selector, 74LS30 NAND) are BeebWiki's, unchecked against the circuit diagram; the behaviour is what the MOS's code requires. The counter is assumed to power up at 0. (Stage 35)
 - Inside the scan loop the MOS turns autoscan back on and does `CLI : SEI` for every column (`&F0E3` → `&F129`), a brief window for other interrupts. Not investigated further. (Stage 35)
@@ -243,3 +243,6 @@ Things to come back to: questions raised during a stage, known inaccuracies, ide
 - Palette/control writes apply to the whole drawn frame, not from the next pixel: mid-frame raster palette effects need a beam-following renderer. Decide in Stage 42. (Stage 40)
 - The ULA's shifted-in bits are 1s (BeebWiki), "or random values on some machines". We always shift in 1s. It only shows with a non-MOS palette in MODE 0/1 or at 16 pixels a byte. Unused pixel rates (16 or 1 pixel a byte) are the model's prediction, unseen on hardware. (Stage 41)
 - `via-interrupts.spec.ts` "Timer 1 … 100 times a second" failed once while an MCP browser ran a real-time machine at the same time. It passes alone and in a clean full run. It's load-sensitive, like compare-branch's Run test. (Stage 41)
+- SN76489 data bytes after a volume/noise latch: we follow the common reading (low bits go in); unconfirmed for the BBC's SN76489AN, and the MOS never does it. (Stage 44)
+- The keyboard 74LS251's strobe on IC32 bit 3 is reasoned (it's the only wiring under which the MOS's sound writes work), not checked against the circuit diagram. (Stage 44)
+- SN76489 byte taken on /WE's falling edge; a /WE held low (e.g. from IC32's power-on &00) writes nothing. Real chip behaviour with /WE held low unmodelled. (Stage 44)

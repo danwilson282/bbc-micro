@@ -27,8 +27,10 @@
 // select nothing. Row 0 (SHIFT, CTRL, the links) is left out of CA2, or a
 // closed link would interrupt for ever.
 //
-// PA7 is still driven low in autoscan: a real board would show a row of the
-// counter's column, but the MOS never reads it then (see the Stage 35 doc).
+// PA7 comes from a 74LS251 multiplexer, whose output is switched off (high
+// impedance) while autoscan is on. It has to be: the MOS writes the sound
+// chip's bytes through port A with autoscan on, and they need PA7 = 1
+// (Stage 44). So in autoscan the keyboard drives nothing on PA7.
 
 import type { Clocked } from './clocked';
 
@@ -285,9 +287,13 @@ export class Keyboard implements KeyboardSwitches, Clocked {
     return linkClosed ? rows | 0x01 : rows;
   }
 
-  /** The level the keyboard puts on PA7, given the key number on PA0-PA6 and whether autoscan is on. */
-  pa7(key: number, autoscan: boolean): 0 | 1 {
-    if (autoscan) return 0;
+  /**
+   * The level the keyboard puts on PA7, given the key number on PA0-PA6 and
+   * whether autoscan is on. undefined with autoscan on: the '251 is off, so it
+   * drives nothing and the line is the VIA's (Stage 44).
+   */
+  pa7(key: number, autoscan: boolean): 0 | 1 | undefined {
+    if (autoscan) return undefined;
     return this.isDown(key & 0x7f) ? 1 : 0;
   }
 
