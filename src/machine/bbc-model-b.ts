@@ -50,6 +50,12 @@
 //   BREAK ──▶ /RES ──▶ 6502 only        IC32 bit 6 ──▶ CAPS LOCK LED
 //                                       IC32 bit 7 ──▶ SHIFT LOCK LED
 //
+// Stage 42 adds the picture. The 6845 tells a bitmap renderer as each
+// scanline starts, and it draws the line from RAM through the ULA, so the
+// machine makes its own pixels in the bitmap MODEs, with or without a browser.
+//
+//   6845 line start ──▶ MA, RA ──▶ RAM bytes ──▶ ULA shift + palette ──▶ bitmap.pixels
+//
 // step() and runCycles() are the hot path: no objects, closures or arrays
 // are made in them, and the device lists are walked with indexed loops.
 
@@ -65,6 +71,7 @@ import { AciaStub } from '../devices/stubs/acia-stub';
 import { Crtc6845 } from '../devices/crtc6845';
 import { ULA_CONTROL_FAST_CLOCK, VideoUla } from '../devices/video-ula';
 import { Via6522, type PinListener, type ViaPort } from '../devices/via6522';
+import { BitmapRenderer } from '../video/bitmap-renderer';
 import { BbcMemoryMap } from '../memory/bbc-memory-map';
 import type { IoDevice } from '../memory/io-device';
 import type { DataBus } from '../memory/placeholder-device';
@@ -115,6 +122,8 @@ export class BbcModelB implements PinListener, DataBus, CycleClock {
   readonly acia = new AciaStub();
   /** Control and palette (Stage 40). */
   readonly videoUla: VideoUla;
+  /** MODE 0-6's pixels, drawn a scanline at a time as the 6845 reaches each (Stage 42). */
+  readonly bitmap: BitmapRenderer;
   readonly map: BbcMemoryMap;
   readonly cpu: Cpu6502;
   /** The last 1,024 steps, each recorded just before it ran. */
@@ -158,6 +167,11 @@ export class BbcModelB implements PinListener, DataBus, CycleClock {
     });
     this.map = new BbcMemoryMap({
       devices: { acia: this.acia, systemVia: this.systemVia, userVia: this.userVia, crtc: this.crtc, videoUla: this.videoUla },
+    });
+    // The screen is always RAM (A0-A14), and the ULA's reads have no side effects: peek is the bus it sees.
+    this.bitmap = new BitmapRenderer((address) => this.map.peek(address), this.crtc, this.videoUla);
+    this.crtc.connectScanline((line) => {
+      this.bitmap.drawLine(line);
     });
     this.recorder = new WriteRecorder(this.map);
     this.cpu = new Cpu6502(this.recorder);

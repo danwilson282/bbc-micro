@@ -84,9 +84,11 @@
         max-width: 100%;
         container-type: inline-size;
       }
-      /* The canvas is 480 × 500 (MODE 7 in half dots × interlaced lines),
-         stretched to a 5:4 picture like the 640 × 512 one the bitmap modes
-         will draw. pixelated: each dot stays a sharp rectangle. */
+      /* The canvas is 480 × 500 in MODE 7 (half dots × interlaced lines)
+         and 640 × 256 in MODE 0-6 (16 MHz dots × scanlines, Stage 42). Both
+         are the same TV picture, stretched to the same 5:4 frame: each
+         bitmap line shows twice, as the TV's two interlace-sync fields do.
+         pixelated: each dot stays a sharp rectangle. */
       #screen {
         display: block;
         background: #000;
