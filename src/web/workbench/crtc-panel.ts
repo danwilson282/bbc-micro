@@ -1,4 +1,6 @@
 // The CRTC panel (Stage 37): the 6845's registers and the picture they make.
+// Since Stage 38 also its counters: where the beam is, the three outputs,
+// and the field rate measured from the VSYNCs.
 //
 // All decisions come from crtc-view-model.ts; this file only builds
 // elements. They're built once and only their text and classes change on
@@ -7,7 +9,7 @@
 
 import type { Crtc6845 } from '../../devices/crtc6845';
 import { CRTC_REGISTER_COUNT } from '../../devices/crtc6845';
-import { buildCrtcView, type FrameBox } from './crtc-view-model';
+import { buildCrtcView, type FrameBox, type GeometryLine } from './crtc-view-model';
 import type { Panel } from './panel';
 
 export interface CrtcPanelSource {
@@ -21,6 +23,22 @@ function place(element: HTMLElement, box: FrameBox): void {
   element.style.top = `${String(box.top)}%`;
   element.style.width = `${String(box.width)}%`;
   element.style.height = `${String(box.height)}%`;
+}
+
+/** A list that's the same lines every time: made on the first refresh, then only its text changes. */
+function fillList(list: HTMLElement, values: HTMLElement[], lines: readonly GeometryLine[]): void {
+  lines.forEach((line, i) => {
+    let value = values.at(i);
+    if (value === undefined) {
+      const dt = document.createElement('dt');
+      dt.textContent = line.label;
+      value = document.createElement('dd');
+      value.dataset.field = line.label;
+      list.append(dt, value);
+      values.push(value);
+    }
+    value.textContent = line.value;
+  });
 }
 
 export function createCrtcPanel(source: CrtcPanelSource): Panel {
@@ -46,10 +64,20 @@ export function createCrtcPanel(source: CrtcPanelSource): Panel {
   const vsync = document.createElement('div');
   vsync.className = 'crtc-vsync';
   vsync.title = 'VSYNC (R7, R3 bits 4-7)';
-  frame.append(displayed, hsync, vsync);
+  // Where the counters are now: a dot, moved on each refresh.
+  const beam = document.createElement('div');
+  beam.className = 'crtc-beam';
+  beam.title = 'The beam: where the counters are now';
+  frame.append(displayed, hsync, vsync, beam);
   const legend = document.createElement('p');
   legend.className = 'crtc-legend';
-  legend.textContent = 'One field to scale: characters across (R0), scanlines down. Blue: HSYNC. Red: VSYNC.';
+  legend.textContent = 'One field to scale: characters across (R0), scanlines down. Blue: HSYNC. Red: VSYNC. Dot: the beam now.';
+
+  // The counters (Stage 38), the same five lines every time.
+  const counters = document.createElement('dl');
+  counters.className = 'crtc-geometry crtc-counters';
+  counters.setAttribute('aria-label', 'Counters');
+  const counterValues: HTMLElement[] = [];
 
   const geometry = document.createElement('dl');
   geometry.className = 'crtc-geometry';
@@ -91,31 +119,25 @@ export function createCrtcPanel(source: CrtcPanelSource): Panel {
     cells.push({ row, label, name, hex, access, meaning });
   }
 
-  element.append(summary, frame, legend, geometry, table);
+  element.append(summary, frame, legend, counters, geometry, table);
 
   function refresh(): void {
     const registers = source.crtc.registers();
-    const view = buildCrtcView({ registers, addressRegister: source.crtc.addressRegister, ulaControl: source.ulaControl(), previous });
+    const view = buildCrtcView({ registers, addressRegister: source.crtc.addressRegister, ulaControl: source.ulaControl(), previous, counters: source.crtc });
     previous = registers;
     summary.textContent = view.summary;
     frame.setAttribute('aria-label', `Frame layout: ${view.summary}`);
     place(displayed, view.frame.displayed);
     place(hsync, view.frame.hsync);
     place(vsync, view.frame.vsync);
+    // Only its position: the dot keeps the CSS's size.
+    if (view.beam !== undefined) {
+      beam.style.left = `${String(view.beam.left)}%`;
+      beam.style.top = `${String(view.beam.top)}%`;
+    }
+    fillList(counters, counterValues, view.counters);
 
-    // The geometry list is the same six lines every time: made on the first refresh, then reused.
-    view.geometry.forEach((line, i) => {
-      let value = geometryValues.at(i);
-      if (value === undefined) {
-        const dt = document.createElement('dt');
-        dt.textContent = line.label;
-        value = document.createElement('dd');
-        value.dataset.field = line.label;
-        geometry.append(dt, value);
-        geometryValues.push(value);
-      }
-      value.textContent = line.value;
-    });
+    fillList(geometry, geometryValues, view.geometry);
 
     // One view row per table row: both have CRTC_REGISTER_COUNT.
     cells.forEach((c, n) => {

@@ -28,7 +28,11 @@
 //
 // Stage 29 adds the last two the boot needs: an idle ACIA (so the MOS's
 // "was it the ACIA?" gets "no" and it goes on to the System VIA), and a
-// fake 50 Hz vsync on the System VIA's CA1.
+// fake 50 Hz vsync on the System VIA's CA1. Stage 38 replaces that with the
+// CRTC's own VSYNC: the 6845 is ticked with the other chips, at the clock
+// the Video ULA picks, and its pin 40 drives CA1.
+//
+//   ULA control bit 4 ──▶ 6845 clock ──▶ counters ──▶ VSYNC ──▶ System VIA CA1 ──▶ IFR bit 1
 //
 // Stage 35 lets the keyboard interrupt. Its column counter is ticked with
 // the VIAs; it counts by itself while latch bit 3 is 1, and follows PA0-PA3
@@ -58,8 +62,8 @@ import { HardwareLog, type CycleClock } from '../devices/hardware-log';
 import { Keyboard } from '../devices/keyboard';
 import type { IrqSource } from '../devices/irq-source';
 import { AciaStub } from '../devices/stubs/acia-stub';
-import { FakeVsync } from '../devices/stubs/fake-vsync';
 import { Crtc6845 } from '../devices/crtc6845';
+import { ULA_CONTROL_FAST_CLOCK } from '../devices/crtc-geometry';
 import { VideoUlaStub } from '../devices/stubs/video-ula-stub';
 import { Via6522, type PinListener, type ViaPort } from '../devices/via6522';
 import { BbcMemoryMap } from '../memory/bbc-memory-map';
@@ -106,12 +110,10 @@ export class BbcModelB implements PinListener, DataBus, CycleClock {
   readonly latch: AddressableLatch;
   /** The key matrix (Stage 34) and its scan counter (Stage 35). A press or release recomputes PA7 and CA2 at once. */
   readonly keyboard: Keyboard;
-  /** The 6845's registers (Stage 37). Its counters and VSYNC are Stage 38. */
+  /** The 6845: its registers (Stage 37), and its counters and VSYNC (Stage 38). */
   readonly crtc: Crtc6845;
   /** Always idle: serial and cassette are out of scope. The MOS asks it first on every IRQ (Stage 29). */
   readonly acia = new AciaStub();
-  /** A 50 Hz pulse on the System VIA's CA1, until the CRTC makes a real one (Stage 38). */
-  readonly vsync = new FakeVsync(this.systemVia);
   readonly videoUla: VideoUlaStub;
   readonly map: BbcMemoryMap;
   readonly cpu: Cpu6502;
@@ -132,6 +134,8 @@ export class BbcModelB implements PinListener, DataBus, CycleClock {
   private budget = 0;
   /** BREAK is down: /RES is low and the CPU is held (Stage 36). */
   private breakDown = false;
+  /** Is the CRTC's VSYNC connected to the System VIA's CA1? Cut only to experiment (Stage 38). */
+  private vsyncToCa1 = true;
 
   constructor(name = 'BBC Model B') {
     this.name = name;
@@ -147,6 +151,11 @@ export class BbcModelB implements PinListener, DataBus, CycleClock {
     this.keyboard.connectCa2((level) => {
       this.systemVia.setControlLine('ca2', level);
     });
+    // Made once here too: the CRTC calls these from its tick.
+    this.crtc.connectClock(() => (this.videoUla.control & ULA_CONTROL_FAST_CLOCK) !== 0);
+    this.crtc.connectVsync((level) => {
+      if (this.vsyncToCa1) this.systemVia.setControlLine('ca1', level);
+    });
     this.map = new BbcMemoryMap({
       devices: { acia: this.acia, systemVia: this.systemVia, userVia: this.userVia, crtc: this.crtc, videoUla: this.videoUla },
     });
@@ -156,7 +165,7 @@ export class BbcModelB implements PinListener, DataBus, CycleClock {
     this.systemVia.connectPins(this);
     this.latchFollowsPins();
     this.trace = new Tracer((address) => this.map.peek(address));
-    this.clocked = [this.systemVia, this.userVia, this.vsync, this.keyboard];
+    this.clocked = [this.systemVia, this.userVia, this.crtc, this.keyboard];
     this.irqSources = [this.systemVia, this.userVia];
     this.irqNames = [SYSTEM_VIA_NAME, USER_VIA_NAME];
   }
@@ -210,7 +219,7 @@ export class BbcModelB implements PinListener, DataBus, CycleClock {
 
   /**
    * BREAK is held: the 6502 does nothing, but its clock still runs, and so
-   * do the VIAs, the vsync and the keyboard's counter. The cycles are added
+   * do the VIAs, the CRTC and the keyboard's counter. The cycles are added
    * to the CPU's count so the frame budget and the logs' timestamps move.
    */
   private stepHeldInReset(): number {
@@ -228,15 +237,16 @@ export class BbcModelB implements PinListener, DataBus, CycleClock {
 
   /**
    * Switching on: every chip's /RES (the VIAs clear IER, so the MOS sees
-   * &80 at &FE4E), the vsync back to the start of a frame, the 1 MHz bus
+   * &80 at &FE4E), the CRTC's counters back to the top of a field, the 1 MHz bus
    * cards, and the CPU's reset sequence. RAM is left as it is: clearing it
    * is the MOS's job. Returns the CPU's 7 cycles.
    */
   powerOn(): number {
     this.latch.reset();
+    // The CRTC first: if VSYNC was high, CA1 falls now, and the VIA's reset then clears the flag it made.
+    this.crtc.reset();
     this.systemVia.reset();
     this.userVia.reset();
-    this.vsync.reset();
     this.keyboard.resetScan();
     this.latchFollowsPins();
     return this.reset();
@@ -320,6 +330,25 @@ export class BbcModelB implements PinListener, DataBus, CycleClock {
     const down = this.keyboard.pa7(pins, autoscan) === 1;
     const others = this.systemVia.outside('a') & ~PA7 & 0xff;
     this.systemVia.setOutside('a', down ? others | PA7 : others);
+  }
+
+  // ── VSYNC to CA1 ───────────────────────────────────────────────────────
+
+  /**
+   * The wire from the CRTC's VSYNC to the System VIA's CA1 (Stage 38). Cut,
+   * CA1 is left high and nothing interrupts at 50 Hz: for showing what
+   * vsync is for, and for the playground, where the VIA panel's CA1 button
+   * needs the pin to itself. Joined again, CA1 takes VSYNC's level.
+   */
+  get vsyncWired(): boolean {
+    return this.vsyncToCa1;
+  }
+
+  set vsyncWired(on: boolean) {
+    this.vsyncToCa1 = on;
+    // A cut wire floats high, like the fake vsync's idle level (Stage 29).
+    const level = this.crtc.vsync ? 1 : 0;
+    this.systemVia.setControlLine('ca1', on ? level : 1);
   }
 
   // ── The lock LEDs ──────────────────────────────────────────────────────

@@ -41,7 +41,8 @@
     "demo:teletext": "tsx scripts/demo-teletext.ts",
     "demo:rounding": "tsx scripts/demo-rounding.ts",
     "demo:typing": "tsx scripts/demo-typing.ts",
-    "demo:break": "tsx scripts/demo-break.ts"
+    "demo:break": "tsx scripts/demo-break.ts",
+    "demo:crtc": "tsx scripts/demo-crtc.ts"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

@@ -20,8 +20,11 @@ export interface RunControlsActions {
 
 export interface RunControls {
   readonly element: HTMLElement;
-  /** Shows the state: the toggle's label, and the status line. */
-  update(running: boolean, frames: number, speed: SpeedMeter): void;
+  /**
+   * Shows the state: the toggle's label, and the status line. `vsync` is the
+   * field rate the CRTC's counters produce (Stage 38), e.g. "50.00 Hz".
+   */
+  update(running: boolean, frames: number, speed: SpeedMeter, vsync?: string): void;
   /** A message instead of the status line, e.g. an error. Cleared by the next update. */
   say(text: string, isError?: boolean): void;
 }
@@ -66,13 +69,14 @@ export function createRunControls(actions: RunControlsActions): RunControls {
 
   return {
     element,
-    update(running, frames, speed) {
+    update(running, frames, speed, vsync) {
       toggle.textContent = running ? 'Pause' : 'Run';
       toggle.setAttribute('aria-label', running ? 'Pause the machine' : 'Run the machine in real time');
       element.classList.toggle('running', running);
       status.classList.remove('error');
       const count = `frame ${frames.toLocaleString('en-GB')}`;
-      status.textContent = running ? `Running: ${speedText(speed)} · ${count}` : `Paused at ${count}`;
+      const rate = vsync === undefined ? '' : ` · VSYNC ${vsync}`;
+      status.textContent = running ? `Running: ${speedText(speed)}${rate} · ${count}` : `Paused at ${count}${rate}`;
     },
     say(text, isError = false) {
       status.textContent = text;

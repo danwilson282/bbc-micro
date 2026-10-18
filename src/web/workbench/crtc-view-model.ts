@@ -9,6 +9,12 @@
 // Plus a to-scale drawing of one field, in percent: where the displayed
 // area, HSYNC and VSYNC fall. No DOM here: crtc-panel.ts builds elements,
 // Jest tests this.
+//
+// Stage 38 adds the counters: where the beam is now, the three outputs, and
+// the field rate measured from the VSYNCs (not worked out from the registers):
+//
+//   Beam       line 280 of the field, character 12
+//   Measured   VSYNC every 40,000 cycles = 20.000 ms: 50.00 Hz
 
 import { CRTC_REGISTER_ACCESS, CRTC_REGISTER_COUNT, type CrtcAccess } from '../../devices/crtc6845';
 import { characterClockHz, crtcGeometry, describeCrtcGeometry, type CrtcGeometry } from '../../devices/crtc-geometry';
@@ -23,6 +29,23 @@ export interface CrtcViewInput {
   readonly ulaControl: number;
   /** R0-R17 last time, to mark what changed. */
   readonly previous?: readonly number[];
+  /** The chip's counters now (Stage 38): a Crtc6845 will do. */
+  readonly counters?: CrtcCounters;
+}
+
+/** What the 6845's counters and outputs say now. Crtc6845 has all of these. */
+export interface CrtcCounters {
+  readonly character: number;
+  readonly scanline: number;
+  readonly row: number;
+  readonly fieldLine: number;
+  readonly inAdjust: boolean;
+  readonly oddField: boolean;
+  readonly hsync: boolean;
+  readonly vsync: boolean;
+  readonly displayEnable: boolean;
+  readonly vsyncCount: number;
+  readonly vsyncPeriodCycles: number;
 }
 
 export interface CrtcRegisterRow {
@@ -58,6 +81,19 @@ export interface CrtcView {
   readonly rows: readonly CrtcRegisterRow[];
   readonly geometry: readonly GeometryLine[];
   readonly frame: { readonly displayed: FrameBox; readonly hsync: FrameBox; readonly vsync: FrameBox };
+  /** The counters in words (Stage 38): empty without counters. */
+  readonly counters: readonly GeometryLine[];
+  /** Where the beam is in the frame drawing (width and height 0), if the counters were given. */
+  readonly beam?: FrameBox;
+}
+
+/** The 6502's clock: the measured period is in its cycles. */
+const CPU_HZ = 2_000_000;
+
+/** "50.00 Hz" from the cycles between two VSYNCs, or undefined before there have been two. */
+export function vsyncRateText(periodCycles: number): string | undefined {
+  if (periodCycles <= 0) return undefined;
+  return `${(CPU_HZ / periodCycles).toFixed(2)} Hz`;
 }
 
 const ACCESS_TEXT: Readonly<Record<CrtcAccess, string>> = { write: 'W', 'read-write': 'R/W', read: 'R' };
@@ -188,6 +224,30 @@ function frameBoxes(g: CrtcGeometry): CrtcView['frame'] {
   };
 }
 
+function onOff(name: string, on: boolean): string {
+  return `${name} ${on ? 'high' : 'low'}`;
+}
+
+/** The counters in words, as the panel lists them. */
+function counterLines(c: CrtcCounters, g: CrtcGeometry): GeometryLine[] {
+  const rate = vsyncRateText(c.vsyncPeriodCycles);
+  const ms = ((c.vsyncPeriodCycles * 1000) / CPU_HZ).toFixed(3);
+  const fields = `${thousands(c.vsyncCount)} VSYNCs since power-on`;
+  return [
+    { label: 'Beam', value: `line ${String(c.fieldLine)} of the field, character ${String(c.character)}` },
+    {
+      label: 'Counters',
+      value: c.inAdjust ? `vertical adjust, after row ${String(c.row)}` : `row ${String(c.row)}, scanline ${String(c.scanline)}`,
+    },
+    { label: 'Outputs', value: `${onOff('DISPEN', c.displayEnable)}, ${onOff('HSYNC', c.hsync)}, ${onOff('VSYNC', c.vsync)}` },
+    { label: 'Fields', value: g.interlace === 'off' ? fields : `${c.oddField ? 'odd' : 'even'} field; ${fields}` },
+    {
+      label: 'Measured',
+      value: rate === undefined ? 'waiting for two VSYNCs' : `VSYNC every ${thousands(c.vsyncPeriodCycles)} cycles = ${ms} ms: ${rate}`,
+    },
+  ];
+}
+
 export function buildCrtcView(input: CrtcViewInput): CrtcView {
   const { registers, previous } = input;
   const g = crtcGeometry(registers, characterClockHz(input.ulaControl));
@@ -205,5 +265,13 @@ export function buildCrtcView(input: CrtcViewInput): CrtcView {
       changed: previous !== undefined && previous[n] !== value,
     });
   }
-  return { summary: describeCrtcGeometry(g), rows, geometry: geometryLines(g, input.ulaControl), frame: frameBoxes(g) };
+  const c = input.counters;
+  return {
+    summary: describeCrtcGeometry(g),
+    rows,
+    geometry: geometryLines(g, input.ulaControl),
+    frame: frameBoxes(g),
+    counters: c === undefined ? [] : counterLines(c, g),
+    beam: c === undefined ? undefined : { left: percent(c.character, g.charactersPerLine), top: percent(c.fieldLine, g.linesPerField), width: 0, height: 0 },
+  };
 }

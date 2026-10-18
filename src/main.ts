@@ -35,6 +35,7 @@ import { createAddressingPanel } from './web/workbench/addressing-panel';
 import { createAssemblerPanel } from './web/workbench/assembler-panel';
 import { createConverterPanel } from './web/workbench/converter-panel';
 import { createCrtcPanel } from './web/workbench/crtc-panel';
+import { vsyncRateText } from './web/workbench/crtc-view-model';
 import { createDisassemblyPanel } from './web/workbench/disassembly-panel';
 import { labelsFromSymbols } from './web/workbench/disassembly-view-model';
 import { createInterruptsPanel } from './web/workbench/interrupts-panel';
@@ -72,10 +73,11 @@ const initial = findExample(params.get('program'));
 // The Stage 17 doorbell is a card on its 1 MHz bus, so the IRQ button has
 // something to ring, in either mode.
 const machine = new BbcModelB(mosMode ? 'BBC Model B running MOS 1.20 from roms/' : 'BBC Model B, playground: your program instead of the MOS');
-// The fake 50 Hz vsync on the System VIA's CA1 (Stage 29) is for the MOS. In
-// the playground it would fight the VIA panel's CA1 button, which Stage 26's
-// example counts, so it's off there.
-if (!mosMode) machine.vsync.enabled = false;
+// The CRTC's VSYNC drives the System VIA's CA1 (Stage 38; a fake pulse
+// before that). In the playground nothing programs the CRTC, and its VSYNC
+// would fight the VIA panel's CA1 button, which Stage 26's example counts,
+// so the wire is cut there.
+if (!mosMode) machine.vsyncWired = false;
 const doorbell = new Doorbell(machine.map);
 machine.plugIn(doorbell);
 const target = machineTarget(machine, doorbell);
@@ -95,13 +97,13 @@ const textScreen = createTextScreen();
 screenFrame.append(textScreen.element);
 const peekScreen = (address: number): number => machine.peek(address);
 // The SAA5050 times its own flash by counting fields (Stage 33), so the
-// phase comes from the vsyncs so far: paused, it stops blinking. (In the
-// playground the fake vsync is off, so flashing text stays shown.)
+// phase comes from the CRTC's VSYNCs so far: paused, it stops blinking. (In
+// the playground the CRTC isn't programmed, so flashing text stays shown.)
 // The keyboard LEDs (Stage 36) are drawn with the screen: they're cheap, and they change as you type.
 const lockLeds = createLockLeds();
 const drawScreen = (): void => {
   const start = mode7StartAddress(machine.crtc.register(12), machine.crtc.register(13));
-  screenCanvas.draw(peekScreen, start, teletextFlashVisible(machine.vsync.pulses));
+  screenCanvas.draw(peekScreen, start, teletextFlashVisible(machine.crtc.vsyncCount));
   textScreen.draw(peekScreen, start);
   lockLeds.update(machine.capsLockLed, machine.shiftLockLed);
 };
@@ -176,7 +178,7 @@ const loop = createFrameLoop(
       lastPanelRefresh = now;
       workbench.refreshAll();
       target.writes.clear();
-      controls.update(true, framesRun, loop.speed);
+      showStatus(true);
     },
     onError: (error) => {
       refreshAll();
@@ -185,17 +187,22 @@ const loop = createFrameLoop(
   },
 );
 
+/** The status line under the screen, with the field rate the CRTC's counters produce (Stage 38). */
+function showStatus(running: boolean): void {
+  controls.update(running, framesRun, loop.speed, vsyncRateText(machine.crtc.vsyncPeriodCycles));
+}
+
 /** Pauses the loop (if running) and shows everything as it is now. */
 function pause(): void {
   loop.pause();
   refreshAll();
-  controls.update(false, framesRun, loop.speed);
+  showStatus(false);
 }
 
 function run(): void {
   registers.stop();
   loop.start();
-  controls.update(true, framesRun, loop.speed);
+  showStatus(true);
 }
 
 /**
@@ -226,7 +233,7 @@ const controls = createRunControls({
     target.writes.clear();
     loop.stepFrame();
     refreshAll();
-    controls.update(false, framesRun, loop.speed);
+    showStatus(false);
   },
   onBreak: () => {
     // A tap: down and up at once. Hold F12, or click the panel's BREAK keycap, to hold it (Stage 36).
@@ -234,7 +241,7 @@ const controls = createRunControls({
     machine.setBreak(false);
     target.writes.clear();
     refreshAll();
-    if (!loop.running) controls.update(false, framesRun, loop.speed);
+    if (!loop.running) showStatus(false);
   },
   onTestPage: showTestPage,
   onPowerOn: () => {
@@ -242,7 +249,7 @@ const controls = createRunControls({
     framesRun = 0;
     target.writes.clear();
     refreshAll();
-    if (!loop.running) controls.update(false, framesRun, loop.speed);
+    if (!loop.running) showStatus(false);
   },
 });
 controls.element.append(lockLeds.element);
@@ -354,7 +361,7 @@ if (mosMode) {
     machine.powerOn();
     memory.goTo(0x0200);
     refreshAll();
-    if (startPaused) controls.update(false, framesRun, loop.speed);
+    if (startPaused) showStatus(false);
     else run();
   });
 } else {
