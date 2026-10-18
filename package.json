@@ -46,7 +46,8 @@
     "demo:addressing": "tsx scripts/demo-addressing.ts",
     "demo:bitmap": "tsx scripts/demo-bitmap.ts",
     "demo:wrap": "tsx scripts/demo-wrap.ts",
-    "demo:sound-regs": "tsx scripts/demo-sound-regs.ts"
+    "demo:sound-regs": "tsx scripts/demo-sound-regs.ts",
+    "demo:sound": "tsx scripts/demo-sound.ts"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

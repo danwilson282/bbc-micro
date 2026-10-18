@@ -1,5 +1,7 @@
 import { describeHardwareWrite } from '../devices/hardware-log';
 import { RESET_VECTOR } from '../cpu/cpu6502';
+import { BoxResampler } from '../sound/resampler';
+import { SampleRecorder } from '../sound/sample-recorder';
 import { loadStandardRoms } from '../memory/rom-files';
 import { withRoms } from '../memory/with-roms';
 import { BbcModelB } from './bbc-model-b';
@@ -150,5 +152,70 @@ describe('BbcModelB: the sound chip with MOS 1.20', () => {
     for (let i = 0; i < 5; i++) m.runFrame();
     expect(soundBytes(m)).toEqual([0xf0, 0xe6]);
     expect(m.sound.noise).toBe(6);
+  });
+});
+
+// Stage 45: the machine ticks the chip, so its output follows emulated time.
+
+/** A recorder with room for this many seconds at 44.1 kHz, connected to the machine's chip. */
+function listen(m: BbcModelB, seconds: number): SampleRecorder {
+  const rec = new SampleRecorder(Math.ceil(44_100 * seconds));
+  m.sound.connectOutput(new BoxResampler(rec));
+  return rec;
+}
+
+/** Rising zero crossings per second of samples. */
+function frequency(samples: Float32Array): number {
+  let rises = 0;
+  for (let i = 1; i < samples.length; i++) if ((samples[i - 1] ?? 0) <= 0 && (samples[i] ?? 0) > 0) rises++;
+  return (rises * 44_100) / samples.length;
+}
+
+describe('BbcModelB: the sound chip is ticked with the CPU', () => {
+  it('one emulated second (2,000,000 cycles) makes one second of samples: 44,100', () => {
+    const m = idle();
+    const rec = listen(m, 2);
+    m.runCycles(2_000_000);
+    expect(Math.abs(rec.samples.length - 44_100)).toBeLessThanOrEqual(1);
+  });
+
+  it('a tone sent through the slow data bus plays at its frequency: &90 &8D &07 is 1,000 Hz', () => {
+    const m = withLatchOutputs(idle());
+    sendByte(m, 0x90);
+    sendByte(m, 0x8d);
+    sendByte(m, 0x07);
+    const rec = listen(m, 1);
+    m.runCycles(2_000_000);
+    expect(frequency(rec.samples)).toBeCloseTo(1000, -1);
+  });
+});
+
+describe('BbcModelB: hearing MOS 1.20', () => {
+  /** Index of the first and last sample louder than 0.01, or undefined if it's silent. */
+  function soundingRange(samples: Float32Array): [number, number] | undefined {
+    let first = -1;
+    let last = -1;
+    for (let i = 0; i < samples.length; i++) {
+      if (Math.abs(samples[i] ?? 0) > 0.01) {
+        if (first < 0) first = i;
+        last = i;
+      }
+    }
+    return first < 0 ? undefined : [first, last];
+  }
+
+  withRoms('roms/os12.rom')('the start-up bleep is 523 Hz (N = &0EF) for about 0.28 s, starting about 0.28 s after power-on', () => {
+    const m = new BbcModelB();
+    loadStandardRoms(m.map);
+    const rec = listen(m, 1);
+    m.powerOn();
+    m.runCycles(2_000_000);
+    const range = soundingRange(rec.samples);
+    expect(range).toBeDefined();
+    const [first, last] = range ?? [0, 0];
+    // Measured in Stage 44: &92 at cycle 550,232, &9F at 1,112,610.
+    expect(first / 44_100).toBeCloseTo(550_232 / 2_000_000, 2);
+    expect((last - first) / 44_100).toBeCloseTo((1_112_610 - 550_232) / 2_000_000, 2);
+    expect(frequency(rec.samples.subarray(first, last))).toBeCloseTo(4_000_000 / (32 * 0x0ef), -1);
   });
 });
