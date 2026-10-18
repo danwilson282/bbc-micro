@@ -61,19 +61,33 @@
 //
 //   IC32 C0, C1 ──▶ screen size ──▶ MA12 wrap ──▶ RAM address
 //
+// Stage 44 adds the sound chip. It isn't on the memory map: its D0-D7 are
+// port A (the "slow data bus", shared with the keyboard) and its /WE is
+// IC32 bit 0. When that bit falls, the byte on port A's pins goes in.
+//
+//   System VIA PA0-PA7 ──▶ SN76489 D0-D7
+//   IC32 bit 0 (1 → 0) ──▶ SN76489 /WE ──▶ write(byte)
+//
 // step() and runCycles() are the hot path: no objects, closures or arrays
 // are made in them, and the device lists are walked with indexed loops.
 
 import { Cpu6502, type InterruptKind } from '../cpu/cpu6502';
 import type { Registers } from '../cpu/registers';
 import { Tracer } from '../cpu/trace';
-import { AddressableLatch, LATCH_CAPS_LOCK_LED, LATCH_KEYBOARD_ENABLE, LATCH_SHIFT_LOCK_LED } from '../devices/addressable-latch';
+import {
+  AddressableLatch,
+  LATCH_CAPS_LOCK_LED,
+  LATCH_KEYBOARD_ENABLE,
+  LATCH_SHIFT_LOCK_LED,
+  LATCH_SOUND_WRITE_ENABLE,
+} from '../devices/addressable-latch';
 import type { Clocked } from '../devices/clocked';
 import { HardwareLog, type CycleClock } from '../devices/hardware-log';
 import { Keyboard } from '../devices/keyboard';
 import type { IrqSource } from '../devices/irq-source';
 import { AciaStub } from '../devices/stubs/acia-stub';
 import { Crtc6845 } from '../devices/crtc6845';
+import { Sn76489 } from '../devices/sn76489';
 import { ULA_CONTROL_FAST_CLOCK, VideoUla } from '../devices/video-ula';
 import { Via6522, type PinListener, type ViaPort } from '../devices/via6522';
 import { BitmapRenderer } from '../video/bitmap-renderer';
@@ -129,6 +143,8 @@ export class BbcModelB implements PinListener, DataBus, CycleClock {
   readonly videoUla: VideoUla;
   /** MODE 0-6's pixels, drawn a scanline at a time as the 6845 reaches each (Stage 42). */
   readonly bitmap: BitmapRenderer;
+  /** The sound chip's registers (Stage 44), written through port A when IC32 bit 0 falls. */
+  readonly sound: Sn76489;
   readonly map: BbcMemoryMap;
   readonly cpu: Cpu6502;
   /** The last 1,024 steps, each recorded just before it ran. */
@@ -158,6 +174,8 @@ export class BbcModelB implements PinListener, DataBus, CycleClock {
     this.latch = new AddressableLatch(this.hardwareLog);
     this.crtc = new Crtc6845(this.hardwareLog);
     this.videoUla = new VideoUla(this, this.hardwareLog);
+    this.sound = new Sn76489(this.hardwareLog);
+    this.sound.powerOn();
     this.keyboard = new Keyboard(undefined, () => {
       this.answerKeyboard();
     });
@@ -263,6 +281,8 @@ export class BbcModelB implements PinListener, DataBus, CycleClock {
    */
   powerOn(): number {
     this.latch.reset();
+    // It has no /RES pin: this is our choice of power-up state, silence (Stage 44).
+    this.sound.powerOn();
     // The CRTC first: if VSYNC was high, CA1 falls now, and the VIA's reset then clears the flag it made.
     this.crtc.reset();
     this.systemVia.reset();
@@ -275,7 +295,8 @@ export class BbcModelB implements PinListener, DataBus, CycleClock {
   /**
    * The BREAK key: the CPU's reset sequence. The VIAs keep their registers,
    * which is how the MOS knows it's a BREAK (Stage 23). The 1 MHz bus cards
-   * are reset too (see the Stage 27 doc's Gotchas). The trace and the frame
+   * are reset too (see the Stage 27 doc's Gotchas). The sound chip isn't:
+   * it has no reset pin. The trace and the frame
    * budget start again; the reset's 7 cycles pass for the devices.
    */
   reset(): number {
@@ -318,9 +339,15 @@ export class BbcModelB implements PinListener, DataBus, CycleClock {
    * The System VIA calls this when its pins change. Port B's low four lines
    * are IC32's inputs. Either port may change the keyboard's answer: port A
    * carries the key number, and latch bit 3 says whether the CPU is asking.
+   * IC32 bit 0 falling is the sound chip's /WE: it takes port A's byte then
+   * (Stage 44). Not the hot path: only port register writes get here.
    */
   pinsChanged(port: ViaPort, pins: number): void {
-    if (port === 'b') this.latch.drive(pins);
+    if (port === 'b') {
+      const weWas = this.latch.bit(LATCH_SOUND_WRITE_ENABLE);
+      this.latch.drive(pins);
+      if (weWas === 1 && this.latch.bit(LATCH_SOUND_WRITE_ENABLE) === 0) this.sound.write(this.systemVia.pins('a'));
+    }
     this.answerKeyboard();
   }
 
@@ -336,20 +363,22 @@ export class BbcModelB implements PinListener, DataBus, CycleClock {
 
   /**
    * The keyboard sees latch bit 3 (autoscan) and port A. With autoscan off
-   * its counter follows PA0-PA3 (and CA2 may change with it, Stage 35). It
-   * drives PA7: high if the key on PA0-PA6 is down. Only PA7: the other
-   * lines keep whatever else pulls them (a VIA panel button). Setting it
-   * calls pinsChanged again; the key number is the same, so the answer is
-   * too, and it settles.
+   * its counter follows PA0-PA3 (and CA2 may change with it, Stage 35), and
+   * it drives PA7: high if the key on PA0-PA6 is down, low if not. With
+   * autoscan on it drives nothing, so PA7 is left alone (Stage 44: the
+   * sound chip's bytes need it). Only PA7: the other lines keep whatever
+   * else pulls them (a VIA panel button). Setting it calls pinsChanged
+   * again; the key number is the same, so the answer is too, and it settles.
    */
   private answerKeyboard(): void {
     const autoscan = this.latch.bit(LATCH_KEYBOARD_ENABLE) === 1;
     const pins = this.systemVia.pins('a');
     this.keyboard.setAutoscan(autoscan);
     this.keyboard.selectColumn(pins);
-    const down = this.keyboard.pa7(pins, autoscan) === 1;
+    // The outside byte can only pull low: "drives high" and "drives nothing" are both "doesn't pull".
+    const pullsLow = this.keyboard.pa7(pins, autoscan) === 0;
     const others = this.systemVia.outside('a') & ~PA7 & 0xff;
-    this.systemVia.setOutside('a', down ? others | PA7 : others);
+    this.systemVia.setOutside('a', pullsLow ? others : others | PA7);
   }
 
   // ── VSYNC to CA1 ───────────────────────────────────────────────────────

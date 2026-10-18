@@ -12,14 +12,15 @@
 // works them out when someone looks.
 
 import { hex8 } from '../util/bits';
+import { describeSoundByte } from './sn76489';
 import { PHYSICAL_COLOUR_NAMES, ULA_PALETTE_FLASH, paletteColour } from './video-ula';
 
 /** Who reports here. The ULA's two registers are separate, as they're unrelated. */
-export type HardwareDevice = 'crtc' | 'ulaControl' | 'ulaPalette' | 'latch';
+export type HardwareDevice = 'crtc' | 'ulaControl' | 'ulaPalette' | 'latch' | 'sound';
 
 /** The order the devices are stored in, as numbers. */
-const DEVICES: readonly HardwareDevice[] = ['crtc', 'ulaControl', 'ulaPalette', 'latch'];
-const DEVICE_CODE: Readonly<Record<HardwareDevice, number>> = { crtc: 0, ulaControl: 1, ulaPalette: 2, latch: 3 };
+const DEVICES: readonly HardwareDevice[] = ['crtc', 'ulaControl', 'ulaPalette', 'latch', 'sound'];
+const DEVICE_CODE: Readonly<Record<HardwareDevice, number>> = { crtc: 0, ulaControl: 1, ulaPalette: 2, latch: 3, sound: 4 };
 
 /** Whatever counts the CPU's cycles: the machine. */
 export interface CycleClock {
@@ -32,7 +33,7 @@ export interface HardwareWrite {
   /** CPU cycles when it happened: the start of the instruction that did it. */
   readonly cycles: number;
   readonly device: HardwareDevice;
-  /** CRTC register number, latch bit number, or 0 for the ULA. */
+  /** CRTC register number, latch bit number, the SN76489 register the byte reached (R0-R7), or 0 for the ULA. */
   readonly register: number;
   readonly value: number;
 }
@@ -144,7 +145,7 @@ function describePaletteEntry(value: number): string {
   return `${entry} = ${first}/${PHYSICAL_COLOUR_NAMES[paletteColour(value, true)] ?? '?'}, flashing`;
 }
 
-/** e.g. "CRTC R0=&3F (horizontal total)", "ULA ctrl=&4B", "latch: sound WE off (bit 0 = 1)". */
+/** e.g. "CRTC R0=&3F (horizontal total)", "ULA ctrl=&4B", "latch: sound WE off (bit 0 = 1)", "sound &9F: latch R1 …". */
 export function describeHardwareWrite(write: HardwareWrite): string {
   const { register, value } = write;
   switch (write.device) {
@@ -158,5 +159,8 @@ export function describeHardwareWrite(write: HardwareWrite): string {
       const bit = value === 0 ? 0 : 1;
       return `latch: ${LATCH_BIT_TEXT[register & 7]?.[bit] ?? '?'} (bit ${String(register & 7)} = ${String(bit)})`;
     }
+    case 'sound':
+      // A data byte doesn't change the latched register, so the one recorded is the one it went to.
+      return `sound &${hex8(value)}: ${describeSoundByte(value, register)}`;
   }
 }

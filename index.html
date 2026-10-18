@@ -1139,6 +1139,37 @@
         font-size: 0.75rem;
         color: var(--muted);
       }
+      /* Sound panel (Stage 44) */
+      .sound-summary {
+        margin: 0 0 6px;
+        font-weight: 600;
+      }
+      .sound-channels tr.silent td,
+      .sound-channels tr.silent th {
+        color: var(--muted);
+      }
+      .sound-level {
+        width: 90px;
+        height: 10px;
+        border: 1px solid var(--border);
+        border-radius: 2px;
+      }
+      .sound-level-bar {
+        height: 100%;
+        background: var(--flag-on);
+      }
+      .sound-latched,
+      .sound-bytes-heading {
+        margin: 6px 0 2px;
+        font-size: 0.85rem;
+      }
+      .sound-bytes {
+        margin: 0;
+        padding-left: 1.6em;
+        font-size: 0.8rem;
+        font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+        white-space: pre;
+      }
       /* Byte explorer (Stage 41) */
       .explorer-form {
         display: flex;
