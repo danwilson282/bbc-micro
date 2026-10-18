@@ -21,6 +21,8 @@ import { createFrameLoop } from './web/frame-loop';
 import { PcKeyTracker } from './web/key-map';
 import { attachKeyboardInput } from './web/keyboard-input';
 import { createLockLeds } from './web/lock-leds';
+import { createAudioOutput } from './web/audio/audio-output';
+import { createSoundControl } from './web/audio/sound-control';
 import { createRunControls } from './web/run-controls';
 import { createScreenCanvas } from './web/screen-canvas';
 import { createTextScreen } from './web/text-screen';
@@ -177,6 +179,16 @@ attachKeyboardInput(screenFrame, pcKeys, () => {
   keyboardPanel.refresh();
 });
 
+// ── Sound (Stage 46) ─────────────────────────────────────────────────────
+//
+// Off until the 🔇 button is clicked (browsers need a gesture before any
+// audio). While on, the chip feeds a resampler at the sound card's rate,
+// and each frame's samples go to the audio worklet after the frame.
+const audio = createAudioOutput(machine.sound, () => {
+  soundControl.update();
+});
+const soundControl = createSoundControl(audio);
+
 // ── The frame loop (Stage 30): MOS mode runs in real time ────────────────
 //
 // Every BBC frame draws the screen. The panels rebuild their tables, which
@@ -198,6 +210,7 @@ const loop = createFrameLoop(
     runFrame: () => {
       machine.runFrame();
       framesRun++;
+      audio.flush();
     },
     draw: () => {
       drawScreen();
@@ -281,7 +294,7 @@ const controls = createRunControls({
   },
 });
 controls.element.append(lockLeds.element);
-if (mosMode) screenFrame.after(controls.element);
+if (mosMode) screenFrame.after(controls.element, soundControl.element);
 
 // The switch between the two modes, at the top of the workbench column.
 const modes = document.createElement('nav');
@@ -435,6 +448,7 @@ Object.assign(window, {
     userVia,
     crtc: machine.crtc,
     keyboard: machine.keyboard,
+    audio,
     trace: (count = 20): string => [TRACE_HEADER, ...target.trace.recent(count).map((entry) => formatTraceLine(entry, labels))].join('\n'),
     irq: (): void => {
       target.ringIrq();
