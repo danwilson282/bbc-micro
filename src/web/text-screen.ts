@@ -30,6 +30,8 @@ export interface TextScreen {
   readonly element: HTMLElement;
   /** Shows the 1,000 cells from start (a RAM address in &7C00-&7FFF), reading with peek. */
   draw(peek: (address: number) => number, start: number): void;
+  /** Empties every row: no teletext on screen (Stage 40: the Video ULA isn't in teletext). */
+  clear(): void;
 }
 
 export function createTextScreen(): TextScreen {
@@ -64,6 +66,10 @@ export function createTextScreen(): TextScreen {
         }
         if (rows[row].data !== text) rows[row].data = text;
       }
+    },
+    clear() {
+      const blank = ' '.repeat(MODE7_COLUMNS);
+      for (const row of rows) if (row.data !== blank) row.data = blank;
     },
   };
 }

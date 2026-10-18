@@ -12,6 +12,7 @@
 // works them out when someone looks.
 
 import { hex8 } from '../util/bits';
+import { PHYSICAL_COLOUR_NAMES, ULA_PALETTE_FLASH, paletteColour } from './video-ula';
 
 /** Who reports here. The ULA's two registers are separate, as they're unrelated. */
 export type HardwareDevice = 'crtc' | 'ulaControl' | 'ulaPalette' | 'latch';
@@ -135,6 +136,14 @@ const LATCH_BIT_TEXT: readonly (readonly [string, string])[] = [
   ['Shift Lock LED on', 'Shift Lock LED off'],
 ];
 
+/** "entry &2 = red", or "entry &8 = black/white, flashing": the byte's colour is stored EOR 7 (Stage 40). */
+function describePaletteEntry(value: number): string {
+  const first = PHYSICAL_COLOUR_NAMES[paletteColour(value, false)] ?? '?';
+  const entry = `entry &${(value >> 4).toString(16).toUpperCase()}`;
+  if ((value & ULA_PALETTE_FLASH) === 0) return `${entry} = ${first}`;
+  return `${entry} = ${first}/${PHYSICAL_COLOUR_NAMES[paletteColour(value, true)] ?? '?'}, flashing`;
+}
+
 /** e.g. "CRTC R0=&3F (horizontal total)", "ULA ctrl=&4B", "latch: sound WE off (bit 0 = 1)". */
 export function describeHardwareWrite(write: HardwareWrite): string {
   const { register, value } = write;
@@ -144,7 +153,7 @@ export function describeHardwareWrite(write: HardwareWrite): string {
     case 'ulaControl':
       return `ULA ctrl=&${hex8(value)}`;
     case 'ulaPalette':
-      return `ULA palette=&${hex8(value)} (logical colour ${String(value >> 4)})`;
+      return `ULA palette=&${hex8(value)} (${describePaletteEntry(value)})`;
     case 'latch': {
       const bit = value === 0 ? 0 : 1;
       return `latch: ${LATCH_BIT_TEXT[register & 7]?.[bit] ?? '?'} (bit ${String(register & 7)} = ${String(bit)})`;

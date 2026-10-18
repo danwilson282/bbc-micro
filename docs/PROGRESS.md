@@ -2,7 +2,7 @@
 
 Tracks where the build is up to. The `/start-stage` and `/finish-stage` skills keep this file up to date. For what each stage involves, see [`BUILD-PLAN.md`](./BUILD-PLAN.md).
 
-**Current stage:** 40 — ULA control & palette (not started)
+**Current stage:** 41 — Pixel decoding (not started)
 
 **Status values:**
 - `not started`
@@ -97,7 +97,7 @@ Tracks where the build is up to. The `/start-stage` and `/finish-stage` skills k
 
 | # | Stage | Status | Seen? | Branch | Doc | Notes |
 |---|---|---|---|---|---|---|
-| 40 | ULA control & palette | not started | | `stage/40-ula-palette` | [doc](./stages/40-ula-palette.md) | |
+| 40 | ULA control & palette | done | ✅ | `stage/40-ula-palette` | [doc](./stages/40-ula-palette.md) | `devices/video-ula.ts` replaces `VideoUlaStub` (same `control`; `paletteEntry`, `physicalColour`, `teletext`, `flash`; pure `decodeUlaControl`, `paletteColour`). `ULA_CONTROL_FAST_CLOCK` moved here from crtc-geometry. **Measured:** MOS control table at &C3F7 (`9C D8 F4 9C 88 C4 88 4B`, `mos/mos-video-ula.ts`); OSBYTE &9B at &EA10 does `EOR #&07` (palette stores colour inverted); every bitmap MODE writes all 16 entries (MODE 1: `7766776644004400` → logical colour = index bits 3,1), MODE 7 writes none, power-on writes none; `VDU 19,1,4` in MODE 1 = 4 writes (&23 &33 &63 &73); flash flip from vsync at &DD23 in every MODE (&D8↔&D9). Screen black when control bit 1 = 0 (`ScreenCanvas.clear`, text layer empty); playground writes &4B. Video ULA panel (fields + 16 swatches, flashing live). Log: `ULA palette=&26 (entry &2 = red)`. `e2e/video-ula.spec.ts` (real-time, 3). Cursor segments decoded only (BeebWiki reading; AUG differs) — drawn in Stage 42. |
 | 41 | Pixel decoding | not started | | `stage/41-pixel-decoding` | [doc](./stages/41-pixel-decoding.md) | |
 | 42 | Rendering modes 0–6 | not started | | `stage/42-bitmap-rendering` | [doc](./stages/42-bitmap-rendering.md) | |
 | 43 | Wrap-around & graphics | not started | | `stage/43-wraparound-graphics` | [doc](./stages/43-wraparound-graphics.md) | |
@@ -235,3 +235,5 @@ Things to come back to: questions raised during a stage, known inaccuracies, ide
 - A cut VSYNC-to-CA1 wire is taken to float high, so rejoining it is one falling edge (one extra vsync IRQ). (Stage 38)
 - The CRTC is clocked one character at a time: the machine went from 1.09 to 1.42 s per 10 emulated seconds (tsx, MODE 7 prompt), more than the bare CRTC's 0.1 s suggests. Skipping ahead to the next horizontal event would win most of it back if Part 9's renderer needs the time. (Stage 38)
 - HSYNC and DISPEN aren't connected to anything yet; DISPEN is un-skewed (R8 bits 4-7). Stages 39/42. (Stage 38)
+- Video ULA cursor bits 7-5: we follow BeebWiki's segment reading (7 = seg 1, 6 = seg 2, 5 = segs 3+4), which fits all MOS values; the AUG's "master size + width" reading doesn't fit MODE 7's &4B. Check against the real screen when Stage 42 draws the bitmap cursor. Palette power-on contents unknown (we use zeros). (Stage 40)
+- Palette/control writes apply to the whole drawn frame, not from the next pixel: mid-frame raster palette effects need a beam-following renderer. Decide in Stage 42. (Stage 40)
