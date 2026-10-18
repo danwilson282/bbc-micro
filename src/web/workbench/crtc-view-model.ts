@@ -15,11 +15,18 @@
 //
 //   Beam       line 280 of the field, character 12
 //   Measured   VSYNC every 40,000 cycles = 20.000 ms: 50.00 Hz
+//
+// Stage 39 adds the address counter and the cursor:
+//
+//   Address    MA &2805, RA 4 → &7C05 (teletext: MA13 = 1)
+//   Start      &2800 → &7C00, latched at this field's start
+//   Cursor     MA &28C9 (row 5, column 1), lines 18-19, blinks every 32 fields: on now
 
-import { CRTC_REGISTER_ACCESS, CRTC_REGISTER_COUNT, type CrtcAccess } from '../../devices/crtc6845';
+import { CRTC_R8_CURSOR_SKEW_OFF, CRTC_REGISTER_ACCESS, CRTC_REGISTER_COUNT, type CrtcAccess, cursorBlinkOn } from '../../devices/crtc6845';
 import { characterClockHz, crtcGeometry, describeCrtcGeometry, type CrtcGeometry } from '../../devices/crtc-geometry';
 import { CRTC_REGISTER_NAMES } from '../../devices/hardware-log';
 import { hex16, hex8 } from '../../util/bits';
+import { screenAddress } from '../../video/screen-address';
 
 export interface CrtcViewInput {
   /** R0-R17, as Crtc6845.registers() gives them. */
@@ -46,6 +53,10 @@ export interface CrtcCounters {
   readonly displayEnable: boolean;
   readonly vsyncCount: number;
   readonly vsyncPeriodCycles: number;
+  /** Stage 39: the MA pins, the start this field is drawn from, and the blink's field count. */
+  readonly memoryAddress: number;
+  readonly displayStart: number;
+  readonly fieldsSinceReset: number;
 }
 
 export interface CrtcRegisterRow {
@@ -229,8 +240,26 @@ function onOff(name: string, on: boolean): string {
 }
 
 /** The counters in words, as the panel lists them. */
-function counterLines(c: CrtcCounters, g: CrtcGeometry): GeometryLine[] {
+const BLINK_TEXT = { steady: 'steady', off: '', fast: 'blinks every 16 fields', slow: 'blinks every 32 fields' } as const;
+
+/** Where the cursor is and whether it shows (Stage 39). */
+function cursorText(c: CrtcCounters, g: CrtcGeometry, r8: number, r10: number): string {
+  const ma = `MA &${hex16(g.cursorAddress)}`;
+  if (g.cursorBlink === 'off') return `${ma}: none (R10 blink %01)`;
+  if ((r8 & CRTC_R8_CURSOR_SKEW_OFF) === CRTC_R8_CURSOR_SKEW_OFF) return `${ma}: none (R8 cursor skew %11)`;
+  // Where the counter reaches it: (cursor - start) characters on, R1 a row.
+  const offset = (g.cursorAddress - c.displayStart) & 0x3fff;
+  const columns = g.displayedCharacters;
+  const row = columns === 0 ? g.displayedRows : Math.floor(offset / columns);
+  const where = row < g.displayedRows ? `row ${String(row)}, column ${String(offset % columns)}` : 'not on the screen';
+  const on = cursorBlinkOn(r10, c.fieldsSinceReset) ? 'on now' : 'off now';
+  return `${ma} (${where}), lines ${String(g.cursorStartLine)}-${String(g.cursorEndLine)}, ${BLINK_TEXT[g.cursorBlink]}: ${on}`;
+}
+
+function counterLines(c: CrtcCounters, g: CrtcGeometry, registers: readonly number[]): GeometryLine[] {
   const rate = vsyncRateText(c.vsyncPeriodCycles);
+  const teletext = (c.memoryAddress & 0x2000) !== 0;
+  const next = g.startAddress;
   const ms = ((c.vsyncPeriodCycles * 1000) / CPU_HZ).toFixed(3);
   const fields = `${thousands(c.vsyncCount)} VSYNCs since power-on`;
   return [
@@ -245,6 +274,15 @@ function counterLines(c: CrtcCounters, g: CrtcGeometry): GeometryLine[] {
       label: 'Measured',
       value: rate === undefined ? 'waiting for two VSYNCs' : `VSYNC every ${thousands(c.vsyncPeriodCycles)} cycles = ${ms} ms: ${rate}`,
     },
+    {
+      label: 'Address',
+      value: `MA &${hex16(c.memoryAddress)}, RA ${String(c.scanline)} → &${hex16(screenAddress(c.memoryAddress, c.scanline))} (${teletext ? 'teletext: MA13 = 1' : 'bitmap: MA13 = 0'})`,
+    },
+    {
+      label: 'Start',
+      value: `&${hex16(c.displayStart)} → &${hex16(screenAddress(c.displayStart, 0))}, latched at this field's start${next === c.displayStart ? '' : `; R12/R13 = &${hex16(next)} from the next`}`,
+    },
+    { label: 'Cursor', value: cursorText(c, g, registers[8] ?? 0, registers[10] ?? 0) },
   ];
 }
 
@@ -271,7 +309,7 @@ export function buildCrtcView(input: CrtcViewInput): CrtcView {
     rows,
     geometry: geometryLines(g, input.ulaControl),
     frame: frameBoxes(g),
-    counters: c === undefined ? [] : counterLines(c, g),
+    counters: c === undefined ? [] : counterLines(c, g, registers),
     beam: c === undefined ? undefined : { left: percent(c.character, g.charactersPerLine), top: percent(c.fieldLine, g.linesPerField), width: 0, height: 0 },
   };
 }

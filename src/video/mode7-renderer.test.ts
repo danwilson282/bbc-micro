@@ -1,6 +1,6 @@
-import { MODE7_PIXEL_HEIGHT, MODE7_PIXEL_WIDTH, COLOUR_BLACK, COLOUR_WHITE, renderMode7 } from './mode7-renderer';
-import { MODE7_SCREEN_START } from './mode7-text';
+import { MODE7_PIXEL_HEIGHT, MODE7_PIXEL_WIDTH, COLOUR_BLACK, COLOUR_WHITE, type Mode7Screen, mode7ScreenAt, mode7ScreenFrom, renderMode7 } from './mode7-renderer';
 import { glyphPicture } from './saa5050-font';
+import { CRTC_ADDRESS, CRTC_DATA, Crtc6845 } from '../devices/crtc6845';
 import { roundedGlyphLine } from './character-rounding';
 
 /** A 64K memory with the 1,000 screen bytes from &7C00 set to spaces. */
@@ -10,9 +10,12 @@ function blankScreen(): Uint8Array {
   return memory;
 }
 
-function render(memory: Uint8Array, start = MODE7_SCREEN_START, flashVisible = true): Uint8Array {
+/** MODE 7 as MOS 1.20 sets it up at power-on: R12/R13 = &2800 (&7C00), 40 × 25, no cursor. */
+const MOS_SCREEN = mode7ScreenAt(0x2800);
+
+function render(memory: Uint8Array, screen: Mode7Screen = MOS_SCREEN, flashVisible = true): Uint8Array {
   const pixels = new Uint8Array(MODE7_PIXEL_WIDTH * MODE7_PIXEL_HEIGHT);
-  renderMode7((address) => memory[address] ?? 0, start, pixels, flashVisible);
+  renderMode7((address) => memory[address] ?? 0, screen, pixels, flashVisible);
   return pixels;
 }
 
@@ -152,7 +155,7 @@ describe('renderMode7: screen memory to SAA5050 dots', () => {
     // After one scroll the screen starts at &7C28; the last row's cells wrap round to &7C00.
     memory[0x7c28] = 0x41; // now the top-left cell
     memory[0x7c00] = 0x42; // no longer the top-left: see below
-    const pixels = render(memory, 0x7c28);
+    const pixels = render(memory, mode7ScreenAt(0x2828));
     expect(cellPicture(pixels, 0, 0).slice(1).map((l) => l.slice(1))).toEqual(glyphPicture(0x41));
     // &7C28 + 984 = &8000, which wraps to &7C00: row 24, column 24.
     expect(cellPicture(pixels, 24, 24).slice(1).map((l) => l.slice(1))).toEqual(glyphPicture(0x42));
@@ -162,9 +165,9 @@ describe('renderMode7: screen memory to SAA5050 dots', () => {
     const memory = blankScreen();
     memory[0x7c00] = 0x7f;
     const pixels = new Uint8Array(MODE7_PIXEL_WIDTH * MODE7_PIXEL_HEIGHT);
-    renderMode7((address) => memory[address] ?? 0, MODE7_SCREEN_START, pixels, true);
+    renderMode7((address) => memory[address] ?? 0, MOS_SCREEN, pixels, true);
     memory[0x7c00] = 0x20;
-    renderMode7((address) => memory[address] ?? 0, MODE7_SCREEN_START, pixels, true);
+    renderMode7((address) => memory[address] ?? 0, MOS_SCREEN, pixels, true);
     expect(pixels.every((p) => p === COLOUR_BLACK)).toBe(true);
   });
 });
@@ -322,11 +325,11 @@ describe('renderMode7: flash and conceal (Stage 33)', () => {
   }
 
   test('in the flash\'s on phase a flashing letter is drawn', () => {
-    expect(cellColours(render(flashingA(), MODE7_SCREEN_START, true), 0, 4, true)[1]).toBe('111711');
+    expect(cellColours(render(flashingA(), MOS_SCREEN, true), 0, 4, true)[1]).toBe('111711');
   });
 
   test('in the off phase it is a space: the background stays, the dots go', () => {
-    const pixels = render(flashingA(), MODE7_SCREEN_START, false);
+    const pixels = render(flashingA(), MOS_SCREEN, false);
     expect(cellColours(pixels, 0, 4)).toEqual(Array<string>(10).fill('111111'));
     // &89 (steady) is set-at: the B after it doesn't flash.
     expect(cellColours(pixels, 0, 6, true)[1]).toBe('177771');
@@ -335,17 +338,125 @@ describe('renderMode7: flash and conceal (Stage 33)', () => {
   test('flashing mosaics disappear in the off phase too', () => {
     const memory = blankScreen();
     put(memory, 0, 0, 0x92, 0x88, 0xff);
-    expect(cellColours(render(memory, MODE7_SCREEN_START, false), 0, 2)).toEqual(Array<string>(10).fill('000000'));
-    expect(cellColours(render(memory, MODE7_SCREEN_START, true), 0, 2)).toEqual(Array<string>(10).fill('222222'));
+    expect(cellColours(render(memory, MOS_SCREEN, false), 0, 2)).toEqual(Array<string>(10).fill('000000'));
+    expect(cellColours(render(memory, MOS_SCREEN, true), 0, 2)).toEqual(Array<string>(10).fill('222222'));
   });
 
   test('concealed text is never drawn, in either phase', () => {
     const memory = blankScreen();
     put(memory, 0, 0, 0x98, 'A', 0x87, 'B');
     for (const phase of [true, false]) {
-      const pixels = render(memory, MODE7_SCREEN_START, phase);
+      const pixels = render(memory, MOS_SCREEN, phase);
       expect(cellPixels(pixels, 0, 1).join('')).not.toContain('#');
       expect(cellPixels(pixels, 0, 3).join('')).toContain('#');
     }
+  });
+});
+
+describe('renderMode7: driven by the CRTC\'s addresses (Stage 39)', () => {
+  /** Every pixel of one cell, as colour numbers, row by row (20 strings of 12). */
+  function cellPixels(pixels: Uint8Array, row: number, column: number): string[] {
+    const lines: string[] = [];
+    for (let y = 0; y < 20; y++) {
+      let text = '';
+      for (let x = 0; x < 12; x++) text += String(pixel(pixels, column * 12 + x, row * 20 + y));
+      lines.push(text);
+    }
+    return lines;
+  }
+
+  test('the top-left cell is the start MA through teletext addressing: &2828 reads &7C28', () => {
+    const memory = blankScreen();
+    memory[0x7c28] = 0x41;
+    expect(cellPicture(render(memory, mode7ScreenAt(0x2828)), 0, 0).slice(1).map((l) => l.slice(1))).toEqual(glyphPicture(0x41));
+  });
+
+  test('a start MA with MA11 = 0 reads the screen from &3C00 instead', () => {
+    const memory = blankScreen();
+    memory.fill(0x20, 0x3c00, 0x4000);
+    memory[0x3c00] = 0x41;
+    expect(cellPicture(render(memory, mode7ScreenAt(0x2000)), 0, 0).slice(1).map((l) => l.slice(1))).toEqual(glyphPicture(0x41));
+  });
+
+  test('each row starts R1 characters after the last: with R1 = 20, row 1 is &7C14', () => {
+    const memory = blankScreen();
+    memory[0x7c14] = 0x41;
+    const pixels = render(memory, { ...MOS_SCREEN, columns: 20 });
+    expect(cellPicture(pixels, 1, 0).slice(1).map((l) => l.slice(1))).toEqual(glyphPicture(0x41));
+  });
+
+  test('cells past R1 or R6 are black: display enable is off there', () => {
+    const memory = blankScreen();
+    memory.fill(0x7f, 0x7c00, 0x8000); // every cell a solid block
+    const pixels = render(memory, { ...MOS_SCREEN, columns: 30, rows: 20 });
+    expect(cellPixels(pixels, 0, 29).join('')).toMatch(/7/);
+    expect(cellPixels(pixels, 0, 30).join('')).toMatch(/^0+$/);
+    expect(cellPixels(pixels, 19, 0).join('')).toMatch(/7/);
+    expect(cellPixels(pixels, 20, 0).join('')).toMatch(/^0+$/);
+  });
+
+  test('the cursor inverts its cell\'s pixel rows R10 to R11 (MODE 7: 18 and 19), and nothing else', () => {
+    const memory = blankScreen();
+    memory[0x7cc9] = 0x5f; // an underscore, under the cursor: dots on its last line
+    const without = cellPixels(render(memory), 5, 1);
+    const withCursor = cellPixels(render(memory, { ...MOS_SCREEN, cursor: 0x28c9, cursorFirstLine: 18, cursorLastLine: 19 }), 5, 1);
+    const invert = (line: string): string => line.replace(/[0-7]/g, (c) => String(Number(c) ^ 7));
+    expect(withCursor.slice(0, 18)).toEqual(without.slice(0, 18));
+    expect(withCursor.slice(18)).toEqual(without.slice(18).map(invert));
+  });
+
+  test('the cursor\'s cell is (cursor MA - start) characters on: the MOS\'s &2DF1 from &2A30 is row 24, column 1', () => {
+    const memory = blankScreen();
+    const pixels = render(memory, { ...mode7ScreenAt(0x2a30), cursor: 0x2df1, cursorFirstLine: 18, cursorLastLine: 19 });
+    expect(cellPixels(pixels, 24, 1)[19]).toBe('777777777777');
+    let lit = 0;
+    for (const p of pixels) if (p !== COLOUR_BLACK) lit++;
+    expect(lit).toBe(12 * 2); // just the two inverted rows of that one cell
+  });
+
+  test('a cursor MA before the start, or past the displayed rows, draws nothing', () => {
+    const memory = blankScreen();
+    for (const cursor of [0x27ff, 0x2800 + 25 * 40]) {
+      const pixels = render(memory, { ...MOS_SCREEN, cursor, cursorFirstLine: 0, cursorLastLine: 19 });
+      expect(pixels.every((p) => p === COLOUR_BLACK)).toBe(true);
+    }
+  });
+});
+
+describe('mode7ScreenFrom: this field\'s screen from the 6845 (Stage 39)', () => {
+  /** MOS 1.20's MODE 7 registers R0-R15 (power-on: start &2800, cursor &28C9), reset to the top of a field. */
+  function mosCrtc(changes: Readonly<Record<number, number>> = {}): Crtc6845 {
+    const crtc = new Crtc6845();
+    const values = [0x3f, 0x28, 0x33, 0x24, 0x1e, 0x02, 0x19, 0x1c, 0x93, 0x12, 0x72, 0x13, 0x28, 0x00, 0x28, 0xc9];
+    values.forEach((v, r) => {
+      crtc.write(CRTC_ADDRESS, r);
+      crtc.write(CRTC_DATA, changes[r] ?? v);
+    });
+    crtc.reset();
+    return crtc;
+  }
+
+  test('MOS MODE 7: start &2800, 40 × 25, cursor &28C9 on lines 18-19', () => {
+    expect(mode7ScreenFrom(mosCrtc())).toEqual({ start: 0x2800, columns: 40, rows: 25, cursor: 0x28c9, cursorFirstLine: 18, cursorLastLine: 19 });
+  });
+
+  test('the start is the one latched at the field\'s start, not R12/R13 now', () => {
+    const crtc = mosCrtc();
+    crtc.write(CRTC_ADDRESS, 13);
+    crtc.write(CRTC_DATA, 0x28);
+    expect(mode7ScreenFrom(crtc).start).toBe(0x2800);
+  });
+
+  test('no cursor in the blink\'s off phase (fields 16-31 of R10 &72\'s 32)', () => {
+    const crtc = mosCrtc();
+    while (crtc.fieldsSinceReset < 16) crtc.tick(1);
+    expect(mode7ScreenFrom(crtc).cursor).toBe(-1);
+    while (crtc.fieldsSinceReset < 32) crtc.tick(1);
+    expect(mode7ScreenFrom(crtc).cursor).toBe(0x28c9);
+  });
+
+  test('no cursor with R10 = &20 (VDU 23,1,0) or R8\'s cursor skew %11', () => {
+    expect(mode7ScreenFrom(mosCrtc({ 10: 0x20 })).cursor).toBe(-1);
+    expect(mode7ScreenFrom(mosCrtc({ 8: 0xd3 })).cursor).toBe(-1);
   });
 });

@@ -122,9 +122,10 @@ describe('MODE 7 address translation: CRTC start address (R12/R13) to RAM', () =
     expect(mode7StartAddress(0x29, 0xb8)).toBe(0x7db8);
   });
 
-  it('only MA0-MA9 count: R12 bits above MA9 change nothing', () => {
+  it('MA10 and MA12 change nothing; MA11 is A14 (Stage 39)', () => {
     expect(mode7StartAddress(0x3c, 0x00)).toBe(0x7c00);
     expect(mode7StartAddress(0x2b, 0xff)).toBe(0x7fff);
+    expect(mode7StartAddress(0x20, 0x00)).toBe(0x3c00);
   });
 
   it('cell n is n bytes on from the start, wrapping every 1,024 bytes (not 1,000)', () => {
@@ -133,5 +134,9 @@ describe('MODE 7 address translation: CRTC start address (R12/R13) to RAM', () =
     expect(mode7CellAddress(0x7db8, 583)).toBe(0x7fff);
     expect(mode7CellAddress(0x7db8, 584)).toBe(0x7c00);
     expect(mode7CellAddress(0x7fe8, 24)).toBe(0x7c00);
+  });
+
+  it('a screen in the other 1K (&3C00, MA11 = 0) wraps inside &3C00-&3FFF', () => {
+    expect(mode7CellAddress(0x3fe8, 24)).toBe(0x3c00);
   });
 });

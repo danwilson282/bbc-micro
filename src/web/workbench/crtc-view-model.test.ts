@@ -103,6 +103,7 @@ describe('buildCrtcView', () => {
     const atVsync: CrtcCounters = {
       character: 32, scanline: 1, row: 28, fieldLine: 280, inAdjust: false, oddField: true,
       hsync: false, vsync: true, displayEnable: false, vsyncCount: 1234, vsyncPeriodCycles: 40_000,
+      memoryAddress: 0x2c80, displayStart: 0x2800, fieldsSinceReset: 1234,
     };
 
     it('says where the beam is, what the three outputs are, and the field rate measured from VSYNC', () => {
@@ -112,6 +113,9 @@ describe('buildCrtcView', () => {
         { label: 'Outputs', value: 'DISPEN low, HSYNC low, VSYNC high' },
         { label: 'Fields', value: 'odd field; 1,234 VSYNCs since power-on' },
         { label: 'Measured', value: 'VSYNC every 40,000 cycles = 20.000 ms: 50.00 Hz' },
+        { label: 'Address', value: 'MA &2C80, RA 1 → &7C80 (teletext: MA13 = 1)' },
+        { label: 'Start', value: '&2800 → &7C00, latched at this field\'s start' },
+        { label: 'Cursor', value: 'MA &28C9 (row 5, column 1), lines 18-19, blinks every 32 fields: off now' },
       ]);
     });
 
@@ -131,6 +135,50 @@ describe('buildCrtcView', () => {
     it('before two VSYNCs there is nothing to measure', () => {
       expect(buildCrtcView({ ...input(MODE7, 0x4b), counters: { ...atVsync, vsyncPeriodCycles: 0 } }).counters[4]?.value).toBe('waiting for two VSYNCs');
       expect(vsyncRateText(0)).toBeUndefined();
+    });
+
+    describe('addressing and the cursor (Stage 39)', () => {
+      /** MODE 7 with R12/R13 and R14/R15 as given. */
+      function withStart(r12: number, r13: number, r14 = 0x28, r15 = 0xc9): number[] {
+        const regs = [...MODE7];
+        regs[12] = r12;
+        regs[13] = r13;
+        regs[14] = r14;
+        regs[15] = r15;
+        return regs;
+      }
+
+      it('a bitmap MODE\'s MA and RA make MA × 8 + RA', () => {
+        const regs = [...MODE0];
+        regs[12] = 0x06;
+        const lines = buildCrtcView({ ...input(regs, 0x9c), counters: { ...atVsync, memoryAddress: 0x0601, scanline: 3, displayStart: 0x0600 } }).counters;
+        expect(lines[5]?.value).toBe('MA &0601, RA 3 → &300B (bitmap: MA13 = 0)');
+        expect(lines[6]?.value).toBe('&0600 → &3000, latched at this field\'s start');
+      });
+
+      it('R12/R13 written since the field began are shown as waiting for the next field', () => {
+        const lines = buildCrtcView({ ...input(withStart(0x28, 0x28), 0x4b), counters: atVsync }).counters;
+        expect(lines[6]?.value).toBe('&2800 → &7C00, latched at this field\'s start; R12/R13 = &2828 from the next');
+      });
+
+      it('in the blink\'s on phase the cursor says "on now"', () => {
+        const lines = buildCrtcView({ ...input(MODE7, 0x4b), counters: { ...atVsync, fieldsSinceReset: 32 } }).counters;
+        expect(lines[7]?.value).toMatch(/: on now$/);
+      });
+
+      it('R10 = &20 is "no cursor", and R8 cursor skew %11 is too', () => {
+        const noCursor = [...MODE7];
+        noCursor[10] = 0x20;
+        expect(buildCrtcView({ ...input(noCursor, 0x4b), counters: atVsync }).counters[7]?.value).toBe('MA &28C9: none (R10 blink %01)');
+        const skewOff = [...MODE7];
+        skewOff[8] = 0xd3;
+        expect(buildCrtcView({ ...input(skewOff, 0x4b), counters: atVsync }).counters[7]?.value).toBe('MA &28C9: none (R8 cursor skew %11)');
+      });
+
+      it('a cursor MA outside the displayed area is said to be off the screen', () => {
+        const lines = buildCrtcView({ ...input(withStart(0x28, 0x00, 0x27, 0xff), 0x4b), counters: atVsync }).counters;
+        expect(lines[7]?.value).toBe('MA &27FF (not on the screen), lines 18-19, blinks every 32 fields: off now');
+      });
     });
 
     it('puts the beam in the frame drawing: line 280 of 312.5, character 32 of 64', () => {

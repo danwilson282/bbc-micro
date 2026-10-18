@@ -30,6 +30,15 @@
 // lines apart. In interlace sync and video (R8 bits 0-1 = %11) the scanline
 // counter steps by 2 and the field's parity is its bit 0 (Stage 38 doc).
 //
+// Stage 39 adds the memory address (MA) counter, the chip's 14 address
+// pins. It is loaded from R12/R13 at the start of each field, goes up by
+// one a character, goes back to the row's start at the end of each line,
+// and moves the row's start on at character R1 of the row's last line
+// (6845 data sheet, refresh memory addressing). What the board makes of MA
+// and RA is outside the chip: src/video/screen-address.ts. The cursor
+// output (CUDISP) is MA = R14/R15 on R10-R11's lines, blinked by counting
+// fields.
+//
 // tick() is the hot path: no allocation, and the clock and VSYNC callbacks
 // are made once, by whoever connects them.
 
@@ -102,6 +111,41 @@ const twoMhz: CharacterClock = () => true;
 /** R3 bits 4-7 = 0 means a 16-line VSYNC (6845 data sheet, R3). */
 const VSYNC_WIDTH_ZERO_LINES = 16;
 
+/** MA0-MA13. */
+const MA_MASK = 0x3fff;
+
+/** R10 bits 5-6, the cursor's blink mode (6845 data sheet, R10). */
+const R10_BLINK_MASK = 0x60;
+const R10_BLINK_STEADY = 0x00;
+const R10_BLINK_NONE = 0x20;
+/** %10: 16 fields a blink, so the phase is field bit 3; %11: 32 fields, bit 4. */
+const R10_BLINK_16_FIELDS = 0x40;
+/** R10 bits 0-4: the cursor's first scanline. */
+const R10_START_MASK = 0x1f;
+/** R8 bits 6-7 = %11: no cursor output at all (6845 data sheet, R8). */
+export const CRTC_R8_CURSOR_SKEW_OFF = 0xc0;
+
+/**
+ * Is the blink phase on for this field? R10 bits 5-6: %00 always, %01 never,
+ * %10 8 fields on then 8 off, %11 16 on then 16 off. Starting "on" at field 0
+ * is our assumption (the data sheet gives only the rates).
+ */
+export function cursorBlinkOn(r10: number, fields: number): boolean {
+  const blink = r10 & R10_BLINK_MASK;
+  if (blink === R10_BLINK_STEADY) return true;
+  if (blink === R10_BLINK_NONE) return false;
+  const phaseBit = blink === R10_BLINK_16_FIELDS ? 0x08 : 0x10;
+  return (fields & phaseBit) === 0;
+}
+
+/**
+ * Is scanline ra one of the cursor's, R10 bits 0-4 to R11? When the start is
+ * after the end we show nothing: 6845 variants differ there (Stage 39 doc).
+ */
+export function cursorOnScanline(r10: number, r11: number, ra: number): boolean {
+  return ra >= (r10 & R10_START_MASK) && ra <= (r11 & 0x1f);
+}
+
 export class Crtc6845 implements IoDevice, Clocked {
   private address = 0;
   private readonly r = new Uint8Array(CRTC_REGISTER_COUNT);
@@ -122,6 +166,18 @@ export class Crtc6845 implements IoDevice, Clocked {
   private adjustLine = 0;
   private adjustTotal = 0;
   private odd = false;
+  /** Fields since reset, for the cursor's blink. */
+  private fields = 0;
+
+  // The memory address counter (Stage 39).
+  /** The MA0-MA13 pins. */
+  private ma = 0;
+  /** Where the current character row starts: MA goes back here at each line's start. */
+  private rowStart = 0;
+  /** R12/R13 as latched at this field's start. */
+  private fieldStart = 0;
+  /** Is this scanline its row's last? Then the row start moves on at character R1. */
+  private lastLine = false;
 
   // The outputs and the counters behind them.
   private hDisplay = true;
@@ -232,6 +288,9 @@ export class Crtc6845 implements IoDevice, Clocked {
     this.adjustLine = 0;
     this.adjustTotal = 0;
     this.odd = false;
+    this.fields = 0;
+    this.latchStart();
+    this.lastLine = this.r[CRTC_R9_MAX_SCAN_LINE] === 0;
     this.hDisplay = true;
     this.vDisplay = true;
     this.hsyncOn = false;
@@ -259,8 +318,17 @@ export class Crtc6845 implements IoDevice, Clocked {
       this.hc = (this.hc + 1) & 0xff;
     }
     const hc = this.hc;
-    if (hc === 0) this.hDisplay = true;
-    if (hc === r[CRTC_R1_HORIZONTAL_DISPLAYED]) this.hDisplay = false;
+    if (hc === 0) {
+      this.hDisplay = true;
+      this.ma = this.rowStart;
+    } else {
+      this.ma = (this.ma + 1) & MA_MASK;
+    }
+    if (hc === r[CRTC_R1_HORIZONTAL_DISPLAYED]) {
+      this.hDisplay = false;
+      // The row's last line has been along it: the next row starts here, R1 on.
+      if (this.lastLine) this.rowStart = this.ma;
+    }
 
     if (this.hsyncOn && --this.hsyncLeft === 0) this.hsyncOn = false;
     if (hc === r[CRTC_R2_HSYNC_POSITION]) {
@@ -313,7 +381,7 @@ export class Crtc6845 implements IoDevice, Clocked {
 
     this.vc = (this.vc + 1) & 0x7f;
     this.ra = 0;
-    this.rowStart();
+    this.rowCompare();
     this.lineStart();
   }
 
@@ -323,21 +391,37 @@ export class Crtc6845 implements IoDevice, Clocked {
     this.ra = 0;
     this.adjusting = false;
     this.odd = !this.odd;
+    this.fields++;
     this.vDisplay = true;
-    this.rowStart();
+    this.latchStart();
+    this.rowCompare();
     this.lineStart();
   }
 
+  /** R12/R13 into the counter: only ever at the top of a field (or on reset). */
+  private latchStart(): void {
+    this.fieldStart = ((this.r[CRTC_R12_START_ADDRESS_HIGH] << 8) | this.r[CRTC_R13_START_ADDRESS_LOW]) & MA_MASK;
+    this.rowStart = this.fieldStart;
+    this.ma = this.fieldStart;
+  }
+
   /** The row counter has a new value: the vertical comparisons. */
-  private rowStart(): void {
+  private rowCompare(): void {
     if (this.vc === this.r[CRTC_R6_VERTICAL_DISPLAYED]) this.vDisplay = false;
     if (this.vc === this.r[CRTC_R7_VSYNC_POSITION]) this.vsyncPending = true;
   }
 
-  /** Where on this line VSYNC may change: half way along in an odd interlaced field. */
+  /**
+   * A new scanline: where on it VSYNC may change (half way along in an odd
+   * interlaced field), and whether it's its row's last (the same test
+   * endOfLine makes when it ends; never in the adjust lines).
+   */
   private lineStart(): void {
-    const interlaced = (this.r[CRTC_R8_INTERLACE_AND_SKEW] & 0x01) === 1;
+    const r8 = this.r[CRTC_R8_INTERLACE_AND_SKEW];
+    const interlaced = (r8 & 0x01) === 1;
     this.vsyncCharacter = interlaced && this.odd ? (this.r[CRTC_R0_HORIZONTAL_TOTAL] + 1) >> 1 : 0;
+    const r9 = this.r[CRTC_R9_MAX_SCAN_LINE];
+    this.lastLine = !this.adjusting && ((r8 & 0x03) === 0x03 ? this.ra >> 1 === r9 >> 1 : this.ra === r9);
   }
 
   /** Once a line, at vsyncCharacter: VSYNC starts, or counts down a line. */
@@ -403,6 +487,39 @@ export class Crtc6845 implements IoDevice, Clocked {
   /** DISPEN, before any R8 skew (Stages 39/42): a displayed character of a displayed row. */
   get displayEnable(): boolean {
     return this.hDisplay && this.vDisplay;
+  }
+
+  /** The MA0-MA13 pins: the character address being read now (Stage 39). */
+  get memoryAddress(): number {
+    return this.ma;
+  }
+
+  /** The start address this field is being drawn from: R12/R13 as they were when it began. */
+  get displayStart(): number {
+    return this.fieldStart;
+  }
+
+  /** Fields since reset(): what the cursor's blink counts. */
+  get fieldsSinceReset(): number {
+    return this.fields;
+  }
+
+  /**
+   * CUDISP (pin 19), before R8's skew: a displayed character at MA = R14/R15,
+   * on a cursor scanline, in the blink's on phase, and skew not %11. A
+   * getter, so tick() pays nothing for it.
+   */
+  get cursor(): boolean {
+    const r = this.r;
+    if (!this.displayEnable || (r[CRTC_R8_INTERLACE_AND_SKEW] & CRTC_R8_CURSOR_SKEW_OFF) === CRTC_R8_CURSOR_SKEW_OFF) return false;
+    if (this.ma !== this.cursorAddress) return false;
+    const r10 = r[CRTC_R10_CURSOR_START];
+    return cursorOnScanline(r10, r[CRTC_R11_CURSOR_END], this.scanline) && cursorBlinkOn(r10, this.fields);
+  }
+
+  /** R14/R15 as one 14-bit MA. */
+  get cursorAddress(): number {
+    return ((this.r[CRTC_R14_CURSOR_ADDRESS_HIGH] << 8) | this.r[CRTC_R15_CURSOR_ADDRESS_LOW]) & MA_MASK;
   }
 
   /** VSYNC rising edges since reset(). */

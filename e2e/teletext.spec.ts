@@ -96,9 +96,11 @@ test.describe('Stage 33: double height, flash & conceal', () => {
     await page.evaluate((flash) => {
       // The console handle (src/main.ts); the cast describes the parts used.
       const { workbench } = window as unknown as {
-        workbench: { screen: { draw(peek: (a: number) => number, start: number, flash: boolean): void }; machine: { peek(a: number): number } };
+        workbench: { screen: { draw(peek: (a: number) => number, screen: object, flash: boolean): void }; machine: { peek(a: number): number } };
       };
-      workbench.screen.draw((a) => workbench.machine.peek(a), 0x7c00, flash);
+      // MODE 7 as the MOS sets it up (src/video/mode7-renderer.ts's Mode7Screen): &2800 is &7C00, no cursor.
+      const screen = { start: 0x2800, columns: 40, rows: 25, cursor: -1, cursorFirstLine: 0, cursorLastLine: 0 };
+      workbench.screen.draw((a) => workbench.machine.peek(a), screen, flash);
     }, visible);
   }
 

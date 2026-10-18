@@ -23,7 +23,10 @@ import { createLockLeds } from './web/lock-leds';
 import { createRunControls } from './web/run-controls';
 import { createScreenCanvas } from './web/screen-canvas';
 import { createTextScreen } from './web/text-screen';
-import { mode7CellAddress, mode7StartAddress } from './video/mode7-text';
+import { mode7CellAddress } from './video/mode7-text';
+import { mode7ScreenFrom } from './video/mode7-renderer';
+import { teletextAddress } from './video/screen-address';
+import { programMode7NoCursor } from './mos/mos-crtc';
 import { TEST_PAGE_COUNT, teletextTestPage } from './video/teletext-test-page';
 import { teletextFlashVisible } from './video/teletext-attributes';
 import type { ListingLine } from './playground/listing';
@@ -78,6 +81,10 @@ const machine = new BbcModelB(mosMode ? 'BBC Model B running MOS 1.20 from roms/
 // would fight the VIA panel's CA1 button, which Stage 26's example counts,
 // so the wire is cut there.
 if (!mosMode) machine.vsyncWired = false;
+// Since Stage 39 the screen is whatever the 6845 addresses, and a 6845
+// nobody has programmed shows nothing. In MOS mode the MOS programs it; in
+// the playground we write the MOS's MODE 7 values once instead (no cursor).
+if (!mosMode) programMode7NoCursor(machine.crtc);
 const doorbell = new Doorbell(machine.map);
 machine.plugIn(doorbell);
 const target = machineTarget(machine, doorbell);
@@ -89,9 +96,10 @@ let labels: ReadonlyMap<number, string> = mosMode ? MOS_LABELS : new Map();
 
 const workbench = createWorkbench(host, target.name);
 
-// The screen: MODE 7's 1,000 bytes from wherever the CRTC's R12/R13 say it
-// starts (the MOS scrolls by moving that), drawn as teletext dots on the
-// canvas (Stage 31), with the same cells as invisible text on top.
+// The screen: MODE 7's cells from the start address the CRTC latched for
+// this field (the MOS scrolls by moving R12/R13; Stage 39), drawn as
+// teletext dots on the canvas (Stage 31) with the CRTC's cursor, and the
+// same cells as invisible text on top.
 const screenCanvas = createScreenCanvas(screenElement);
 const textScreen = createTextScreen();
 screenFrame.append(textScreen.element);
@@ -102,9 +110,8 @@ const peekScreen = (address: number): number => machine.peek(address);
 // The keyboard LEDs (Stage 36) are drawn with the screen: they're cheap, and they change as you type.
 const lockLeds = createLockLeds();
 const drawScreen = (): void => {
-  const start = mode7StartAddress(machine.crtc.register(12), machine.crtc.register(13));
-  screenCanvas.draw(peekScreen, start, teletextFlashVisible(machine.crtc.vsyncCount));
-  textScreen.draw(peekScreen, start);
+  screenCanvas.draw(peekScreen, mode7ScreenFrom(machine.crtc), teletextFlashVisible(machine.crtc.vsyncCount));
+  textScreen.draw(peekScreen, teletextAddress(machine.crtc.displayStart));
   lockLeds.update(machine.capsLockLed, machine.shiftLockLed);
 };
 
@@ -216,7 +223,7 @@ let testPageShown = 0;
 function showTestPage(page = (testPageShown % TEST_PAGE_COUNT) + 1): void {
   const bytes = teletextTestPage(page);
   testPageShown = page;
-  const start = mode7StartAddress(machine.crtc.register(12), machine.crtc.register(13));
+  const start = teletextAddress(machine.crtc.displayStart);
   bytes.forEach((byte, cell) => {
     machine.poke(mode7CellAddress(start, cell), byte);
   });
