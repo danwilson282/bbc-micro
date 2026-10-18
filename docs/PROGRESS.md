@@ -2,7 +2,7 @@
 
 Tracks where the build is up to. The `/start-stage` and `/finish-stage` skills keep this file up to date. For what each stage involves, see [`BUILD-PLAN.md`](./BUILD-PLAN.md).
 
-**Current stage:** 45 — Tone & noise generation (not started)
+**Current stage:** 46 — Web Audio output (not started)
 
 **Status values:**
 - `not started`
@@ -107,7 +107,7 @@ Tracks where the build is up to. The `/start-stage` and `/finish-stage` skills k
 | # | Stage | Status | Seen? | Branch | Doc | Notes |
 |---|---|---|---|---|---|---|
 | 44 | SN76489 register protocol | done | ✅ | `stage/44-sn76489-registers` | [doc](./stages/44-sn76489-registers.md) | New `devices/sn76489.ts`: 8 registers in a `Uint16Array` indexed by a latch byte's bits 6-4 (R0 tone 0 … R6 noise, R7 att 3); latch byte (bit 7 = 1) latches + writes low 4 bits, data byte writes N's high 6 (or, for narrow registers, the low bits: common reading, unconfirmed). **Wiring:** `pinsChanged` sees IC32 bit 0 fall (/WE) and calls `sound.write(systemVia.pins('a'))`. **Bug fixed:** the keyboard pulled PA7 low in autoscan, so every latch byte lost bit 7 (`&D0` arrived as `&50`); now `Keyboard.pa7()` is `undefined` in autoscan (the '251 is off). **Measured:** MOS write routine at &EB21 (DDRA &FF, byte to &FE4F, &00/&08 to &FE40, /WE low 17 cycles = 8.5 µs); channel table at &EB40 (`E0 C0 A0 80`: SOUND c → chip 3-c); boot bytes `9F 82 3F BF A1 3F DF C0 3F FF E0` then bleep `92 8F 0E`, `9F`; `SOUND 1,-15,53,20` → `D0 C5 1D` (N &1D5, 266.5 Hz); BASIC volume v → attenuation v+15. Power-on silent (our choice: no reset pin); BREAK leaves it. Hardware log device `'sound'`. **Sound** panel (4 rows, latched register, recent bytes). `demo:sound-regs`. `e2e/sound-panel.spec.ts` (real-time, 2). |
-| 45 | Tone & noise generation | not started | | `stage/45-tone-noise` | [doc](./stages/45-tone-noise.md) | |
+| 45 | Tone & noise generation | done | ✅ | `stage/45-tone-noise` | [doc](./stages/45-tone-noise.md) | `Sn76489` is now `Clocked` (in the machine's list): one chip tick per 8 CPU cycles (4 MHz ÷ 16 = 250 kHz). Tones count N and flip (N = 0 → 1024, reported for TI parts); noise counter 16/32/64 or tone 2's N, shifts on the rising edge; 15-bit LFSR, taps 0 and 1 (SMS Power), reset &4000 on any R6 write; white period 32,767, periodic 15 (tested). `ATTENUATION_GAIN` 10^(−2a/20), &F = 0; bipolar ±gain per channel, ÷ 4. New `src/sound/`: `BoxResampler` (phase accumulator, averages 5-6 ticks per 44.1 kHz sample), `SampleRecorder` (fixed size, drops + counts), `encodeWav` (16-bit mono PCM). Sound panel: N = 0 now shows 122.1 Hz. ROM test: boot bleep starts 0.275 s, lasts 0.281 s, 523 Hz. `demo:sound` writes `out/sound-tour.wav` (no ROMs) and `out/sound-basic.wav` (boot + BASIC SOUND); `out/` gitignored. Cost: 10 emulated s 1.29 → 1.40 s (1.49 s recording). |
 | 46 | Web Audio output | not started | | `stage/46-web-audio` | [doc](./stages/46-web-audio.md) | |
 
 ## Part 11: Disc
@@ -127,6 +127,8 @@ Pick from the menu in BUILD-PLAN.md §8 once Part 11 is done, and add a row here
 ## Open questions / parking lot
 
 Things to come back to: questions raised during a stage, known inaccuracies, ideas.
+
+- SN76489 details taken from SMS Power, not the datasheet: noise LFSR 15 bits with taps 0 and 1, N = 0 counting as 1024. Worth checking against a recording from a real Model B. We also skip the real chip's one-sided output and the coupling capacitor's DC clicks (bipolar mix instead). (Stage 45)
 
 - Held mosaic + separated: we keep the separated flag it was drawn with (ETS 300 706). Check against a real SAA5050 / BBC if one is ever to hand; the data sheet is silent. (Stage 32)
 - ~~Stage 33's hold reset on a change of height (normal ↔ double).~~ Done in Stage 33. (Stage 32)

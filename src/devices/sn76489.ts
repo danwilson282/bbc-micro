@@ -1,6 +1,6 @@
 // The Texas Instruments SN76489 sound generator: its register file and the
-// byte protocol that fills it (Stage 44). No sound yet: Stage 45 turns these
-// numbers into waveforms.
+// byte protocol that fills it (Stage 44), and the generators that turn those
+// numbers into a waveform (Stage 45).
 //
 // Three square-wave tone channels, one noise channel, and four attenuators.
 // The CPU can't read any of it back. On the Model B the chip's D0-D7 are the
@@ -22,7 +22,21 @@
 // A tone is 10 bits: the latch byte carries the low 4, a data byte the
 // high 6. (The TI datasheet numbers bits backwards, D0 = the MSB. This file
 // uses the usual bit 0 = LSB throughout.)
+//
+// The generators (Stage 45). The chip divides its 4 MHz clock by 16, so
+// everything moves on 250,000 times a second: one "chip tick" per 8 CPU
+// cycles. Each tick:
+//
+//   tone 0-2  count down; at zero, reload N and flip the output
+//   noise     its own counter (16/32/64 ticks, or channel 2's N) flips; on
+//             each rising edge the 15-bit shift register shifts, and its
+//             bit 0 is the output
+//
+// Then the four outputs, each ±gain(attenuation), are summed and ÷ 4. Where
+// the datasheet is silent (N = 0, the noise taps and width) this follows
+// SMS Power's measurements of the SN76489AN; see the Stage 45 doc.
 
+import type { Clocked } from './clocked';
 import type { HardwareLog } from './hardware-log';
 
 /** The Model B's sound clock: the 16 MHz crystal ÷ 4 (Advanced User Guide, "The sound generator"). */
@@ -30,6 +44,15 @@ export const SN76489_CLOCK_HZ = 4_000_000;
 
 /** A tone channel's square wave: one full period is 32 × N clocks (datasheet, "Tone generators"). */
 const TONE_CLOCKS_PER_N = 32;
+
+/** The chip divides its clock by 16 before anything else (datasheet, "Tone generators"). */
+const SN_CLOCK_DIVIDER = 16;
+/** One chip tick: 4 MHz ÷ 16 = 250 kHz. */
+export const SN_TICK_RATE_HZ = SN76489_CLOCK_HZ / SN_CLOCK_DIVIDER;
+/** The CPU's 2 MHz ÷ 250 kHz: a chip tick every 8 CPU cycles. */
+export const SN_CPU_CYCLES_PER_TICK = 8;
+/** N = 0 counts like 1024 on TI parts: the 10-bit counter wraps (SMS Power; not in the datasheet). */
+const TONE_ZERO_PERIOD = 0x400;
 
 /** Bit 7: 1 = latch byte, 0 = data byte. */
 const LATCH_BYTE = 0x80;
@@ -57,6 +80,18 @@ const DB_PER_STEP = 2;
 
 /** NF = 0-2: the noise shift register is clocked at 4 MHz ÷ 512, 1024, 2048 (512 << NF). NF = 3: by channel 2's tone. */
 const NOISE_BASE_DIVIDER = 512;
+/** The noise counter reloads with 16 << NF ticks and shifts every other flip: 32 ticks × 16 = 512 clocks. */
+const NOISE_BASE_PERIOD = 16;
+/** The 15-bit noise shift register starts (and restarts on any R6 write) with a single 1 at the top. */
+export const NOISE_RESET = 0x4000;
+/** The new bit goes in at bit 14. */
+const NOISE_TOP_BIT = 14;
+/** R4: channel 2's tone, which NF = 3 clocks the noise from. */
+const TONE_2_REGISTER = 4;
+/** The noise counter is the fourth counter, after tones 0-2. */
+const NOISE_COUNTER = 3;
+/** Four channels at full volume sum to ±4; the mixer scales that to ±1. */
+const CHANNELS = 4;
 const NOISE_RATE_FOLLOWS_TONE_2 = 3;
 export const NOISE_RATE_NAMES = ['4 MHz ÷ 512', '4 MHz ÷ 1024', '4 MHz ÷ 2048', "channel 2's tone"] as const;
 
@@ -66,10 +101,36 @@ export const NOISE_RATE_NAMES = ['4 MHz ÷ 512', '4 MHz ÷ 1024', '4 MHz ÷ 2048
  */
 const CHIP_CHANNEL_FOR_SOUND = [3, 2, 1, 0] as const;
 
-export class Sn76489 {
+/** Each attenuation step is 2 dB of amplitude, 10^(-2a/20); &F is off. Made once. */
+export const ATTENUATION_GAIN: Float32Array = makeGainTable();
+
+function makeGainTable(): Float32Array {
+  const table = new Float32Array(16);
+  for (let a = 0; a < SN_ATTENUATION_OFF; a++) table[a] = 10 ** ((-DB_PER_STEP * a) / 20);
+  table[SN_ATTENUATION_OFF] = 0;
+  return table;
+}
+
+/** What the chip feeds its output to, once per chip tick: the resampler, in practice. */
+export interface ChipOutput {
+  /** The mixed level, -1 to +1, for one 250 kHz tick. */
+  input(level: number): void;
+}
+
+export class Sn76489 implements Clocked {
   /** R0-R7, by the number a latch byte carries. */
   private readonly regs = new Uint16Array(8);
   private latch = 0;
+
+  /** Ticks to the next flip: tones 0-2, then the noise counter. */
+  private readonly counters = new Int32Array(4);
+  /** Each counter's flip-flop, 0 or 1. Index 3 is the noise counter's, whose rising edge shifts the register. */
+  private readonly flips = new Uint8Array(4);
+  /** The 15-bit noise shift register. */
+  private shift = NOISE_RESET;
+  /** CPU cycles not yet worth a whole chip tick. */
+  private cycleRemainder = 0;
+  private output: ChipOutput | undefined;
 
   constructor(private readonly log?: HardwareLog) {}
 
@@ -94,7 +155,72 @@ export class Sn76489 {
       if (isTone(r)) this.regs[r] = ((byte & DATA_BITS) << 4) | (old & LOW_NIBBLE);
       else this.regs[r] = byte & (r === SN_NOISE_REGISTER ? NOISE_MASK : LOW_NIBBLE);
     }
+    // Writing the noise control restarts the shift register (datasheet, "Noise generator").
+    if (this.latch === SN_NOISE_REGISTER) this.shift = NOISE_RESET;
     this.log?.record('sound', this.latch, byte);
+  }
+
+  /** Something to feed one mixed level per chip tick, or undefined. The chip runs either way. */
+  connectOutput(output: ChipOutput | undefined): void {
+    this.output = output;
+  }
+
+  /** Moves on by this many 2 MHz CPU cycles: one chip tick for every 8. */
+  tick(cpuCycles: number): void {
+    this.cycleRemainder += cpuCycles;
+    while (this.cycleRemainder >= SN_CPU_CYCLES_PER_TICK) {
+      this.cycleRemainder -= SN_CPU_CYCLES_PER_TICK;
+      this.clockOnce();
+      this.output?.input(this.level);
+    }
+  }
+
+  /** The mix right now: each channel ±gain(attenuation), summed, ÷ 4. Between -1 and +1. */
+  get level(): number {
+    let sum = 0;
+    for (let c = 0; c < CHANNELS; c++) {
+      const gain = ATTENUATION_GAIN[this.regs[(c << 1) | 1] ?? SN_ATTENUATION_OFF] ?? 0;
+      sum += this.channelOutput(c) === 1 ? gain : -gain;
+    }
+    return sum / CHANNELS;
+  }
+
+  /** Channel 0-2's square wave, or channel 3's shift register bit 0: 0 or 1. */
+  channelOutput(channel: number): number {
+    const c = channel & 3;
+    return c === NOISE_COUNTER ? this.shift & 1 : (this.flips[c] ?? 0);
+  }
+
+  /** The noise shift register, 15 bits. */
+  get shiftRegister(): number {
+    return this.shift;
+  }
+
+  /** One 250 kHz tick: every counter down one, flipping (and maybe shifting) at zero. */
+  private clockOnce(): void {
+    const counters = this.counters;
+    const flips = this.flips;
+    for (let c = 0; c < NOISE_COUNTER; c++) {
+      const left = (counters[c] ?? 0) - 1;
+      if (left > 0) {
+        counters[c] = left;
+      } else {
+        counters[c] = tonePeriod(this.regs[c << 1] ?? 0);
+        flips[c] = (flips[c] ?? 0) ^ 1;
+      }
+    }
+    const left = counters[NOISE_COUNTER] - 1;
+    if (left > 0) {
+      counters[NOISE_COUNTER] = left;
+      return;
+    }
+    const noise = this.regs[SN_NOISE_REGISTER];
+    const rate = noise & NOISE_RATE_MASK;
+    counters[NOISE_COUNTER] =
+      rate === NOISE_RATE_FOLLOWS_TONE_2 ? tonePeriod(this.regs[TONE_2_REGISTER]) : NOISE_BASE_PERIOD << rate;
+    const edge = flips[NOISE_COUNTER] ^ 1;
+    flips[NOISE_COUNTER] = edge;
+    if (edge === 1) this.shift = shiftNoise(this.shift, (noise & SN_NOISE_WHITE) !== 0);
   }
 
   /** R0-R7 by number. */
@@ -131,7 +257,27 @@ export class Sn76489 {
     this.regs.fill(0);
     for (let channel = 0; channel < 4; channel++) this.regs[(channel << 1) | 1] = SN_ATTENUATION_OFF;
     this.latch = 0;
+    this.counters.fill(0);
+    this.flips.fill(0);
+    this.shift = NOISE_RESET;
+    this.cycleRemainder = 0;
   }
+}
+
+/** Ticks per half-cycle for a tone register value: N, or 1024 for N = 0. */
+function tonePeriod(n: number): number {
+  const masked = n & TONE_MASK;
+  return masked === 0 ? TONE_ZERO_PERIOD : masked;
+}
+
+/**
+ * One shift of the 15-bit noise register: right by one, with the new bit 14
+ * = bit 0 (periodic) or bit 0 XOR bit 1 (white). Taps and width are SMS
+ * Power's measurements of the SN76489AN.
+ */
+export function shiftNoise(register: number, white: boolean): number {
+  const feedback = white ? (register ^ (register >> 1)) & 1 : register & 1;
+  return ((register >> 1) | (feedback << NOISE_TOP_BIT)) & 0x7fff;
 }
 
 /** R0, R2 and R4 are the 10-bit tone registers. */
@@ -139,9 +285,9 @@ function isTone(r: number): boolean {
   return (r & 1) === 0 && r !== SN_NOISE_REGISTER;
 }
 
-/** A tone channel's frequency in Hz: 4 MHz ÷ (32 × N). N = 0 gives Infinity (Stage 45 decides what the chip does). */
+/** A tone channel's frequency in Hz: 4 MHz ÷ (32 × N), with N = 0 counting as 1024. */
 export function toneFrequency(n: number): number {
-  return SN76489_CLOCK_HZ / (TONE_CLOCKS_PER_N * (n & TONE_MASK));
+  return SN76489_CLOCK_HZ / (TONE_CLOCKS_PER_N * tonePeriod(n));
 }
 
 /** The noise shift register's clock in Hz for NF = 0-2, or undefined for 3 (it follows channel 2). */

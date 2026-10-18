@@ -64,8 +64,8 @@ describe('Sound panel view-model', () => {
     expect(c?.level).toBe(10);
   });
 
-  it('a tone of N = 0 has no frequency to show yet (Stage 45 decides what the chip does)', () => {
-    expect(view([0, 0, 0, 0, 0, 0, 0, 0]).channels.at(0)?.pitch).toBe('— (N = 0)');
+  it('a tone of N = 0 counts as 1024 on TI parts: 122.1 Hz', () => {
+    expect(view([0, 0, 0, 0, 0, 0, 0, 0]).channels.at(0)?.pitch).toBe('122.1 Hz (N = 0 counts as 1024)');
   });
 
   it(`lists the last ${String(SOUND_BYTES_SHOWN)} bytes, decoded, using the register each reached`, () => {

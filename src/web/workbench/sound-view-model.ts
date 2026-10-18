@@ -87,8 +87,8 @@ function toneRow(chip: number, n: number, attenuation: number): SoundChannelRow 
     chip: String(chip),
     basic: String(basicFor(chip)),
     tone: `&${n.toString(16).toUpperCase().padStart(3, '0')} (${String(n)})`,
-    // N = 0: what the chip does with it is Stage 45's question.
-    pitch: n === 0 ? '— (N = 0)' : formatHz(toneFrequency(n)),
+    // N = 0 counts as 1024 (Stage 45).
+    pitch: n === 0 ? `${formatHz(toneFrequency(0))} (N = 0 counts as 1024)` : formatHz(toneFrequency(n)),
     attenuation: describeAttenuation(attenuation),
     level: SN_ATTENUATION_OFF - attenuation,
     silent: attenuation === SN_ATTENUATION_OFF,
@@ -102,7 +102,7 @@ function noiseRow(noise: number, tone2: number, attenuation: number): SoundChann
     chip: '3',
     basic: String(basicFor(3)),
     tone: `${String(noise)}: ${(noise & SN_NOISE_WHITE) !== 0 ? 'white' : 'periodic'}, ${NOISE_RATE_NAMES[rate] ?? '?'}`,
-    pitch: shift === undefined ? `follows channel 2 (${tone2 === 0 ? 'N = 0' : formatHz(toneFrequency(tone2))})` : formatHz(shift),
+    pitch: shift === undefined ? `follows channel 2 (${formatHz(toneFrequency(tone2))})` : formatHz(shift),
     attenuation: describeAttenuation(attenuation),
     level: SN_ATTENUATION_OFF - attenuation,
     silent: attenuation === SN_ATTENUATION_OFF,

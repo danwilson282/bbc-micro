@@ -68,6 +68,9 @@
 //   System VIA PA0-PA7 ──▶ SN76489 D0-D7
 //   IC32 bit 0 (1 → 0) ──▶ SN76489 /WE ──▶ write(byte)
 //
+// Stage 45 ticks it with the other chips: its generators move on once per 8
+// CPU cycles (4 MHz ÷ 16 = 250 kHz), feeding m.sound's connected output.
+//
 // step() and runCycles() are the hot path: no objects, closures or arrays
 // are made in them, and the device lists are walked with indexed loops.
 
@@ -143,7 +146,7 @@ export class BbcModelB implements PinListener, DataBus, CycleClock {
   readonly videoUla: VideoUla;
   /** MODE 0-6's pixels, drawn a scanline at a time as the 6845 reaches each (Stage 42). */
   readonly bitmap: BitmapRenderer;
-  /** The sound chip's registers (Stage 44), written through port A when IC32 bit 0 falls. */
+  /** The sound chip (Stage 44), written through port A when IC32 bit 0 falls; ticked from Stage 45. connectOutput() to hear it. */
   readonly sound: Sn76489;
   readonly map: BbcMemoryMap;
   readonly cpu: Cpu6502;
@@ -203,7 +206,7 @@ export class BbcModelB implements PinListener, DataBus, CycleClock {
     this.systemVia.connectPins(this);
     this.latchFollowsPins();
     this.trace = new Tracer((address) => this.map.peek(address));
-    this.clocked = [this.systemVia, this.userVia, this.crtc, this.keyboard];
+    this.clocked = [this.systemVia, this.userVia, this.crtc, this.keyboard, this.sound];
     this.irqSources = [this.systemVia, this.userVia];
     this.irqNames = [SYSTEM_VIA_NAME, USER_VIA_NAME];
   }

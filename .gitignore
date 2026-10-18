@@ -44,3 +44,6 @@ discs/
 # Downloaded CPU test suites (scripts/fetch-test-fixtures.sh)
 test-fixtures/
 .playwright-mcp/
+
+# Demo output (WAV files from demo:sound)
+out/
