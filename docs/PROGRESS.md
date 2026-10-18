@@ -2,7 +2,7 @@
 
 Tracks where the build is up to. The `/start-stage` and `/finish-stage` skills keep this file up to date. For what each stage involves, see [`BUILD-PLAN.md`](./BUILD-PLAN.md).
 
-**Current stage:** 39 — CRTC addressing, scrolling & cursor (not started)
+**Current stage:** 40 — ULA control & palette (not started)
 
 **Status values:**
 - `not started`
@@ -91,7 +91,7 @@ Tracks where the build is up to. The `/start-stage` and `/finish-stage` skills k
 |---|---|---|---|---|---|---|
 | 37 | CRTC registers & geometry | done | ✅ | `stage/37-crtc-registers` | [doc](./stages/37-crtc-registers.md) | `devices/crtc6845.ts` replaces `CrtcStub` (same `register`/`registers`/`addressRegister` API): per-register widths (`CRTC_REGISTER_BITS`), access table (R0-R13 W, R14-R15 R/W, R16-R17 R; others and `&FE00` read &00), log records the byte as sent. `devices/crtc-geometry.ts` (pure): `crtcGeometry(regs, clockHz)`, `describeCrtcGeometry`, `characterClockHz(ulaControl)` (bit 4). **Found: MOS R7 = table + `*TV` offset + 1** (`CPY #7` carry into `ADC &0290` at &C95E), so VSYNC is on line 280 in every MODE. Interlaced = 312.5 lines = 50.00 Hz (plan's "50.08 Hz, interlaced" was loose). CRTC panel: register table with meanings, worked geometry, to-scale field drawing; built once, text updates. ROM test types MODE 0-7. `e2e/crtc.spec.ts` (real-time, 2). |
 | 38 | CRTC counters & sync | done | ✅ | `stage/38-crtc-counters-sync` | [doc](./stages/38-crtc-counters-sync.md) | **The real VSYNC drives CA1**; fake vsync deleted. `Crtc6845.tick()`: 8-bit character, 5-bit scanline, 7-bit row counters, adjust; equality compares, masked widths. Clock from ULA bit 4 (`connectClock`, 1 MHz half-cycle carry); `connectVsync` → CA1 (`machine.vsyncWired` cuts it: playground, `demo:boot`). Interlace: odd field +1 adjust line and VSYNC ⌊(R0+1)/2⌋ characters late → VSYNCs exactly 40,000 cycles apart; sync-and-video steps by 2, ignores R9 bit 0, RA bit 0 = parity. **CA1 follows VSYNC** (jsbeeb behaviour), so with PCR &04 the IRQ is at the pulse's end. Measured rate (`vsyncPeriodCycles`) = Stage 37 formula in every MODE; 50.08 Hz with `*TV 0,1`; MODE 7 with R8 = &00 → 591 lines, 26.44 Hz. CRTC panel counters + beam dot; status line `VSYNC 50.00 Hz`. `demo:crtc`. Cost: machine 1.09 → 1.42 s per 10 emulated s. |
-| 39 | CRTC addressing, scrolling & cursor | not started | | `stage/39-crtc-addressing-cursor` | [doc](./stages/39-crtc-addressing-cursor.md) | |
+| 39 | CRTC addressing, scrolling & cursor | done | ✅ | `stage/39-crtc-addressing-cursor` | [doc](./stages/39-crtc-addressing-cursor.md) | **MA counter** in `Crtc6845`: R12/R13 latched at field start only (`displayStart`), +1 a character, back to the row start each line, row start moved on at character R1 of the row's last line; `memoryAddress`, `fieldsSinceReset`, `cursorAddress`, `cursor` (CUDISP getter, no tick cost). `cursorBlinkOn`/`cursorOnScanline` (blink %10 = 8/8 fields, %11 = 16/16; phase and 50% duty assumed). New `video/screen-address.ts`: teletext A0-A9 = MA0-9, A10-13 high, **A14 = MA11** (&2800 → &7C00, &2000 → &3C00), bitmap MA × 8 + RA (MA12 wrap is Stage 43). Renderer takes a `Mode7Screen` (`mode7ScreenFrom(crtc)`): rows R1 apart, black past R1/R6, cursor = R10-R11 pixel rows inverted, one cell wide (ULA width Stage 40). **Measured:** MOS cursor &28C9 at the prompt; `VDU 23,1,0` → R10 = &20; scroll writes land mid-field (lines 208, 56…), often 2 per field (only the second drawn); **R14/R15 is the unwrapped MA** (&2DF1). Playground now programs its CRTC (`mos/mos-crtc.ts`, MODE 7, no cursor). CRTC panel: Address/Start/Cursor lines. `demo:addressing`. `e2e/scroll-cursor.spec.ts` (real-time, 2). No measurable speed cost. |
 
 ## Part 9: Video ULA & bitmap modes
 
@@ -197,6 +197,9 @@ Things to come back to: questions raised during a stage, known inaccuracies, ide
 - `playgroundTarget` survives only for tests and CLI demos on a flat `TestBus`. It could go once nothing needs a flat 64K. (Stage 27)
 - IC32 board details assumed, not checked against the circuit diagram: enable tied low (transparent, so the addressed bit follows the pins), and cleared at power-on (we reset it to &00; it may power up random). (Stage 28)
 - Keyboard links default to all open (`&028F` = &FF, MODE 7). How Acorn shipped them is unconfirmed. (Stage 28)
+- Cursor with R10 start > R11 end: we draw nothing; some 6845 variants draw a split cursor. Blink phase (on first from reset) and 50% duty assumed. (Stage 39)
+- R8 skew is modelled only as "%11 = off"; real display/cursor delays (MODE 7: 1 and 2 characters) belong with the scanline renderer (Stage 42). (Stage 39)
+- MODE 7 is still drawn from memory as it is at draw time, not as the beam passes; mid-field screen writes (raster tricks) won't show until Stage 42. The text layer ignores R1/R6. (Stage 39)
 - Keyboard stub drives PA7 low whenever autoscan is on. A real board would show the counter's column (a closed link could appear). The MOS doesn't read PA7 then; Stage 35 builds the counter. (Stage 28)
 - The keyboard now owns the System VIA's PA7: the VIA panel's PA7 pull-low button is overridden at the next pin change (PA0-PA6 buttons still work). (Stage 28)
 - ACIA stub status is fixed at &02: if RS423/cassette ever turned its interrupts on, a real 6850 would raise IRQ on TDRE; ours never will. /DCD and /CTS (bits 2-3 = 0) for an unconnected Model B port are unchecked. Serial/cassette are out of scope. (Stage 29)

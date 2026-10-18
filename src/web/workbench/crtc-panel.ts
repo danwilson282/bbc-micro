@@ -73,7 +73,7 @@ export function createCrtcPanel(source: CrtcPanelSource): Panel {
   legend.className = 'crtc-legend';
   legend.textContent = 'One field to scale: characters across (R0), scanlines down. Blue: HSYNC. Red: VSYNC. Dot: the beam now.';
 
-  // The counters (Stage 38), the same five lines every time.
+  // The counters (Stage 38; address and cursor since Stage 39), the same eight lines every time.
   const counters = document.createElement('dl');
   counters.className = 'crtc-geometry crtc-counters';
   counters.setAttribute('aria-label', 'Counters');

@@ -42,7 +42,8 @@
     "demo:rounding": "tsx scripts/demo-rounding.ts",
     "demo:typing": "tsx scripts/demo-typing.ts",
     "demo:break": "tsx scripts/demo-break.ts",
-    "demo:crtc": "tsx scripts/demo-crtc.ts"
+    "demo:crtc": "tsx scripts/demo-crtc.ts",
+    "demo:addressing": "tsx scripts/demo-addressing.ts"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

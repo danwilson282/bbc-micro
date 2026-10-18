@@ -14,15 +14,17 @@
 //
 // Where the screen starts (Stage 30). When the MOS scrolls MODE 7 it doesn't
 // move the bytes: it moves the CRTC's start address (R12/R13) on by a row,
-// and the screen wraps round inside &7C00-&7FFF. In MODE 7 the Model B uses
-// only MA0-MA9 of the 6845's address and forces A10-A14 high (32K machine):
+// and the screen wraps round inside &7C00-&7FFF. Since Stage 39 the board's
+// translation is in screen-address.ts: A0-A9 = MA0-MA9, A10-A13 high,
+// A14 = MA11, so the MOS's &2800 is &7C00 (and a 16K machine's &2000 is
+// &3C00).
 //
-//   RAM address = &7C00 + (MA AND &3FF)
-//
-// The AUG gives the MOS's side of it: R12/R13 = (start - &7400) EOR &2000,
-// so &7C00 is &2800. 1,000 cells are shown; the wrap is every 1,024.
+// The AUG gives the MOS's side of it: R12/R13 = (start - &7400) EOR &2000.
+// 1,000 cells are shown; the wrap is every 1,024. (These helpers assume
+// MODE 7's 40 columns; the renderer uses the CRTC's R1, Stage 39.)
 
 import { hex16 } from '../util/bits';
+import { teletextAddress } from './screen-address';
 import { createTeletextCell, createTeletextState, decodeCell, startRow, teletextCellText } from './teletext-attributes';
 
 /** Where MODE 7's screen starts on a 32K machine (AUG, MODE 7). */
@@ -30,19 +32,17 @@ export const MODE7_SCREEN_START = 0x7c00;
 export const MODE7_COLUMNS = 40;
 export const MODE7_ROWS = 25;
 
-/** MODE 7's screen is in this 1K of RAM, whatever R12/R13 say. */
-const MODE7_RAM_BASE = 0x7c00;
-/** MA0-MA9: the part of the 6845's address that MODE 7 uses. */
+/** MA0-MA9 (A0-A9): the screen wraps every 1,024 bytes. */
 const MODE7_ADDRESS_MASK = 0x3ff;
 
 /** The RAM address of the top-left cell, from the CRTC's start address (R12 high, R13 low). */
 export function mode7StartAddress(r12: number, r13: number): number {
-  return MODE7_RAM_BASE | ((((r12 & 0xff) << 8) | (r13 & 0xff)) & MODE7_ADDRESS_MASK);
+  return teletextAddress(((r12 & 0xff) << 8) | (r13 & 0xff));
 }
 
-/** Cell n's RAM address (row × 40 + column), counting on from start and wrapping inside &7C00-&7FFF. */
+/** Cell n's RAM address (row × 40 + column), counting on from start and wrapping inside start's 1K (&7C00-&7FFF on a 32K MOS). */
 export function mode7CellAddress(start: number, cell: number): number {
-  return MODE7_RAM_BASE | ((start + cell) & MODE7_ADDRESS_MASK);
+  return (start & ~MODE7_ADDRESS_MASK) | ((start + cell) & MODE7_ADDRESS_MASK);
 }
 
 /** The screen, as 25 strings of 40 characters. Reads with peek, so it has no side effects. */

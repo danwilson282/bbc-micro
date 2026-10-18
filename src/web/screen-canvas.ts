@@ -9,7 +9,7 @@
 // The canvas is 480 × 500, MODE 7's size in half dots × interlaced lines. CSS
 // stretches it to the screen frame (image-rendering: pixelated keeps dots sharp).
 
-import { MODE7_PIXEL_HEIGHT, MODE7_PIXEL_WIDTH, renderMode7 } from '../video/mode7-renderer';
+import { MODE7_PIXEL_HEIGHT, MODE7_PIXEL_WIDTH, type Mode7Screen, renderMode7 } from '../video/mode7-renderer';
 
 /** The 8 colours as 0xAABBGGRR words: ImageData's bytes are R, G, B, A, which a little-endian Uint32Array reads backwards. */
 function paletteWords(): Uint32Array {
@@ -25,8 +25,8 @@ function paletteWords(): Uint32Array {
 }
 
 export interface ScreenCanvas {
-  /** Renders MODE 7 from start (a RAM address in &7C00-&7FFF) and shows it. flashVisible is the SAA5050's flash phase. */
-  draw(peek: (address: number) => number, start: number, flashVisible: boolean): void;
+  /** Renders MODE 7 as the CRTC addresses it (mode7ScreenFrom) and shows it. flashVisible is the SAA5050's flash phase. */
+  draw(peek: (address: number) => number, screen: Mode7Screen, flashVisible: boolean): void;
   /** Milliseconds the last draw took (render + blit), for the curious. */
   readonly lastDrawMs: number;
 }
@@ -43,9 +43,9 @@ export function createScreenCanvas(canvas: HTMLCanvasElement): ScreenCanvas {
   let lastDrawMs = 0;
 
   return {
-    draw(peek, start, flashVisible) {
+    draw(peek, screen, flashVisible) {
       const begin = performance.now();
-      renderMode7(peek, start, colours, flashVisible);
+      renderMode7(peek, screen, colours, flashVisible);
       for (let i = 0; i < colours.length; i++) words[i] = palette[colours[i] ?? 0] ?? 0;
       context.putImageData(image, 0, 0);
       lastDrawMs = performance.now() - begin;

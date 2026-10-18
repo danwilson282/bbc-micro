@@ -18,8 +18,10 @@
 // gives the grid `contain: strict`, so a change can't relayout the rest of
 // the page.)
 //
-// Which bytes: the CRTC's start address (R12/R13), so it follows the MOS's
-// hardware scrolling and wraps inside &7C00-&7FFF (see mode7-text.ts).
+// Which bytes: from the start address the CRTC latched for this field
+// (Stage 39), so it follows the MOS's hardware scrolling and wraps inside
+// &7C00-&7FFF (see mode7-text.ts). Always 40 × 25 and no cursor: the canvas
+// is the one that follows R1/R6 and draws the cursor.
 
 import { MODE7_COLUMNS, MODE7_ROWS, mode7CellAddress } from '../video/mode7-text';
 import { createTeletextCell, createTeletextState, decodeCell, startRow, teletextCellText } from '../video/teletext-attributes';
