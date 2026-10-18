@@ -11,11 +11,14 @@ import type { Crtc6845 } from '../../devices/crtc6845';
 import { CRTC_REGISTER_COUNT } from '../../devices/crtc6845';
 import { buildCrtcView, type FrameBox, type GeometryLine } from './crtc-view-model';
 import type { Panel } from './panel';
+import type { ScreenSize } from '../../video/screen-address';
 
 export interface CrtcPanelSource {
   readonly crtc: Crtc6845;
   /** The Video ULA's control byte: it picks the 6845's clock. */
   ulaControl(): number;
+  /** IC32's C0/C1: the screen size for the MA12 wrap (Stage 43). */
+  screenSize(): ScreenSize;
 }
 
 function place(element: HTMLElement, box: FrameBox): void {
@@ -123,7 +126,7 @@ export function createCrtcPanel(source: CrtcPanelSource): Panel {
 
   function refresh(): void {
     const registers = source.crtc.registers();
-    const view = buildCrtcView({ registers, addressRegister: source.crtc.addressRegister, ulaControl: source.ulaControl(), previous, counters: source.crtc });
+    const view = buildCrtcView({ registers, addressRegister: source.crtc.addressRegister, ulaControl: source.ulaControl(), previous, counters: source.crtc, screenSize: source.screenSize() });
     previous = registers;
     summary.textContent = view.summary;
     frame.setAttribute('aria-label', `Frame layout: ${view.summary}`);

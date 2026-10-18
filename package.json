@@ -44,7 +44,8 @@
     "demo:break": "tsx scripts/demo-break.ts",
     "demo:crtc": "tsx scripts/demo-crtc.ts",
     "demo:addressing": "tsx scripts/demo-addressing.ts",
-    "demo:bitmap": "tsx scripts/demo-bitmap.ts"
+    "demo:bitmap": "tsx scripts/demo-bitmap.ts",
+    "demo:wrap": "tsx scripts/demo-wrap.ts"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

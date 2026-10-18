@@ -17,7 +17,7 @@ import { MOS_MODE7_CRTC } from '../src/mos/mos-crtc';
 import { hex16 } from '../src/util/bits';
 import { mode7ScreenFrom } from '../src/video/mode7-renderer';
 import { mode7Text } from '../src/video/mode7-text';
-import { screenAddress, teletextAddress } from '../src/video/screen-address';
+import { SCREEN_10K, screenAddress, teletextAddress } from '../src/video/screen-address';
 
 /** MOS 1.20's MODE 4 R0-R13 (R12/R13 = &0B00: &5800). */
 const MODE4 = [0x3f, 0x28, 0x31, 0x24, 0x26, 0x00, 0x20, 0x23, 0x01, 0x07, 0x67, 0x08, 0x0b, 0x00];
@@ -36,7 +36,7 @@ function bareCrtc(values: readonly number[]): Crtc6845 {
 function where(crtc: Crtc6845): string {
   const ma = crtc.memoryAddress;
   const ra = crtc.scanline;
-  return `MA &${hex16(ma)}  RA ${String(ra).padStart(2)}  → &${hex16(screenAddress(ma, ra))}`;
+  return `MA &${hex16(ma)}  RA ${String(ra).padStart(2)}  → &${hex16(screenAddress(ma, ra, SCREEN_10K))}`; // MODE 4's size; MODE 7 ignores it
 }
 
 /** Characters until (row, scanline, character). */

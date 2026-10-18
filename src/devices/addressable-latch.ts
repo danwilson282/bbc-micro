@@ -14,6 +14,7 @@
 // It has no idea it's on a VIA: it sees pin levels. The machine calls drive()
 // whenever the port B pins change, from an ORB write, a DDRB write or a reset.
 
+import type { ScreenSize } from '../video/screen-address';
 import type { HardwareLog } from './hardware-log';
 
 // The eight outputs (Advanced User Guide, System VIA, addressable latch).
@@ -59,6 +60,13 @@ export class AddressableLatch {
     const d = (pins & DATA_BIT) !== 0 ? 1 : 0;
     this.q = d === 1 ? this.q | (1 << n) : this.q & ~(1 << n) & 0xff;
     this.log?.record('latch', n, d);
+  }
+
+  /** C0 and C1 as the board's screen size code, (C1 << 1) | C0 (Stage 43). */
+  get screenSize(): ScreenSize {
+    const c0 = this.bit(LATCH_SCREEN_C0);
+    if (this.bit(LATCH_SCREEN_C1) === 1) return c0 === 1 ? 3 : 2;
+    return c0 === 1 ? 1 : 0;
   }
 
   /** All eight bits to 0. See the Stage 28 doc: whether the board clears IC32 at power-on is unconfirmed. */

@@ -24,8 +24,13 @@
 // In teletext (control bit 1) the SAA5050 makes the pixels, not the ULA:
 // mode7-renderer.ts draws those, and this leaves its buffer alone.
 //
-// Not yet (Stage 43): the MA12 wrap, and the gap lines of MODE 3 and 6
-// (RA 8 and 9 read RA 0 and 1's bytes here, because only RA0-RA2 reach RAM).
+// Stage 43 adds the rest of the board between the 6845 and RAM. A screen
+// that has scrolled past &7FFF wraps by the size IC32's C0/C1 say
+// (screen-address.ts), read once a line like the palette. And RA3 = 1 forces
+// display enable low: MODE 3 and 6's rows are 10 lines, and lines 8 and 9
+// are black (BeebWiki "Address translation"). Without it they'd repeat
+// lines 0 and 1, because only RA0-RA2 reach RAM. The cursor isn't gated by
+// it (our reading), so it still inverts those black lines.
 //
 // drawLine() runs inside the CRTC's tick: no allocation, ever.
 
@@ -46,7 +51,7 @@ import {
   ULA_CONTROL_TELETEXT,
 } from '../devices/video-ula';
 import { shiftPixels } from './pixel-decode';
-import { screenAddress } from './screen-address';
+import { screenAddress, type ScreenSize } from './screen-address';
 
 /** 40 µs of displayed line at 16 MHz. */
 export const BITMAP_WIDTH = 640;
@@ -66,6 +71,8 @@ const R8_CURSOR_SKEW_SHIFT = 6;
 const CURSOR_SKEW_OFF = 3;
 /** MA0-MA13. */
 const MA_MASK = 0x3fff;
+/** RA3: on the Model B it forces DISEN low (MODE 3 and 6's gap lines). */
+const RA3_BLANK = 0x08;
 
 const BLACK = 0;
 
@@ -91,6 +98,11 @@ export interface BitmapUla {
   physicalColour(index: number): number;
 }
 
+/** IC32's C0/C1: the screen size the board wraps by. The latch is one. */
+export interface ScreenSizeSource {
+  readonly screenSize: ScreenSize;
+}
+
 export class BitmapRenderer {
   /** One physical colour (0-7: bit 0 red, bit 1 green, bit 2 blue) per 16 MHz dot, line by line. */
   readonly pixels = new Uint8Array(BITMAP_WIDTH * BITMAP_HEIGHT);
@@ -102,6 +114,7 @@ export class BitmapRenderer {
     private readonly peek: (address: number) => number,
     private readonly crtc: BitmapCrtc,
     private readonly ula: BitmapUla,
+    private readonly board: ScreenSizeSource,
   ) {}
 
   /** Scanline `line` of the field is starting: draw it from what the 6845 and ULA say now. */
@@ -116,23 +129,30 @@ export class BitmapRenderer {
       pixels.fill(BLACK, lineStart, lineEnd);
       return;
     }
-
+    const ma = crtc.lineStartAddress;
+    const ra = crtc.scanline;
+    const r1 = crtc.register(CRTC_R1_HORIZONTAL_DISPLAYED);
     // The two clocks, as the ULA has them: how wide a byte and a pixel are.
     const dotsPerByte = (control & ULA_CONTROL_FAST_CLOCK) !== 0 ? DOTS_PER_BYTE_FAST : DOTS_PER_BYTE_SLOW;
+    if ((ra & RA3_BLANK) !== 0) {
+      // A gap line: DISEN is low all the way along, but CUDISP still reaches the ULA.
+      pixels.fill(BLACK, lineStart, lineEnd);
+      this.drawCursor(control, lineStart, ma, ra, r1, dotsPerByte);
+      return;
+    }
+
     const dotsPerPixel = DOTS_PER_PIXEL[(control & ULA_CONTROL_PIXEL_RATE) >> 2];
     const pixelsPerByte = dotsPerByte / dotsPerPixel;
     // The palette won't change during the line (we draw it all at once), so look it up once.
     const colours = this.colours;
     for (let index = 0; index < 16; index++) colours[index] = this.ula.physicalColour(index);
 
-    const r1 = crtc.register(CRTC_R1_HORIZONTAL_DISPLAYED);
     const columns = Math.min(r1, BITMAP_WIDTH / dotsPerByte);
-    const ma = crtc.lineStartAddress;
-    const ra = crtc.scanline;
+    const size = this.board.screenSize;
     const shifted = this.shifted;
     let x = lineStart;
     for (let column = 0; column < columns; column++) {
-      shiftPixels(this.peek(screenAddress((ma + column) & MA_MASK, ra)), pixelsPerByte, shifted);
+      shiftPixels(this.peek(screenAddress((ma + column) & MA_MASK, ra, size)), pixelsPerByte, shifted);
       for (let p = 0; p < pixelsPerByte; p++) {
         const colour = colours[shifted[p] ?? 0] ?? BLACK;
         for (let d = 0; d < dotsPerPixel; d++) pixels[x++] = colour;
@@ -155,7 +175,7 @@ export class BitmapRenderer {
     if (skew === CURSOR_SKEW_OFF) return;
     const r10 = crtc.register(CRTC_R10_CURSOR_START);
     if (!cursorOnScanline(r10, crtc.register(CRTC_R11_CURSOR_END), ra) || !cursorBlinkOn(r10, crtc.fieldsSinceReset)) return;
-    // The cursor's character along this line, as the counter counts (no wrap: Stage 43).
+    // The cursor's character along this line, as the counter counts: R14/R15 is in counter terms, MA12 and all.
     const column = (crtc.cursorAddress - ma) & MA_MASK;
     if (column >= r1) return;
     const first = column + skew;
