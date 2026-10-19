@@ -45,7 +45,7 @@ test.describe('*CAT reads a disc in drive 0', () => {
   test('choose the test disc, type *CAT: the real DFS prints its catalogue, from 512 bytes that came by NMI', async ({ page }) => {
     const disc = page.locator('[data-panel="Disc"]');
     await disc.locator('input[type="file"]').setInputFiles({ name: 'stage48.ssd', mimeType: 'application/octet-stream', buffer: Buffer.from(buildTestDisc()) });
-    await expect(disc.locator('.disc-in-drive')).toHaveText('Drive 0: stage48.ssd');
+    await expect(disc.locator('[data-drive="0"] .disc-in-drive')).toHaveText('Drive 0: stage48.ssd');
 
     await typeCat(page);
     const rows = page.locator('.text-row');
@@ -72,8 +72,8 @@ test.describe('*CAT reads a disc in drive 0', () => {
   test('after Eject, *CAT waits for a drive that is not ready, as with no disc', async ({ page }) => {
     const disc = page.locator('[data-panel="Disc"]');
     await disc.locator('input[type="file"]').setInputFiles({ name: 'stage48.ssd', mimeType: 'application/octet-stream', buffer: Buffer.from(buildTestDisc()) });
-    await disc.getByRole('button', { name: 'Eject' }).click();
-    await expect(disc.locator('.disc-in-drive')).toHaveText('Drive 0: empty');
+    await disc.getByRole('button', { name: 'Eject drive 0' }).click();
+    await expect(disc.locator('[data-drive="0"] .disc-in-drive')).toHaveText('Drive 0: empty');
 
     await typeCat(page);
     const repeats = page.locator('[data-panel="FDC (8271)"] .fdc-log tbody tr:not([hidden])').last().locator('.fdc-repeats');

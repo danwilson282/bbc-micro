@@ -68,10 +68,18 @@ export function formatFromName(name: string): DiscFormat | undefined {
   return ext === 'ssd' || ext === 'dsd' ? ext : undefined;
 }
 
-/** A read-only disc: an .ssd or .dsd file's sectors, addressed by (side, track, sector). */
+/**
+ * A disc: an .ssd or .dsd file's sectors, addressed by (side, track, sector).
+ * Since Stage 51 the 8271 can write to it, a byte at a time. Its geometry
+ * never changes, and the file it came from is never touched: bytes() gives
+ * the image as it is now, for a download.
+ */
 export class DiscImage {
   /** The bytes of the whole geometry. Past fileLength they're &00. */
   private readonly store: Uint8Array;
+  /** The image file's length now: fileLength, or more once a write lands past it. */
+  private length: number;
+  private changeCount = 0;
 
   private constructor(
     /** The file's name, for panels and messages (Stage 50). */
@@ -83,6 +91,7 @@ export class DiscImage {
   ) {
     this.store = new Uint8Array(maxImageSize(geometry.format, geometry.tracks));
     this.store.set(bytes);
+    this.length = fileLength;
   }
 
   /**
@@ -128,6 +137,29 @@ export class DiscImage {
    */
   byteAt(offset: number): number {
     return this.store[offset] ?? 0x00;
+  }
+
+  /**
+   * Writes one byte at an offset in the image file (Stage 51), masked to 8
+   * bits. A write past the end of a short file makes the file longer; one
+   * outside the disc's geometry is ignored. Makes nothing: the 8271 calls it
+   * from inside the CPU's step.
+   */
+  writeByte(offset: number, value: number): void {
+    if (offset < 0 || offset >= this.store.length) return;
+    this.store[offset] = value & 0xff;
+    if (offset >= this.length) this.length = offset + 1;
+    this.changeCount++;
+  }
+
+  /** How many bytes have been written since the disc was made: a panel compares it to see a change. */
+  get changes(): number {
+    return this.changeCount;
+  }
+
+  /** The image file as it is now (a copy, on its own ArrayBuffer, so a Blob takes it): what a download saves. */
+  bytes(): Uint8Array<ArrayBuffer> {
+    return this.store.slice(0, this.length);
   }
 
   /** A copy of the 256 bytes of (side, track, sector). Throws RangeError if the disc hasn't got it. */

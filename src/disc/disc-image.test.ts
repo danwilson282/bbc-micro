@@ -234,3 +234,48 @@ describe('DiscImage.byteAt: one byte, for the 8271 to read without making arrays
     expect(image.byteAt(10_000_000)).toBe(0x00);
   });
 });
+
+describe('DiscImage.writeByte: the 8271 writes a sector a byte at a time (Stage 51)', () => {
+  it('changes the byte that byteAt and readSector see, masked to 8 bits', () => {
+    const image = DiscImage.fromBytes(patterned(TRACK_SIZE * 40), 'ssd', 't.ssd');
+    image.writeByte(0x0305, 0x1ab);
+    expect(image.byteAt(0x0305)).toBe(0xab);
+    expect(image.readSector(0, 0, 3)[5]).toBe(0xab);
+  });
+
+  it('counts every write, so a panel can tell the disc has changed', () => {
+    const image = DiscImage.fromBytes(patterned(TRACK_SIZE * 40), 'ssd', 't.ssd');
+    expect(image.changes).toBe(0);
+    image.writeByte(0, 1);
+    image.writeByte(1, 2);
+    expect(image.changes).toBe(2);
+  });
+
+  it('bytes() is the image file as it is now: a copy, as long as the file was', () => {
+    const image = DiscImage.fromBytes(patterned(TRACK_SIZE * 40), 'ssd', 't.ssd');
+    image.writeByte(10, 0xee);
+    const bytes = image.bytes();
+    expect(bytes).toHaveLength(TRACK_SIZE * 40);
+    expect(bytes[10]).toBe(0xee);
+    bytes[10] = 0;
+    expect(image.byteAt(10)).toBe(0xee);
+  });
+
+  it('a write past the end of a short file makes the file longer, with &00 in between', () => {
+    const image = DiscImage.fromBytes(patterned(SECTOR_SIZE * 2), 'ssd', 'short.ssd');
+    image.writeByte(SECTOR_SIZE * 5 + 255, 0x77);
+    const bytes = image.bytes();
+    expect(bytes).toHaveLength(SECTOR_SIZE * 6);
+    expect(bytes[SECTOR_SIZE * 3]).toBe(0x00);
+    expect(bytes[SECTOR_SIZE * 6 - 1]).toBe(0x77);
+    expect(image.fileLength).toBe(SECTOR_SIZE * 2);
+  });
+
+  it('ignores a write outside the disc\'s geometry: a disc never grows tracks', () => {
+    const image = DiscImage.fromBytes(patterned(TRACK_SIZE * 40), 'ssd', 't.ssd');
+    image.writeByte(TRACK_SIZE * 40, 1);
+    image.writeByte(-1, 1);
+    expect(image.bytes()).toHaveLength(TRACK_SIZE * 40);
+    expect(image.changes).toBe(0);
+  });
+});

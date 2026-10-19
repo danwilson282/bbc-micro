@@ -62,6 +62,7 @@ import { createVideoUlaPanel } from './web/workbench/video-ula-panel';
 import { createSoundPanel } from './web/workbench/sound-panel';
 import { createByteExplorerPanel } from './web/workbench/byte-explorer-panel';
 import { createDiscPanel } from './web/workbench/disc-panel';
+import { SHIFT_KEY } from './machine/shift-break';
 import { createFdcPanel } from './web/workbench/fdc-panel';
 
 const screenFrame = document.querySelector<HTMLElement>('.screen-frame');
@@ -398,13 +399,27 @@ workbench.add(createSoundPanel(machine.sound, machine.hardwareLog));
 // The Disc panel (Stage 48): a dropped .ssd or .dsd's DFS catalogue. A file
 // dropped anywhere on the page goes to it, since the browser's own response
 // to a dropped file is to leave the page and show it. Since Stage 50 the disc
-// goes into drive 0 too, for the DFS to read.
+// goes into a drive too, for the DFS to read; since Stage 51 it's the drive UI.
 const discPanel = createDiscPanel({
-  insert: (image) => {
-    machine.insertDisc(0, image);
+  drives: machine.drives,
+  insert: (drive, image) => {
+    machine.insertDisc(drive, image);
   },
-  eject: () => {
-    machine.ejectDisc(0);
+  eject: (drive) => {
+    machine.ejectDisc(drive);
+  },
+  // SHIFT down, BREAK down for 100 ms, then SHIFT for half a second more: the
+  // MOS asks the ROMs about booting about 16 ms after BREAK goes up (Stage 51).
+  // Real time, so the machine has to be running. Shift + F12 on the keyboard does the same.
+  shiftBreak: () => {
+    machine.keyboard.press(SHIFT_KEY);
+    machine.setBreak(true);
+    setTimeout(() => {
+      machine.setBreak(false);
+      setTimeout(() => {
+        machine.keyboard.release(SHIFT_KEY);
+      }, 500);
+    }, 100);
   },
 });
 workbench.add(discPanel);

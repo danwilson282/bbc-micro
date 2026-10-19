@@ -13,8 +13,11 @@
 //   0        640     2,048                         34,816  35,072    40,000
 //   ├─ ID ───┤ gap ──┤ data: 256 bytes × 128 cycles ┤─ CRC ─┤─ gap ───┤ next ID
 //
+// Since Stage 51 the drive writes too, unless the disc's write protect
+// notch is covered (a sticky tab), which raises WRITE PROTECT.
+//
 // Not modelled: motor spin-up (a disc is ready the moment it's in), head
-// load, the index pulse, and writing (images are read-only: Stage 51).
+// load and the index pulse.
 
 import type { DiscImage } from '../disc/disc-image';
 import { MAX_TRACKS, SECTORS_PER_TRACK } from '../disc/disc-image';
@@ -39,6 +42,7 @@ export function cyclesUntil(now: number, point: number): number {
 
 export class DiscDrive {
   private image: DiscImage | undefined;
+  private protectedDisc = false;
   private head = 0;
 
   /** The disc in the drive, if any. */
@@ -46,12 +50,20 @@ export class DiscDrive {
     return this.image;
   }
 
-  insert(image: DiscImage): void {
+  /** Puts a disc in, with its write protect tab on or off (off by default, Stage 51). */
+  insert(image: DiscImage, writeProtected = false): void {
     this.image = image;
+    this.protectedDisc = writeProtected;
   }
 
   eject(): void {
     this.image = undefined;
+    this.protectedDisc = false;
+  }
+
+  /** Puts the disc's tab on or takes it off (a real one would come out of the drive first). No disc: nothing to do. */
+  setWriteProtected(on: boolean): void {
+    this.protectedDisc = on && this.image !== undefined;
   }
 
   /** READY: a disc is in (and, on a real drive, up to speed: we don't wait). */
@@ -59,9 +71,9 @@ export class DiscDrive {
     return this.image !== undefined;
   }
 
-  /** WRITE PROTECT: every disc is, until Stage 51 decides about writing. */
+  /** WRITE PROTECT: the disc in the drive has its notch covered. */
   get writeProtected(): boolean {
-    return this.image !== undefined;
+    return this.protectedDisc;
   }
 
   /** The track the head is over, 0-79. */
@@ -93,5 +105,10 @@ export class DiscDrive {
   /** A byte of the image (from sectorOffset), or &00 with no disc. */
   byteAt(offset: number): number {
     return this.image?.byteAt(offset) ?? 0x00;
+  }
+
+  /** Writes a byte of the image (from sectorOffset). No disc: nothing happens. The 8271 checks WRITE PROTECT first. */
+  writeByte(offset: number, value: number): void {
+    this.image?.writeByte(offset, value);
   }
 }

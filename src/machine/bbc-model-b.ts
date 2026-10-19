@@ -369,9 +369,9 @@ export class BbcModelB implements PinListener, DataBus, CycleClock {
 
   // ── Discs ──────────────────────────────────────────────────────────────
 
-  /** Puts a disc in drive 0 or 1 (replacing any there). The head stays where it is. */
-  insertDisc(drive: 0 | 1, image: DiscImage): void {
-    this.drives[drive].insert(image);
+  /** Puts a disc in drive 0 or 1 (replacing any there), with its write protect tab on or off. The head stays where it is. */
+  insertDisc(drive: 0 | 1, image: DiscImage, writeProtected = false): void {
+    this.drives[drive].insert(image, writeProtected);
   }
 
   /** Takes the disc out of drive 0 or 1. */

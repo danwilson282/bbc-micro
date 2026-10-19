@@ -55,10 +55,10 @@ interface Rig {
   readonly log: FdcLog;
 }
 
-/** An 8271 with two drives, a disc in drive 0, DFS 0.98's timings (&0C, &0A) and non-DMA mode. */
+/** An 8271 with two drives, a write-protected disc in drive 0 (Stage 50's only kind), DFS 0.98's timings (&0C, &0A) and non-DMA mode. */
 function rig(disc: DiscImage | 'empty' = image()): Rig {
   const drives = [new DiscDrive(), new DiscDrive()] as const;
-  if (disc !== 'empty') drives[0].insert(disc);
+  if (disc !== 'empty') drives[0].insert(disc, true);
   const log = new FdcLog(clock, 64);
   const chip = new Fdc8271(log, drives);
   send(chip, 0x35, 0x0d, 0x0c, 0x0a, 0xc8);
@@ -323,7 +323,7 @@ describe('8271 with a drive: when a read goes wrong', () => {
     expect(chip.interruptRequest).toBe(false);
   });
 
-  it('Write Data on a ready drive ends at once with &12 write protect: our discs are read-only', () => {
+  it('Write Data on a write-protected disc ends at once with &12 write protect', () => {
     const { chip } = rig();
     send(chip, 0x4b, 0, 0, 0x21);
     expect(chip.status).toBe(FDC_STATUS_RESULT_FULL | FDC_STATUS_INTERRUPT);
