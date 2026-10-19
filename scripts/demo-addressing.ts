@@ -75,7 +75,7 @@ for (const [row, line, ch, note] of [
 console.log(`\n  MA10 isn't wired in MODE 7, so the counter passing &2BFF wraps the screen: &2C00 → &${hex16(teletextAddress(0x2c00))}.`);
 
 const m = new BbcModelB();
-const report = loadStandardRoms(m.map);
+const report = loadStandardRoms(m.map, ['mos', 'basic']);
 if (!report.loaded.some((r) => r.id === 'mos') || !report.loaded.some((r) => r.id === 'basic')) {
   console.log('\nParts 2 and 3 skipped: roms/os12.rom and roms/basic2.rom are needed (Acorn copyright, so you supply them).');
   process.exit(0);

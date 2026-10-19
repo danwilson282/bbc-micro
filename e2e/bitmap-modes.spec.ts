@@ -73,7 +73,7 @@ for (const [mode, lettersAcross] of [
 ] as const) {
   test(`MODE ${String(mode)}: the canvas is 640 × 256 and shows ">REM BBC" in the MOS's own font`, async ({ page, request }, testInfo) => {
     test.skip(!(await hasRoms(request)), SKIP);
-    await page.goto('/?machine=mos');
+    await page.goto('/?machine=mos&roms=mos,basic');
     await expect(page.locator('.text-row').nth(5)).toHaveText(/^>/);
     await page.locator('.screen-frame').click();
     await typeLine(page, `MODE ${String(mode)}`);

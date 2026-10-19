@@ -57,7 +57,7 @@ const SKIP = 'roms/os12.rom or roms/basic2.rom is missing (Acorn copyright, so y
 
 test.beforeEach(async ({ page, request }) => {
   test.skip(!(await hasRoms(request)), SKIP);
-  await page.goto('/?machine=mos');
+  await page.goto('/?machine=mos&roms=mos,basic');
   await expect(page.locator('.text-row').nth(5)).toHaveText(/^>/);
 });
 

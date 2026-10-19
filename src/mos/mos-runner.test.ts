@@ -37,7 +37,7 @@ const READS_ZERO: IoDevice = {
 /** A map with the standard ROMs from roms/ (the caller's withRoms says which must be there). */
 function realMap(devices: ConstructorParameters<typeof BbcMemoryMap>[0] = {}): BbcMemoryMap {
   const map = new BbcMemoryMap(devices);
-  loadStandardRoms(map);
+  loadStandardRoms(map, ['mos', 'basic']);
   return map;
 }
 
@@ -163,7 +163,7 @@ describe('MosRunner, on MOS 1.20', () => {
 describe('MosRunner, watching a BbcModelB (Stage 27)', () => {
   withRoms(MOS)('uses the machine\'s own tracer, so a step is traced once', () => {
     const machine = new BbcModelB();
-    loadStandardRoms(machine.map);
+    loadStandardRoms(machine.map, ['mos', 'basic']);
     const runner = new MosRunner(machine);
     expect(runner.tracer).toBe(machine.trace);
     machine.powerOn();
@@ -174,7 +174,7 @@ describe('MosRunner, watching a BbcModelB (Stage 27)', () => {
 
   withRoms(MOS, BASIC)('from power-on, gets past the CTRL+SHIFT wait (the keyboard stub holds PA7 low, Stage 28) and stalls in an IRQ storm on the floating ACIA', () => {
     const machine = new BbcModelB();
-    loadStandardRoms(machine.map);
+    loadStandardRoms(machine.map, ['mos', 'basic']);
     const runner = new MosRunner(machine);
     machine.powerOn();
     runner.clear();

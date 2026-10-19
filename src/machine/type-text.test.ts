@@ -95,7 +95,7 @@ describe('tapKeys: one chord (Stage 36)', () => {
 describe('typeText with MOS 1.20 and BASIC II', () => {
   withRoms('roms/os12.rom', 'roms/basic2.rom')('types PRINT 2+2 and RETURN at the > prompt, and BASIC prints 4 on the next line', () => {
     const m = new BbcModelB();
-    loadStandardRoms(m.map);
+    loadStandardRoms(m.map, ['mos', 'basic']);
     m.powerOn();
     for (let i = 0; i < 50; i++) m.runFrame();
     typeText(m, 'PRINT 2+2\r');
@@ -108,7 +108,7 @@ describe('typeText with MOS 1.20 and BASIC II', () => {
 
   withRoms('roms/os12.rom', 'roms/basic2.rom')('after the keys are let go the MOS turns the CA2 interrupt back on: IER &F3, autoscan on', () => {
     const m = new BbcModelB();
-    loadStandardRoms(m.map);
+    loadStandardRoms(m.map, ['mos', 'basic']);
     m.powerOn();
     for (let i = 0; i < 50; i++) m.runFrame();
     typeText(m, 'P');

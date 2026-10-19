@@ -2,7 +2,7 @@
 
 Tracks where the build is up to. The `/start-stage` and `/finish-stage` skills keep this file up to date. For what each stage involves, see [`BUILD-PLAN.md`](./BUILD-PLAN.md).
 
-**Current stage:** 49 — 8271 registers & commands (not started)
+**Current stage:** 50 — 8271 data transfer & NMI (not started)
 
 **Status values:**
 - `not started`
@@ -116,7 +116,7 @@ Tracks where the build is up to. The `/start-stage` and `/finish-stage` skills k
 |---|---|---|---|---|---|---|
 | 47 | Disc image geometry | done | ✅ | `stage/47-disc-geometry` | [doc](./stages/47-disc-geometry.md) | New `src/disc/disc-image.ts` (pure, no fs): `sectorOffset(format, side, track, sector)` = ((track × sides + side) × 10 + sector) × 256, so `.ssd` (5, 3) → &3500 and `.dsd` side 1 (5, 3) → &7100. `DiscImage.fromBytes(bytes, format, name)`: format always passed in (80-track ssd and 40-track dsd are both 204,800 bytes); 40 tracks if ≤ a full 40-track image, else 80; rejects empty and > 80 tracks; short images accepted and zero-filled (our choice). `hasSector` (never throws), `offsetOf`, `readSector` (256-byte copy), `formatFromName`. Read only. `demo:disc` (tour; `make-test` writes labelled `out/geometry.{ssd,dsd}`; `sector <file> <track> <sector> [side]`). |
 | 48 | DFS catalogue | done | ✅ | `stage/48-dfs-catalogue` | [doc](./stages/48-dfs-catalogue.md) | New pure `src/disc/`: `dfs-catalogue.ts` (`decodeCatalogue`/`encodeCatalogue` of sectors 0-1, mixed byte unpacked, 18-bit addresses, 10-bit start sector; widths checked, never masked; `catalogueProblems`: in catalogue, past end, out of order, overlaps), `dfs-disc.ts` (`readCatalogue`, `readFile`, `openDfsDisc` takes the track count from &106/&107, `buildDfsSide` lays files out from sector 2 and lists them highest first, `buildDfsImage` ssd/dsd via `sectorOffset`; strict names, case-insensitive duplicates), `dfs-text.ts` (`*CAT` imitation: `$` first then other dirs, two 20-col columns; `*INFO` lines; `FF1900` for &31900), `test-disc.ts` (STAGE 48, option 3: `!BOOT` = `*RUN HELLO`, locked `HELLO` from our assembler at FF1900, README, EMPTY, E.DATA). `DiscImage.fromBytes` gains optional `tracks`. Checked against Manic Miner (re-encodes byte-identical), Castle Quest (`t?data?`), Repton 3 (sector &192). `demo:disc` gains `make-disc`, `cat`, `file`. **Disc** panel (drop anywhere or Choose file; read only). `e2e/disc-panel.spec.ts` (3). |
-| 49 | 8271 registers & commands | not started | | `stage/49-fdc-commands` | [doc](./stages/49-fdc-commands.md) | |
+| 49 | 8271 registers & commands | done | ✅ | `stage/49-fdc-commands` | [doc](./stages/49-fdc-commands.md) | `roms/dfs.rom` is **DFS 0.98** (8K; a Master DFS 2.29 was tried first: WD1770 at &FE28, 65C02, unusable). New `src/devices/fdc8271.ts` (status/command, result/parameter, reset; Specify = 3 special regs from p0; Read/Write Special Register; Read Drive Status; no drive, so input lines &00 and Seek/data commands end &10 + INT; commands run instantly) and `fdc-log.ts` (typed-array ring, repeats fold into ×count). Machine `fdc`/`fdcLog`; power-on resets it, BREAK doesn't. DFS 0.98 at power-on: `35 0D 0C 0A C8`, `35 10 FF FF 00`, `35 18 FF FF 00`, `3A 17 C1`; `*CAT`: `6C`, `3A 23 48`, `6C` polled ~18,000/s; Escape: reset via &FE82, set-up again, `Escape`. **FDC (8271)** panel, `demo:fdc`, `e2e/fdc-panel.spec.ts` (2). `loadStandardRoms(map, only)` + browser `?roms=mos,basic`: earlier tests/specs/demos load MOS + BASIC only (the DFS banner moves the prompt to row 7). Stage 21 example's floating read moved from &FE80 to the ADC's &FEC0. |
 | 50 | 8271 data transfer & NMI | not started | | `stage/50-fdc-data-nmi` | [doc](./stages/50-fdc-data-nmi.md) | |
 | 51 | Running software | not started | | `stage/51-running-software` | [doc](./stages/51-running-software.md) | |
 
@@ -128,6 +128,9 @@ Pick from the menu in BUILD-PLAN.md §8 once Part 11 is done, and add a row here
 
 Things to come back to: questions raised during a stage, known inaccuracies, ideas.
 
+- 8271 facts from my reading of the Intel data sheet only, not cross-checked: status bits 6, 4, 3, 2; the result code table (only &12 is confirmed, by DFS 0.98); mode register bits 7-6 = 1; input port bits other than RDY0. The special register map is confirmed by Stardot's de-cap thread. (Stage 49)
+- 8271 choices, unconfirmed: unknown command codes take 0 parameters and give no result; the reset register keeps the special registers; Read Special Register / Read Drive Status raise no interrupt; with no drive, Seek gives &10 at once. Also: is the 8271's RESET pin on the BBC's /RES (BREAK)? We say no; DFS resets it via &FE82 anyway. (Stage 49)
+- DFS 0.98's four Specify timing sets (picked by keyboard links 3-4): which drives each was meant for isn't checked. All links open picks `0C 0A C8`. (Stage 49)
 - `*CAT` text spacing (and whether DFS 0.90 sorts) is our imitation. Stage 50's real `*CAT` decides; fix `dfs-text.ts` if they differ. (Stage 48)
 - The mixed byte's load/exec/length bits 16-17 positions come from BeebWiki only: none of the three real discs uses them (only the start sector's bits, seen in Repton). (Stage 48)
 - Writer's name rules (no `. : # * "` or space, printable ASCII) are our reading of the DFS User Guide; Acorn DFS may accept more. Catalogue cycle number is BCD but we never bump it (Stage 51 `SAVE` would). (Stage 48)
@@ -158,7 +161,7 @@ Things to come back to: questions raised during a stage, known inaccuracies, ide
 - Run runs 40,000 cycles per *browser* frame, so it's ~1.2× real speed on a 60 Hz display (more on 120 Hz). Stage 30's run loop should pace by wall-clock time. (Stage 14)
 - We model 16 independent sideways slots. A stock Model B's four sockets probably mirror (only ROMSEL bits 0-1 decoded, so each ROM answers 4 numbers); unconfirmed against the circuit diagram. Revisit if anything depends on it. (Stage 22)
 - ~~The browser ROM loader (`fetchStandardRoms`) isn't wired into the workbench yet.~~ Done in Stage 27: `/?machine=mos`. (Stage 22)
-- `dfs.rom` isn't in `roms/` yet. It's needed by Part 11 (DFS), and its header test skips until then. (Stage 22)
+- ~~`dfs.rom` isn't in `roms/` yet.~~ Done in Stage 49: DFS 0.98. (Stage 22)
 - NMOS quirk: a taken branch that doesn't cross a page delays IRQ/NMI recognition by one instruction. Explained but not modelled in Stage 17; Part 12 cycle-exact extras. (Stage 14)
 - NMOS quirk: `PLP`, `CLI` and `SEI` change I one instruction late as far as IRQ recognition goes (`RTI` doesn't). Explained but not modelled in Stage 17 (ours takes an IRQ straight after `CLI`); Part 12 cycle-exact extras. (Stage 15)
 - Interrupt hijacking (an NMI during a BRK's or an IRQ's first cycles takes over the sequence: `&FFFA` with B = 1, and the BRK is lost) can't happen with interrupts only between whole instructions. Part 12. BRK's and RTI's dummy reads aren't modelled either. (Stage 17)

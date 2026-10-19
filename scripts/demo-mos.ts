@@ -35,7 +35,7 @@ function bbcTime(cycles: number): string {
 /** Builds a map with the ROMs from roms/, or explains what's missing and returns undefined. */
 function machine(options: BbcMemoryMapOptions = {}): BbcMemoryMap | undefined {
   const map = new BbcMemoryMap(options);
-  const report = loadStandardRoms(map);
+  const report = loadStandardRoms(map, ['mos', 'basic']);
   if (!report.loaded.some((r) => r.id === 'mos')) return undefined;
   return map;
 }

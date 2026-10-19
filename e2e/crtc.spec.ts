@@ -23,7 +23,7 @@ async function tap(page: Page, key: string): Promise<void> {
 
 test('after boot the CRTC panel shows MODE 7: 40×25, 50 Hz, R8 = &93, VSYNC on line 280', async ({ page, request }) => {
   test.skip(!(await hasRoms(request)), 'roms/os12.rom or roms/basic2.rom is missing (Acorn copyright, so you supply them)');
-  await page.goto('/?machine=mos');
+  await page.goto('/?machine=mos&roms=mos,basic');
   await expect(page.locator('.text-row').nth(5)).toHaveText(/^>/);
   const panel = page.locator('[data-panel="CRTC (6845)"]');
   await expect(panel.locator('.crtc-summary')).toHaveText('40×25 characters, 50.00 Hz, interlaced (sync and video)');
@@ -34,7 +34,7 @@ test('after boot the CRTC panel shows MODE 7: 40×25, 50 Hz, R8 = &93, VSYNC on 
 
 test('typing MODE 0 changes the panel to 80×32 at a 2 MHz clock, still 64 µs a line', async ({ page, request }) => {
   test.skip(!(await hasRoms(request)), 'roms/os12.rom or roms/basic2.rom is missing (Acorn copyright, so you supply them)');
-  await page.goto('/?machine=mos');
+  await page.goto('/?machine=mos&roms=mos,basic');
   await expect(page.locator('.text-row').nth(5)).toHaveText(/^>/);
   await page.locator('.screen-frame').click();
   for (const key of ['M', 'O', 'D', 'E', ' ', '0', 'Enter']) await tap(page, key);
@@ -48,7 +48,7 @@ test('typing MODE 0 changes the panel to 80×32 at a 2 MHz clock, still 64 µs a
 
 test('the status line and the CRTC panel show the field rate measured from VSYNC: 50.00 Hz, 40,000 cycles', async ({ page, request }) => {
   test.skip(!(await hasRoms(request)), 'roms/os12.rom or roms/basic2.rom is missing (Acorn copyright, so you supply them)');
-  await page.goto('/?machine=mos');
+  await page.goto('/?machine=mos&roms=mos,basic');
   await expect(page.locator('.text-row').nth(5)).toHaveText(/^>/);
   await expect(page.locator('.run-status')).toContainText('VSYNC 50.00 Hz');
   const panel = page.locator('[data-panel="CRTC (6845)"]');
@@ -58,7 +58,7 @@ test('the status line and the CRTC panel show the field rate measured from VSYNC
 
 test('turning MODE 7\'s interlace off in R8 from the console makes 19-line rows: 591-line fields, 26.44 Hz (why *TV leaves MODE 7 alone)', async ({ page, request }) => {
   test.skip(!(await hasRoms(request)), 'roms/os12.rom or roms/basic2.rom is missing (Acorn copyright, so you supply them)');
-  await page.goto('/?machine=mos');
+  await page.goto('/?machine=mos&roms=mos,basic');
   await expect(page.locator('.text-row').nth(5)).toHaveText(/^>/);
   await page.evaluate(() => {
     // The console handle (main.ts): R8 := &00. Without sync and video, R9 = &12 counts 19 lines a row.

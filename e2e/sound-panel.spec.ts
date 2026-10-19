@@ -33,7 +33,7 @@ const SKIP = 'roms/os12.rom or roms/basic2.rom is missing (Acorn copyright, so y
 
 test('after boot the Sound panel shows all four channels off, labelled with the BASIC channel that drives each', async ({ page, request }) => {
   test.skip(!(await hasRoms(request)), SKIP);
-  await page.goto('/?machine=mos');
+  await page.goto('/?machine=mos&roms=mos,basic');
   await expect(page.locator('.text-row').nth(5)).toHaveText(/^>/);
   const panel = page.locator('[data-panel="Sound"]');
   await expect(panel.locator('.sound-summary')).toHaveText('Silent: all four attenuations are &F.');
@@ -43,7 +43,7 @@ test('after boot the Sound panel shows all four channels off, labelled with the 
 
 test('SOUND 1,-15,53,20 sets chip channel 2 to tone &1D5 (266.5 Hz) at attenuation &0, then it goes silent', async ({ page, request }) => {
   test.skip(!(await hasRoms(request)), SKIP);
-  await page.goto('/?machine=mos');
+  await page.goto('/?machine=mos&roms=mos,basic');
   await expect(page.locator('.text-row').nth(5)).toHaveText(/^>/);
   await typeLine(page, 'SOUND 1,-15,53,20');
   const panel = page.locator('[data-panel="Sound"]');

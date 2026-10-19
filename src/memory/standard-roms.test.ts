@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { BbcMemoryMap } from './bbc-memory-map';
 import { loadRomFile, loadStandardRoms, romPath } from './rom-files';
 import { parseRomHeader } from './rom-header';
-import { STANDARD_ROMS, installRom } from './standard-roms';
+import { STANDARD_ROMS, installRom, parseRomsParam } from './standard-roms';
 import { withRoms } from './with-roms';
 
 function standard(id: string): (typeof STANDARD_ROMS)[number] {
@@ -35,6 +35,22 @@ describe('the standard ROM set', () => {
   it('loadStandardRoms reports each ROM as loaded or missing, never both', () => {
     const report = loadStandardRoms(new BbcMemoryMap());
     expect(report.loaded.length + report.missing.length).toBe(STANDARD_ROMS.length);
+  });
+
+  it('loadStandardRoms(map, only) looks at only the ROMs named: a MOS-and-BASIC test never fits the DFS', () => {
+    const map = new BbcMemoryMap();
+    const report = loadStandardRoms(map, ['mos', 'basic']);
+    expect([...report.loaded, ...report.missing].map((r) => r.id).sort()).toEqual(['basic', 'mos']);
+    expect(map.sidewaysRom(14)).toBeUndefined();
+  });
+});
+
+describe('the ?roms= option (Stage 49)', () => {
+  it('absent means every ROM found; "mos,basic" means just those; unknown names are dropped', () => {
+    expect(parseRomsParam(null)).toBeUndefined();
+    expect(parseRomsParam('mos,basic')).toEqual(['mos', 'basic']);
+    expect(parseRomsParam(' basic , mos,tube')).toEqual(['mos', 'basic']);
+    expect(parseRomsParam('')).toEqual([]);
   });
 });
 

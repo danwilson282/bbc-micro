@@ -62,7 +62,7 @@ async function cursorPhases(page: Page): Promise<{ lit: boolean; dark: boolean; 
 test.describe('CRTC addressing, scrolling and the cursor', () => {
   test.beforeEach(async ({ page, request }) => {
     test.skip(!(await hasRoms(request)), 'roms/os12.rom or roms/basic2.rom is missing (Acorn copyright, so you supply them)');
-    await page.goto('/?machine=mos');
+    await page.goto('/?machine=mos&roms=mos,basic');
     await expect(page.locator('.text-row').nth(5)).toHaveText(/^>/);
     await page.locator('.screen-frame').click();
   });

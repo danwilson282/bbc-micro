@@ -118,7 +118,7 @@ describe('BbcModelB: the sound chip on the slow data bus', () => {
 describe('BbcModelB: the sound chip with MOS 1.20', () => {
   function booted(frames: number): BbcModelB {
     const m = new BbcModelB();
-    loadStandardRoms(m.map);
+    loadStandardRoms(m.map, ['mos', 'basic']);
     m.powerOn();
     for (let i = 0; i < frames; i++) m.runFrame();
     return m;
@@ -206,7 +206,7 @@ describe('BbcModelB: hearing MOS 1.20', () => {
 
   withRoms('roms/os12.rom')('the start-up bleep is 523 Hz (N = &0EF) for about 0.28 s, starting about 0.28 s after power-on', () => {
     const m = new BbcModelB();
-    loadStandardRoms(m.map);
+    loadStandardRoms(m.map, ['mos', 'basic']);
     const rec = listen(m, 1);
     m.powerOn();
     m.runCycles(2_000_000);
