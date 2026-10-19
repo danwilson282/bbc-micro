@@ -84,19 +84,21 @@ export class DiscImage {
   }
 
   /**
-   * A disc from an image file's bytes (copied). The track count follows from
-   * the size: up to a full 40-track image is 40 tracks, otherwise 80. Throws
-   * RangeError, naming the file, if it's empty or bigger than 80 tracks.
+   * A disc from an image file's bytes (copied). Unless `tracks` is given,
+   * the track count follows from the size: up to a full 40-track image is
+   * 40 tracks, otherwise 80. (Stage 48's openDfsDisc passes the count the
+   * DFS catalogue records, since a short image's size can't tell.) Throws
+   * RangeError, naming the file, if it's empty or too big for the tracks.
    */
-  static fromBytes(bytes: Uint8Array, format: DiscFormat, name: string): DiscImage {
-    const max = maxImageSize(format, 80);
+  static fromBytes(bytes: Uint8Array, format: DiscFormat, name: string, tracks?: TrackCount): DiscImage {
+    const max = maxImageSize(format, tracks ?? 80);
     if (bytes.length === 0 || bytes.length > max) {
       throw new RangeError(
-        `${name} is ${String(bytes.length)} bytes: a .${format} image must be 1 to ${String(max)} bytes (80 tracks)`,
+        `${name} is ${String(bytes.length)} bytes: a .${format} image must be 1 to ${String(max)} bytes (${String(tracks ?? 80)} tracks)`,
       );
     }
-    const tracks: TrackCount = bytes.length <= maxImageSize(format, 40) ? 40 : 80;
-    return new DiscImage({ format, sides: sidesOf(format), tracks }, bytes.length, bytes);
+    const count: TrackCount = tracks ?? (bytes.length <= maxImageSize(format, 40) ? 40 : 80);
+    return new DiscImage({ format, sides: sidesOf(format), tracks: count }, bytes.length, bytes);
   }
 
   /** Whether this disc has (side, track, sector). Never throws. */

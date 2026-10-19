@@ -2,7 +2,7 @@
 
 Tracks where the build is up to. The `/start-stage` and `/finish-stage` skills keep this file up to date. For what each stage involves, see [`BUILD-PLAN.md`](./BUILD-PLAN.md).
 
-**Current stage:** 48 — DFS catalogue (not started)
+**Current stage:** 49 — 8271 registers & commands (not started)
 
 **Status values:**
 - `not started`
@@ -115,7 +115,7 @@ Tracks where the build is up to. The `/start-stage` and `/finish-stage` skills k
 | # | Stage | Status | Seen? | Branch | Doc | Notes |
 |---|---|---|---|---|---|---|
 | 47 | Disc image geometry | done | ✅ | `stage/47-disc-geometry` | [doc](./stages/47-disc-geometry.md) | New `src/disc/disc-image.ts` (pure, no fs): `sectorOffset(format, side, track, sector)` = ((track × sides + side) × 10 + sector) × 256, so `.ssd` (5, 3) → &3500 and `.dsd` side 1 (5, 3) → &7100. `DiscImage.fromBytes(bytes, format, name)`: format always passed in (80-track ssd and 40-track dsd are both 204,800 bytes); 40 tracks if ≤ a full 40-track image, else 80; rejects empty and > 80 tracks; short images accepted and zero-filled (our choice). `hasSector` (never throws), `offsetOf`, `readSector` (256-byte copy), `formatFromName`. Read only. `demo:disc` (tour; `make-test` writes labelled `out/geometry.{ssd,dsd}`; `sector <file> <track> <sector> [side]`). |
-| 48 | DFS catalogue | not started | | `stage/48-dfs-catalogue` | [doc](./stages/48-dfs-catalogue.md) | |
+| 48 | DFS catalogue | done | ✅ | `stage/48-dfs-catalogue` | [doc](./stages/48-dfs-catalogue.md) | New pure `src/disc/`: `dfs-catalogue.ts` (`decodeCatalogue`/`encodeCatalogue` of sectors 0-1, mixed byte unpacked, 18-bit addresses, 10-bit start sector; widths checked, never masked; `catalogueProblems`: in catalogue, past end, out of order, overlaps), `dfs-disc.ts` (`readCatalogue`, `readFile`, `openDfsDisc` takes the track count from &106/&107, `buildDfsSide` lays files out from sector 2 and lists them highest first, `buildDfsImage` ssd/dsd via `sectorOffset`; strict names, case-insensitive duplicates), `dfs-text.ts` (`*CAT` imitation: `$` first then other dirs, two 20-col columns; `*INFO` lines; `FF1900` for &31900), `test-disc.ts` (STAGE 48, option 3: `!BOOT` = `*RUN HELLO`, locked `HELLO` from our assembler at FF1900, README, EMPTY, E.DATA). `DiscImage.fromBytes` gains optional `tracks`. Checked against Manic Miner (re-encodes byte-identical), Castle Quest (`t?data?`), Repton 3 (sector &192). `demo:disc` gains `make-disc`, `cat`, `file`. **Disc** panel (drop anywhere or Choose file; read only). `e2e/disc-panel.spec.ts` (3). |
 | 49 | 8271 registers & commands | not started | | `stage/49-fdc-commands` | [doc](./stages/49-fdc-commands.md) | |
 | 50 | 8271 data transfer & NMI | not started | | `stage/50-fdc-data-nmi` | [doc](./stages/50-fdc-data-nmi.md) | |
 | 51 | Running software | not started | | `stage/51-running-software` | [doc](./stages/51-running-software.md) | |
@@ -128,7 +128,10 @@ Pick from the menu in BUILD-PLAN.md §8 once Part 11 is done, and add a row here
 
 Things to come back to: questions raised during a stage, known inaccuracies, ideas.
 
-- Short disc images: a short 80-track `.ssd` whose files fit in 100K is taken as 40 tracks (size is all we have). Stage 48's catalogue sector count could correct it. Past-the-end sectors read &00, our choice. (Stage 47)
+- `*CAT` text spacing (and whether DFS 0.90 sorts) is our imitation. Stage 50's real `*CAT` decides; fix `dfs-text.ts` if they differ. (Stage 48)
+- The mixed byte's load/exec/length bits 16-17 positions come from BeebWiki only: none of the three real discs uses them (only the start sector's bits, seen in Repton). (Stage 48)
+- Writer's name rules (no `. : # * "` or space, printable ASCII) are our reading of the DFS User Guide; Acorn DFS may accept more. Catalogue cycle number is BCD but we never bump it (Stage 51 `SAVE` would). (Stage 48)
+- Short disc images: ~~a short 80-track `.ssd` is taken as 40 tracks~~ settled for DFS discs in Stage 48 (`openDfsDisc` reads the catalogue's sector count). Past-the-end sectors read &00, our choice. (Stage 47)
 - Web Audio: the frame loop is the master clock and the jitter buffer corrects drift with 60 ms jumps (skip above high water, gap after an underrun). Below 100% speed it's choppy. Options if it matters: audio as master clock, or dynamic rate correction. (Stage 46)
 - Every switch-on shows `1 underrun · 3,520 dropped` in the first moments, then steady. Believed to be the audio device starting up; not proved. (Stage 46)
 - MOS 1.20 doesn't bleep on a soft BREAK in our emulator (only the 11 silencing bytes are written; the bleep's `92 8F 0E` only on power-on). Check against a real Model B. (Stage 46)
