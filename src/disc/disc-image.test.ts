@@ -217,3 +217,20 @@ describe('DiscImage.offsetOf: the file offset, checked against this disc', () =>
     expect(() => image.offsetOf(0, 79, 0)).toThrow(/40-track single-sided ssd/);
   });
 });
+
+describe('DiscImage.byteAt: one byte, for the 8271 to read without making arrays (Stage 50)', () => {
+  it('gives the byte at an image offset, the same as readSector would', () => {
+    const bytes = Uint8Array.from({ length: 3 * TRACK_SIZE }, (_, i) => (i * 7) & 0xff);
+    const image = DiscImage.fromBytes(bytes, 'ssd', 'x.ssd');
+    const offset = image.offsetOf(0, 1, 3);
+    expect(image.byteAt(offset + 5)).toBe(image.readSector(0, 1, 3)[5]);
+  });
+
+  it('reads &00 past the end of a short file, and outside the image', () => {
+    const image = DiscImage.fromBytes(Uint8Array.of(0x41, 0x42), 'ssd', 'x.ssd');
+    expect(image.byteAt(1)).toBe(0x42);
+    expect(image.byteAt(2)).toBe(0x00);
+    expect(image.byteAt(-1)).toBe(0x00);
+    expect(image.byteAt(10_000_000)).toBe(0x00);
+  });
+});

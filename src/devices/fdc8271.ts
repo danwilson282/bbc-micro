@@ -1,4 +1,4 @@
-// The Intel 8271 floppy disc controller, at &FE80-&FE9F (Stage 49).
+// The Intel 8271 floppy disc controller, at &FE80-&FE9F (Stages 49-50).
 //
 // The DFS doesn't drive the disc itself: it gives this chip commands and
 // reads back results. The 8271 is a small microcontroller with its own ROM,
@@ -13,25 +13,34 @@
 //   1       result              parameter
 //   2       -                   reset (bit 0)
 //   3       illegal             illegal
-//   4-7     data (Stage 50)     data (Stage 50)
+//   4-7     data                data (write commands: not built)
 //
 // The 8271 sees A0 and A1. The board wires A2 to its DACK pin, so 4-7 are
 // the data register. The memory map passes offset & 7 (the SHEILA table).
 //
-// Stage 49 has the controller but no drive: the drive's input lines all
-// read 0, so nothing is ever ready. Commands that need a drive end at once
-// with result &10 (drive not ready). Stage 50 adds the drive and the data.
+// Stage 49: the registers and the commands that need no drive, which run the
+// moment their last parameter arrives.
 //
-// Commands run the moment their last parameter arrives. A real 8271 takes
-// microseconds (a seek, milliseconds), but nothing we run can tell yet.
+// Stage 50: drives, and time. Seek and the reads step the head, wait for the
+// sector to come round, then hand over a byte every 128 cycles. Non-DMA mode:
+// each byte sets status bit 2 and raises INT, which on the BBC is /NMI. The
+// CPU reads &FE84, which drops INT, ready for the next byte's edge. A byte
+// not taken before the next one arrives ends the command: &0A, late DMA.
+//
+//   idle → seeking → settling → searching → data ×n → (searching → data)... → crc → idle
 //
 // Sources: the Intel 8271 data sheet (my reading of it: register, command
-// and result tables), the Stardot "8271 de-cap" thread (special register
-// map), and DFS 0.98's own code, which proves several bits (see the doc).
+// and result tables, timings), the Stardot "8271 de-cap" thread (special
+// register map), and DFS 0.98's own code, which proves several bits (see the
+// Stage 49 and 50 docs).
 //
-// write() is on the hot path: no objects are made in it.
+// write(), read() and tick() are on the hot path: no objects are made in them.
 
+import { SECTOR_SIZE, SECTORS_PER_TRACK } from '../disc/disc-image';
 import type { IoDevice } from '../memory/io-device';
+import type { Clocked } from './clocked';
+import type { DiscDrive } from './disc-drive';
+import { CYCLES_PER_BYTE, CYCLES_PER_REVOLUTION, CYCLES_PER_SECTOR, DATA_FIELD_START, cyclesUntil } from './disc-drive';
 import type { FdcLog } from './fdc-log';
 
 // ── Registers (offset within the slot) ────────────────────────────────────
@@ -59,9 +68,9 @@ export const FDC_STATUS_COMMAND_FULL = 0x40;
 export const FDC_STATUS_PARAMETER_FULL = 0x20;
 /** Bit 4: a result is waiting at &FE81. */
 export const FDC_STATUS_RESULT_FULL = 0x10;
-/** Bit 3: the INT pin. On the BBC it drives /NMI (Stage 50). */
+/** Bit 3: the INT pin. On the BBC it drives /NMI (Stage 50). Taking the result or the data byte clears it. */
 export const FDC_STATUS_INTERRUPT = 0x08;
-/** Bit 2: a data byte is ready or wanted at &FE84 (Stage 50). */
+/** Bit 2: a data byte is ready (or wanted) at &FE84, in non-DMA mode (Stage 50). */
 export const FDC_STATUS_DATA_REQUEST = 0x04;
 
 // ── Command byte ──────────────────────────────────────────────────────────
@@ -201,7 +210,36 @@ export const FDC_RESULT_SECTOR_NOT_FOUND = 0x18;
 /** Added to a code when a sector with a deleted-data mark was met. */
 export const FDC_RESULT_DELETED_DATA = 0x20;
 
-export class Fdc8271 implements IoDevice {
+// ── Timing (Stage 50) ─────────────────────────────────────────────────────
+
+/**
+ * Step rate and head settling count in 2 ms units on a mini-floppy (the data
+ * sheet's 1 ms, doubled for 5¼" drives; unconfirmed for the BBC): 4,000 cycles.
+ */
+export const FDC_TIME_UNIT_CYCLES = 4_000;
+
+/** Revolutions searched for an ID before giving up with &18. Our reading, unconfirmed. */
+export const FDC_SEARCH_REVOLUTIONS = 2;
+
+/** An ID field: track, head, sector, size code. */
+const ID_BYTES = 4;
+/** The CRC after an ID or data field. */
+const CRC_BYTES = 2;
+/** Acorn DFS sectors are 256 bytes: size code 1 (128 × 2¹). */
+const DFS_SIZE_CODE = 1;
+
+/**
+ * What a command needing a drive is doing (Stage 50).
+ * seeking: one event per step. settling: the head settle time.
+ * searching: waiting for the ID wanted. data / id: a field passing the
+ * head, one event per byte. crc: the CRC after the last field.
+ */
+export type FdcPhase = 'idle' | 'seeking' | 'settling' | 'searching' | 'data' | 'id' | 'crc';
+
+/** seek: Seek. read: Read Data. verify: read with no data requests. readId: Read ID. */
+type DriveOp = 'seek' | 'read' | 'verify' | 'readId';
+
+export class Fdc8271 implements IoDevice, Clocked {
   private statusByte = 0;
   private resultByte = 0;
   private commandByte = 0;
@@ -210,11 +248,43 @@ export class Fdc8271 implements IoDevice {
   private paramsHeld = 0;
   private readonly params = new Uint8Array(FDC_MAX_PARAMS);
   private readonly specials = new Uint8Array(0x100);
-  /** The lines from the drives. No drive yet (Stage 49): all 0, so nothing is ready. */
-  private readonly driveInput = 0;
   private held = false;
 
-  constructor(private readonly log?: FdcLog) {}
+  // ── A command in progress (Stage 50) ──
+  private phase: FdcPhase = 'idle';
+  private op: DriveOp = 'seek';
+  /** Cycles until the next event. ≤ 0 means it's due; clock + countdown is when. */
+  private countdown = 0;
+  /** Cycles since this chip was made: the disc's angle is this mod a revolution. */
+  private clock = 0;
+  private driveNumber = 0;
+  private side = 0;
+  /** The track the command asked for, and the sector it's on now. */
+  private track = 0;
+  private sector = 0;
+  /** Seek: steps still to take (-1: step out until TRK0), and which way. */
+  private stepsLeft = 0;
+  private stepDirection: 1 | -1 = 1;
+  /** Sectors (or IDs, for Read ID) still to come, and the bytes in each. */
+  private sectorsLeft = 0;
+  private sectorLength = 0;
+  private byteIndex = 0;
+  /** Where the sector being read starts in the image; -1 while searching for one that isn't there. */
+  private sectorAt = -1;
+  /** Read ID: the sector whose ID is passing. */
+  private idSector = 0;
+  private dataByte = 0;
+  private transferred = 0;
+  private late = 0;
+
+  /**
+   * drives: what's on the cable, drive 0 then drive 1. None (Stage 49's
+   * chip on its own): every command needing a drive gets &10.
+   */
+  constructor(
+    private readonly log?: FdcLog,
+    private readonly drives: readonly DiscDrive[] = [],
+  ) {}
 
   // ── The bus ────────────────────────────────────────────────────────────
 
@@ -226,9 +296,14 @@ export class Fdc8271 implements IoDevice {
         // Taking the result clears result full and the interrupt request.
         this.statusByte &= ~(FDC_STATUS_RESULT_FULL | FDC_STATUS_INTERRUPT) & 0xff;
         return this.resultByte;
-      default:
-        // The reset register is write-only, 3 is illegal, and the data register is Stage 50's.
+      case 2:
+      case 3:
+        // The reset register is write-only, and 3 is illegal.
         return 0x00;
+      default:
+        // The data register: taking the byte drops the data request and INT, ready for the next edge.
+        this.statusByte &= ~(FDC_STATUS_DATA_REQUEST | FDC_STATUS_INTERRUPT) & 0xff;
+        return this.dataByte;
     }
   }
 
@@ -238,8 +313,11 @@ export class Fdc8271 implements IoDevice {
         return this.statusByte;
       case FDC_RESULT:
         return this.resultByte;
-      default:
+      case 2:
+      case 3:
         return 0x00;
+      default:
+        return this.dataByte;
     }
   }
 
@@ -256,9 +334,24 @@ export class Fdc8271 implements IoDevice {
         this.writeReset(v);
         return;
       default:
-        // 3 is illegal; the data register is Stage 50's.
+        // 3 is illegal; writing the data register is for the write commands (not built: discs are read-only).
         return;
     }
+  }
+
+  // ── Time ───────────────────────────────────────────────────────────────
+
+  /** The disc turns; anything due happens, in order. Idle costs one addition. Hot path: makes nothing. */
+  tick(cycles: number): void {
+    this.clock += cycles;
+    if (this.idle()) return;
+    this.countdown -= cycles;
+    // An event can end the command, so ask again each time (a method, so TypeScript doesn't narrow phase).
+    while (!this.idle() && this.countdown <= 0) this.event();
+  }
+
+  private idle(): boolean {
+    return this.phase === 'idle';
   }
 
   // ── For tests, panels and the machine ─────────────────────────────────
@@ -283,12 +376,22 @@ export class Fdc8271 implements IoDevice {
     return this.specials[address & 0xff] ?? 0;
   }
 
-  /** The lines from the drives now (special register &22, and Read Drive Status). */
+  /**
+   * The lines from the drives now (special register &22, and Read Drive
+   * Status): the selected drive's. The cable has one READY wire, so it shows
+   * on RDY0 and RDY1 both (DFS 0.98 tests bit 2 for either drive, &8B89).
+   */
   get driveLines(): number {
-    return this.driveInput;
+    const drive = this.selectedDrive();
+    if (drive === undefined) return 0x00;
+    let lines = 0;
+    if (drive.ready) lines |= FDC_INPUT_READY_0 | FDC_INPUT_READY_1;
+    if (drive.track0) lines |= FDC_INPUT_TRACK_0;
+    if (drive.writeProtected) lines |= FDC_INPUT_WRITE_PROTECT;
+    return lines;
   }
 
-  /** The INT pin. Not wired to /NMI until Stage 50. */
+  /** The INT pin. On the BBC it drives /NMI (Stage 50). */
   get interruptRequest(): boolean {
     return (this.statusByte & FDC_STATUS_INTERRUPT) !== 0;
   }
@@ -298,6 +401,43 @@ export class Fdc8271 implements IoDevice {
     return this.held;
   }
 
+  /** What a command needing a drive is doing now. */
+  get currentPhase(): FdcPhase {
+    return this.phase;
+  }
+
+  /** Cycles since the chip was made. The disc's angle is this mod CYCLES_PER_REVOLUTION. */
+  get time(): number {
+    return this.clock;
+  }
+
+  /** The last byte put in the data register. */
+  get data(): number {
+    return this.dataByte;
+  }
+
+  /** Data requests answered since power-on: one NMI each on the BBC. */
+  get bytesTransferred(): number {
+    return this.transferred;
+  }
+
+  /** Bytes the CPU didn't take in time (each ended a command with &0A). */
+  get lateBytes(): number {
+    return this.late;
+  }
+
+  /** The drive the output port's SELECT bits pick, if exactly one. */
+  selectedDrive(): DiscDrive | undefined {
+    switch (this.specials[FDC_SPECIAL_OUTPUT_PORT] & (FDC_OUTPUT_SELECT_0 | FDC_OUTPUT_SELECT_1)) {
+      case FDC_OUTPUT_SELECT_0:
+        return this.drives[0];
+      case FDC_OUTPUT_SELECT_1:
+        return this.drives[1];
+      default:
+        return undefined;
+    }
+  }
+
   /** The chip's RESET pin, pulsed at power-on: any command is dropped. The special registers are kept. */
   reset(): void {
     this.statusByte = 0;
@@ -305,13 +445,18 @@ export class Fdc8271 implements IoDevice {
     this.paramsWanted = 0;
     this.paramsHeld = 0;
     this.held = false;
+    this.phase = 'idle';
+    this.countdown = 0;
   }
 
-  /** Power-on: the RESET pin, and the special registers start at 0 (our choice). */
+  /** Power-on: the RESET pin, and the special registers start at 0 (our choice). The disc keeps turning. */
   powerOn(): void {
     this.reset();
     this.specials.fill(0);
     this.commandByte = 0;
+    this.dataByte = 0;
+    this.transferred = 0;
+    this.late = 0;
   }
 
   // ── The handshake ──────────────────────────────────────────────────────
@@ -346,45 +491,332 @@ export class Fdc8271 implements IoDevice {
     this.held = hold;
   }
 
-  /** All the parameters are here: do it, and finish. */
+  /**
+   * A command's drive bits (7-6), if any, go out on the SELECT lines: the
+   * output port's bits 7-6. Specify and Write Special Register have 00 and
+   * leave them alone (our reading).
+   */
+  private selectFromCommand(): void {
+    const select = this.commandByte & (FDC_COMMAND_SELECT_0 | FDC_COMMAND_SELECT_1);
+    if (select === 0) return;
+    const port = this.specials[FDC_SPECIAL_OUTPUT_PORT];
+    this.specials[FDC_SPECIAL_OUTPUT_PORT] = (port & ~(FDC_OUTPUT_SELECT_0 | FDC_OUTPUT_SELECT_1) & 0xff) | select;
+  }
+
+  /** All the parameters are here: do it. Register commands finish now; drive commands may start a phase. */
   private run(): void {
     const code = this.commandByte & FDC_COMMAND_CODE_MASK;
     const p = this.params;
-    let hasResult = false;
-    let interrupt = false;
-    let result = FDC_RESULT_OK;
     switch (code) {
       case FDC_CMD_SPECIFY: {
         // Three special registers in a row, from the address in the first parameter.
         const base = p[0];
         for (let i = 0; i < 3; i++) this.specials[(base + i) & 0xff] = p[i + 1] ?? 0;
-        break;
+        this.finishWithoutResult();
+        return;
       }
       case FDC_CMD_WRITE_SPECIAL_REGISTER:
         this.specials[p[0]] = p[1];
-        break;
+        this.finishWithoutResult();
+        return;
       case FDC_CMD_READ_SPECIAL_REGISTER: {
         const address = p[0];
-        result = address === FDC_SPECIAL_INPUT_PORT ? this.driveInput : this.specials[address];
-        hasResult = true;
-        break;
+        this.finishQuietly(address === FDC_SPECIAL_INPUT_PORT ? this.driveLines : this.specials[address]);
+        return;
       }
       case FDC_CMD_READ_DRIVE_STATUS:
-        result = this.driveInput;
-        hasResult = true;
-        break;
-      default: {
-        const info = COMMANDS.get(code);
-        if (info !== undefined && info.kind !== 'register') {
-          // Seek and the data commands need a drive, and none is ready (Stage 49).
-          result = FDC_RESULT_DRIVE_NOT_READY;
-          hasResult = true;
-          interrupt = true;
-        }
-      }
+        this.selectFromCommand();
+        this.finishQuietly(this.driveLines);
+        return;
+      default:
+        this.runDriveCommand(code);
     }
+  }
+
+  /** Seek and the data commands: they need a ready drive. */
+  private runDriveCommand(code: number): void {
+    const info = COMMANDS.get(code);
+    if (info === undefined) {
+      this.finishWithoutResult();
+      return;
+    }
+    this.selectFromCommand();
+    const drive = this.selectedDrive();
+    if (drive === undefined || !drive.ready) {
+      this.finish(FDC_RESULT_DRIVE_NOT_READY);
+      return;
+    }
+    const p = this.params;
+    const sizeAndCount = p[2];
+    switch (code) {
+      case FDC_CMD_SEEK:
+        this.start('seek', p[0], 0, 0, 0);
+        return;
+      case FDC_CMD_READ_DATA:
+      case FDC_CMD_READ_DATA_AND_DELETED:
+        this.start('read', p[0], p[1], sizeAndCount & 0x1f, 128 << (sizeAndCount >> 5));
+        return;
+      case FDC_CMD_READ_DATA_128:
+      case FDC_CMD_READ_DATA_AND_DELETED_128:
+        this.start('read', p[0], p[1], 1, 128);
+        return;
+      case FDC_CMD_VERIFY_DATA_AND_DELETED:
+        this.start('verify', p[0], p[1], sizeAndCount & 0x1f, 128 << (sizeAndCount >> 5));
+        return;
+      case FDC_CMD_VERIFY_DATA_AND_DELETED_128:
+        this.start('verify', p[0], p[1], 1, 128);
+        return;
+      case FDC_CMD_READ_ID:
+        // Parameters: track, 0, how many IDs.
+        this.start('readId', p[0], 0, sizeAndCount, ID_BYTES);
+        return;
+      case FDC_CMD_WRITE_DATA:
+      case FDC_CMD_WRITE_DATA_128:
+      case FDC_CMD_WRITE_DELETED_DATA:
+      case FDC_CMD_WRITE_DELETED_DATA_128:
+      case FDC_CMD_FORMAT_TRACK:
+        // Every disc is write protected until Stage 51 decides about writing.
+        this.finish(drive.writeProtected ? FDC_RESULT_WRITE_PROTECT : FDC_RESULT_DRIVE_NOT_READY);
+        return;
+      default:
+        // Scan isn't built.
+        this.finish(FDC_RESULT_DRIVE_NOT_READY);
+    }
+  }
+
+  // ── Commands that take time (Stage 50) ────────────────────────────────
+
+  /** Busy from now: an implied seek to `track`, then whatever op needs. */
+  private start(op: DriveOp, track: number, sector: number, count: number, length: number): void {
+    const port = this.specials[FDC_SPECIAL_OUTPUT_PORT];
+    this.op = op;
+    this.driveNumber = (port & FDC_OUTPUT_SELECT_1) !== 0 ? 1 : 0;
+    this.side = (port & FDC_OUTPUT_SIDE) !== 0 ? 1 : 0;
+    this.track = track;
+    this.sector = sector;
+    this.sectorsLeft = count;
+    this.sectorLength = length;
+    this.countdown = 0;
+    this.statusByte = FDC_STATUS_COMMAND_BUSY;
+    if (op !== 'seek' && count === 0) {
+      // Nothing to read (our choice: the data sheet doesn't say what a count of 0 means).
+      this.finish(FDC_RESULT_OK);
+      return;
+    }
+    const drive = this.drive();
+    const current = this.specials[this.currentTrackRegister()] ?? 0;
+    if (track === 0) {
+      // To track 0: step out until the drive says TRK0, whatever the register thinks.
+      this.stepsLeft = drive?.track0 === true ? 0 : -1;
+      this.stepDirection = -1;
+    } else {
+      this.stepsLeft = Math.abs(track - current);
+      this.stepDirection = track > current ? 1 : -1;
+    }
+    if (this.stepsLeft === 0) {
+      this.specials[this.currentTrackRegister()] = track;
+      this.afterSeek();
+      return;
+    }
+    this.phase = 'seeking';
+    this.countdown += this.stepTime();
+  }
+
+  /** One thing happens: a step, the settle time ending, a sector arriving, a byte. */
+  private event(): void {
+    switch (this.phase) {
+      case 'seeking':
+        this.stepEvent();
+        return;
+      case 'settling':
+        this.afterSeek();
+        return;
+      case 'searching':
+        if (this.sectorAt < 0) {
+          this.finish(FDC_RESULT_SECTOR_NOT_FOUND);
+          return;
+        }
+        this.byteIndex = 0;
+        this.phase = this.op === 'readId' ? 'id' : 'data';
+        this.countdown += CYCLES_PER_BYTE;
+        return;
+      case 'data':
+        this.dataEvent();
+        return;
+      case 'id':
+        this.idEvent();
+        return;
+      case 'crc':
+        if ((this.statusByte & FDC_STATUS_DATA_REQUEST) !== 0) {
+          this.lateByte();
+          return;
+        }
+        this.finish(FDC_RESULT_OK);
+        return;
+      case 'idle':
+        return;
+    }
+  }
+
+  private stepEvent(): void {
+    const drive = this.drive();
+    drive?.step(this.stepDirection);
+    const done = this.stepsLeft < 0 ? drive === undefined || drive.track0 : --this.stepsLeft === 0;
+    if (!done) {
+      this.countdown += this.stepTime();
+      return;
+    }
+    this.specials[this.currentTrackRegister()] = this.track;
+    this.phase = 'settling';
+    this.countdown += this.specials[FDC_SPECIAL_HEAD_SETTLE] * FDC_TIME_UNIT_CYCLES;
+  }
+
+  /** The head is on the track. Seek is done; the others look for their sector. */
+  private afterSeek(): void {
+    if (this.op === 'seek') {
+      this.finish(FDC_RESULT_OK);
+      return;
+    }
+    this.search();
+  }
+
+  /**
+   * Waits for the next field wanted to come round: sector `sector`'s data
+   * field, or (Read ID) the next ID field. If the track hasn't got it, waits
+   * FDC_SEARCH_REVOLUTIONS revolutions and gives up.
+   */
+  private search(): void {
+    const drive = this.drive();
+    const now = this.clock + this.countdown;
+    this.phase = 'searching';
+    if (this.op === 'readId') {
+      // Any ID will do: the next slot boundary. Is there a formatted track here at all?
+      this.sectorAt = drive === undefined ? -1 : drive.sectorOffset(this.side, 0);
+      const wait = cyclesUntil(now, 0) % CYCLES_PER_SECTOR;
+      this.idSector = (Math.floor(((now + wait) % CYCLES_PER_REVOLUTION) / CYCLES_PER_SECTOR) | 0) % SECTORS_PER_TRACK;
+      this.countdown += this.sectorAt < 0 ? FDC_SEARCH_REVOLUTIONS * CYCLES_PER_REVOLUTION : wait;
+      return;
+    }
+    // The IDs on the track say which track they're on: the head's, wherever the 8271 thinks it is.
+    const here = drive !== undefined && drive.headTrack === this.track;
+    this.sectorAt = here ? drive.sectorOffset(this.side, this.sector) : -1;
+    if (this.sectorAt < 0) {
+      this.countdown += FDC_SEARCH_REVOLUTIONS * CYCLES_PER_REVOLUTION;
+      return;
+    }
+    this.countdown += cyclesUntil(now, this.sector * CYCLES_PER_SECTOR) + DATA_FIELD_START;
+  }
+
+  /** A byte of a data field has come off the disc. */
+  private dataEvent(): void {
+    if (this.op === 'read') {
+      if ((this.statusByte & FDC_STATUS_DATA_REQUEST) !== 0) {
+        this.lateByte();
+        return;
+      }
+      // A sector longer than DFS's 256 bytes would run into the gap: we read &00 there.
+      this.dataByte = this.byteIndex < SECTOR_SIZE ? (this.drive()?.byteAt(this.sectorAt + this.byteIndex) ?? 0) : 0;
+      this.offerByte();
+    }
+    this.byteIndex++;
+    if (this.byteIndex < this.sectorLength) {
+      this.countdown += CYCLES_PER_BYTE;
+      return;
+    }
+    this.sectorsLeft--;
+    if (this.sectorsLeft > 0) {
+      this.sector++;
+      this.search();
+      return;
+    }
+    this.phase = 'crc';
+    this.countdown += CRC_BYTES * CYCLES_PER_BYTE;
+  }
+
+  /** A byte of an ID field (Read ID): track, head, sector, size code. */
+  private idEvent(): void {
+    if ((this.statusByte & FDC_STATUS_DATA_REQUEST) !== 0) {
+      this.lateByte();
+      return;
+    }
+    switch (this.byteIndex) {
+      case 0:
+        this.dataByte = this.drive()?.headTrack ?? 0;
+        break;
+      case 1:
+        // The head number in the ID. We write 0 for both sides (unconfirmed for Acorn's double-sided format).
+        this.dataByte = 0;
+        break;
+      case 2:
+        this.dataByte = this.idSector;
+        break;
+      default:
+        this.dataByte = DFS_SIZE_CODE;
+    }
+    this.offerByte();
+    this.byteIndex++;
+    if (this.byteIndex < ID_BYTES) {
+      this.countdown += CYCLES_PER_BYTE;
+      return;
+    }
+    this.sectorsLeft--;
+    if (this.sectorsLeft > 0) {
+      // Past the ID's CRC, then the next ID.
+      this.countdown += CRC_BYTES * CYCLES_PER_BYTE;
+      this.search();
+      return;
+    }
+    this.phase = 'crc';
+    this.countdown += CRC_BYTES * CYCLES_PER_BYTE;
+  }
+
+  /** The byte is in the data register: data request and INT (the NMI's edge). */
+  private offerByte(): void {
+    this.statusByte |= FDC_STATUS_DATA_REQUEST | FDC_STATUS_INTERRUPT;
+    this.transferred++;
+  }
+
+  /** The CPU didn't take the last byte in time. */
+  private lateByte(): void {
+    this.late++;
+    this.transferred--;
+    this.finish(FDC_RESULT_LATE_DMA);
+  }
+
+  // ── Endings ────────────────────────────────────────────────────────────
+
+  /** Done, with a result and an interrupt: not busy, result full, INT. */
+  private finish(result: number): void {
+    this.phase = 'idle';
     this.resultByte = result;
-    this.statusByte = (hasResult ? FDC_STATUS_RESULT_FULL : 0) | (interrupt ? FDC_STATUS_INTERRUPT : 0);
-    this.log?.recordCommand(this.commandByte, p, this.paramsHeld, result, hasResult);
+    this.statusByte = FDC_STATUS_RESULT_FULL | FDC_STATUS_INTERRUPT;
+    this.log?.recordCommand(this.commandByte, this.params, this.paramsHeld, result, true);
+  }
+
+  /** Done, with a result but no interrupt (Read Special Register, Read Drive Status). */
+  private finishQuietly(result: number): void {
+    this.resultByte = result;
+    this.statusByte = FDC_STATUS_RESULT_FULL;
+    this.log?.recordCommand(this.commandByte, this.params, this.paramsHeld, result, true);
+  }
+
+  /** Done, with nothing to say (Specify, Write Special Register, a code that isn't a command). */
+  private finishWithoutResult(): void {
+    this.resultByte = FDC_RESULT_OK;
+    this.statusByte = 0;
+    this.log?.recordCommand(this.commandByte, this.params, this.paramsHeld, FDC_RESULT_OK, false);
+  }
+
+  private drive(): DiscDrive | undefined {
+    return this.drives[this.driveNumber];
+  }
+
+  /** Surface 0's current track for drive 0, surface 1's for drive 1. */
+  private currentTrackRegister(): number {
+    return this.driveNumber === 0 ? FDC_SPECIAL_SURFACE0_CURRENT_TRACK : FDC_SPECIAL_SURFACE1_CURRENT_TRACK;
+  }
+
+  private stepTime(): number {
+    return this.specials[FDC_SPECIAL_STEP_RATE] * FDC_TIME_UNIT_CYCLES;
   }
 }

@@ -9,7 +9,19 @@ function entry(command: number, params: readonly number[], result: number | unde
 const AFTER_CAT: Readonly<Record<number, number>> = { 0x0d: 0x0c, 0x0e: 0x0a, 0x0f: 0xc8, 0x17: 0xc1, 0x23: 0x48 };
 
 function input(overrides: Partial<FdcViewInput> = {}): FdcViewInput {
-  return { status: 0, result: 0, inReset: false, driveLines: 0, special: (a) => AFTER_CAT[a] ?? 0, entries: [], ...overrides };
+  return {
+    status: 0,
+    result: 0,
+    inReset: false,
+    driveLines: 0,
+    special: (a) => AFTER_CAT[a] ?? 0,
+    entries: [],
+    phase: 'idle',
+    drives: [],
+    bytesTransferred: 0,
+    lateBytes: 0,
+    ...overrides,
+  };
 }
 
 describe('FDC panel view-model: the status register', () => {
@@ -37,13 +49,46 @@ describe('FDC panel view-model: the status register', () => {
   });
 });
 
+describe('FDC panel view-model: what a busy chip is doing (Stage 50)', () => {
+  it.each([
+    ['seeking', 'stepping the head'],
+    ['settling', 'letting the head settle'],
+    ['searching', 'waiting for the sector to come round'],
+    ['data', 'reading data'],
+    ['id', 'reading an ID'],
+    ['crc', 'checking the CRC'],
+  ] as const)('busy while %s says "%s"', (phase, text) => {
+    expect(buildFdcView(input({ status: 0x80, phase })).summary).toBe(`Status &80: busy, ${text}`);
+  });
+
+  it('&8C is busy with a data byte waiting: BUSY, INT and DATA lit', () => {
+    const view = buildFdcView(input({ status: 0x8c, phase: 'data' }));
+    expect(view.summary).toBe('Status &8C: busy, reading data');
+    expect(view.bits.filter((b) => b.on).map((b) => b.name)).toEqual(['BUSY', 'INT', 'DATA']);
+  });
+});
+
+describe('FDC panel view-model: the drives (Stage 50)', () => {
+  it('each drive shows its disc (or empty) and where its head is', () => {
+    const view = buildFdcView(input({ drives: [{ disc: 'test.ssd', headTrack: 0 }, { disc: undefined, headTrack: 3 }] }));
+    expect(view.drives).toEqual([
+      { label: 'Drive 0', text: 'test.ssd · head on track 0 · ready' },
+      { label: 'Drive 1', text: 'empty · head on track 3' },
+    ]);
+  });
+
+  it('counts the bytes that came by NMI, and the late ones', () => {
+    expect(buildFdcView(input({ bytesTransferred: 1536, lateBytes: 1 })).transfer).toBe('1,536 bytes by NMI · 1 late');
+  });
+});
+
 describe('FDC panel view-model: the special registers', () => {
   it('decodes the mode, the drive lines and the timings DFS 0.98 sets', () => {
     const rows = buildFdcView(input()).registers.map((r) => [r.label, r.value, r.meaning]);
     expect(rows).toEqual([
       ['Mode (&17)', '&C1', 'non-DMA'],
       ['Drive output (&23)', '&48', 'SELECT 0, LOAD HEAD'],
-      ['Drive input (&22)', '&00', 'not ready (no drive until Stage 50)'],
+      ['Drive input (&22)', '&00', 'not ready'],
       ['Step rate (&0D)', '&0C', ''],
       ['Head settle (&0E)', '&0A', ''],
       ['Index count / head load (&0F)', '&C8', 'index count &C, head load &8'],

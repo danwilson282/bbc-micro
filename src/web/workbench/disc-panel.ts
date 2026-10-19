@@ -1,11 +1,13 @@
 // The Disc panel (Stage 48): drop an .ssd or .dsd (or choose one) and see
 // its DFS catalogue as *CAT would print it, with every file's *INFO numbers.
 //
-// The reasoning is in disc-view-model.ts. The disc only gets looked at: it
-// isn't in a drive, because there's no 8271 controller until Stages 49-50.
+// The reasoning is in disc-view-model.ts. Since Stage 50 the disc also goes
+// into drive 0 (through `drive`, so this file doesn't know the machine), and
+// *CAT on the emulator's screen reads it. Eject takes it out again.
 // main.ts sends drops anywhere on the page here too, so a near miss doesn't
 // make the browser leave the emulator to show the file.
 
+import type { DiscImage } from '../../disc/disc-image';
 import { discView, type DiscSideView } from './disc-view-model';
 import type { Panel } from './panel';
 
@@ -52,7 +54,13 @@ function sideElement(side: DiscSideView, sides: number): HTMLElement {
   return box;
 }
 
-export function createDiscPanel(): DiscPanel {
+/** Drive 0, as the panel sees it. */
+export interface DiscPanelDrive {
+  insert(image: DiscImage): void;
+  eject(): void;
+}
+
+export function createDiscPanel(drive?: DiscPanelDrive): DiscPanel {
   const root = element('div', 'disc-panel');
 
   const zone = element('label', 'disc-drop');
@@ -62,11 +70,30 @@ export function createDiscPanel(): DiscPanel {
   input.className = 'disc-input';
   zone.append(element('span', '', 'Drop an .ssd or .dsd disc image here (or anywhere on the page), or choose one: '), input);
 
-  const note = element('p', 'disc-note', 'Read only, and not in a drive yet: the 8271 disc controller arrives in Stages 49-50.');
+  const note = element(
+    'p',
+    'disc-note',
+    drive === undefined ? 'Read only: just looked at.' : 'It goes into drive 0, read only. Type *CAT on the screen (*CAT 2 for side 1 of a .dsd).',
+  );
   const status = element('p', 'disc-status');
   status.setAttribute('role', 'status');
+  const inDrive = element('p', 'disc-in-drive', 'Drive 0: empty');
+  const eject = element('button', 'disc-eject', 'Eject');
+  eject.type = 'button';
+  eject.disabled = true;
+  eject.addEventListener('click', () => {
+    drive?.eject();
+    inDrive.textContent = 'Drive 0: empty';
+    eject.disabled = true;
+  });
   const shown = element('div', 'disc-shown');
-  root.append(zone, note, status, shown);
+  root.append(zone, note, status);
+  if (drive !== undefined) {
+    const row = element('div', 'disc-drive-row');
+    row.append(inDrive, eject);
+    root.append(row);
+  }
+  root.append(shown);
 
   async function load(file: File): Promise<void> {
     status.classList.remove('error');
@@ -81,6 +108,11 @@ export function createDiscPanel(): DiscPanel {
     }
     status.textContent = view.heading;
     shown.replaceChildren(...view.sides.map((side) => sideElement(side, view.sides.length)));
+    if (drive !== undefined) {
+      drive.insert(view.image);
+      inDrive.textContent = `Drive 0: ${file.name}`;
+      eject.disabled = false;
+    }
   }
 
   input.addEventListener('change', () => {
@@ -103,7 +135,7 @@ export function createDiscPanel(): DiscPanel {
     title: 'Disc',
     element: root,
     refresh() {
-      // Nothing to redraw: a dropped disc doesn't change while the machine runs (yet).
+      // Nothing to redraw: the disc is read-only, so it doesn't change while the machine runs.
     },
     load,
   };

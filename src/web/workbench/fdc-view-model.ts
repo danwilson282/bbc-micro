@@ -6,8 +6,12 @@
 //
 //   Mode (&17)            &C1  non-DMA
 //   Drive output (&23)    &48  SELECT 0, LOAD HEAD
-//   Drive input (&22)     &00  not ready (no drive until Stage 50)
+//   Drive input (&22)     &4E  TRK0, RDY0, RDY1, WR PROT
 //   ...
+//
+//   Drive 0   test.ssd · head on track 0 · ready
+//   Drive 1   empty · head on track 0
+//   512 bytes by NMI · 0 late
 //
 //   time      bytes           drive  command
 //   0.284 s   35 0D 0C 0A C8  none   Specify &0D: step rate &0C, ...
@@ -17,6 +21,7 @@
 
 import { describeDriveInput, describeFdcEntry, describeMode, describeOutputPort, type FdcLogEntry } from '../../devices/fdc-log';
 import {
+  type FdcPhase,
   FDC_SPECIAL_HEAD_SETTLE,
   FDC_SPECIAL_INDEX_COUNT_HEAD_LOAD,
   FDC_SPECIAL_MODE,
@@ -47,6 +52,24 @@ export interface FdcViewInput {
   readonly special: (address: number) => number;
   /** The log's latest entries, oldest first. */
   readonly entries: readonly FdcLogEntry[];
+  /** What a command needing a drive is doing (Stage 50). */
+  readonly phase: FdcPhase;
+  readonly drives: readonly FdcDriveInput[];
+  readonly bytesTransferred: number;
+  readonly lateBytes: number;
+}
+
+export interface FdcDriveInput {
+  /** The disc's file name, or undefined for an empty drive. */
+  readonly disc: string | undefined;
+  readonly headTrack: number;
+}
+
+export interface FdcDriveRow {
+  /** "Drive 0". */
+  readonly label: string;
+  /** "test.ssd · head on track 0 · ready". */
+  readonly text: string;
 }
 
 export interface FdcStatusBit {
@@ -82,6 +105,9 @@ export interface FdcView {
   readonly bits: readonly FdcStatusBit[];
   readonly registers: readonly FdcRegisterRow[];
   readonly entries: readonly FdcEntryRow[];
+  readonly drives: readonly FdcDriveRow[];
+  /** "512 bytes by NMI · 0 late". */
+  readonly transfer: string;
   /** "No commands yet: fit roms/dfs.rom..." when the log is empty, else "". */
   readonly empty: string;
 }
@@ -91,15 +117,25 @@ const BITS: readonly (readonly [number, string, string])[] = [
   [FDC_STATUS_COMMAND_FULL, 'CMD FULL', 'bit 6: command register full'],
   [FDC_STATUS_PARAMETER_FULL, 'PARAM FULL', 'bit 5: parameter register full'],
   [FDC_STATUS_RESULT_FULL, 'RESULT', 'bit 4: result register full'],
-  [FDC_STATUS_INTERRUPT, 'INT', 'bit 3: interrupt request (to /NMI from Stage 50)'],
-  [FDC_STATUS_DATA_REQUEST, 'DATA', 'bit 2: non-DMA data request (Stage 50)'],
+  [FDC_STATUS_INTERRUPT, 'INT', 'bit 3: interrupt request (the INT pin, wired to /NMI)'],
+  [FDC_STATUS_DATA_REQUEST, 'DATA', 'bit 2: non-DMA data request (a byte waits at &FE84)'],
 ];
+
+const PHASE_TEXT: Readonly<Record<FdcPhase, string>> = {
+  idle: 'waiting for parameters',
+  seeking: 'stepping the head',
+  settling: 'letting the head settle',
+  searching: 'waiting for the sector to come round',
+  data: 'reading data',
+  id: 'reading an ID',
+  crc: 'checking the CRC',
+};
 
 function describeStatus(input: FdcViewInput): string {
   const s = input.status;
   const head = `Status &${hex8(s)}`;
   if (input.inReset) return `${head}: held in reset (&FE82 bit 0 = 1)`;
-  if ((s & FDC_STATUS_COMMAND_BUSY) !== 0) return `${head}: busy, waiting for parameters`;
+  if ((s & FDC_STATUS_COMMAND_BUSY) !== 0) return `${head}: busy, ${PHASE_TEXT[input.phase]}`;
   if ((s & FDC_STATUS_RESULT_FULL) !== 0) return `${head}: result waiting (&${hex8(input.result)})`;
   return `${head}: idle`;
 }
@@ -126,7 +162,7 @@ export function buildFdcView(input: FdcViewInput): FdcView {
     registers: [
       row('Mode', FDC_SPECIAL_MODE, sp(FDC_SPECIAL_MODE), describeMode(sp(FDC_SPECIAL_MODE))),
       row('Drive output', FDC_SPECIAL_OUTPUT_PORT, sp(FDC_SPECIAL_OUTPUT_PORT), describeOutputPort(sp(FDC_SPECIAL_OUTPUT_PORT))),
-      row('Drive input', 0x22, input.driveLines, `${describeDriveInput(input.driveLines)} (no drive until Stage 50)`),
+      row('Drive input', 0x22, input.driveLines, describeDriveInput(input.driveLines)),
       row('Step rate', FDC_SPECIAL_STEP_RATE, sp(FDC_SPECIAL_STEP_RATE), ''),
       row('Head settle', FDC_SPECIAL_HEAD_SETTLE, sp(FDC_SPECIAL_HEAD_SETTLE), ''),
       row('Index count / head load', FDC_SPECIAL_INDEX_COUNT_HEAD_LOAD, indexLoad, `index count &${nibble(indexLoad >> 4)}, head load &${nibble(indexLoad)}`),
@@ -143,6 +179,11 @@ export function buildFdcView(input: FdcViewInput): FdcView {
         repeats: e.repeats > 1 ? `×${e.repeats.toLocaleString('en-GB')}` : '',
       };
     }),
+    drives: input.drives.map((d, i) => ({
+      label: `Drive ${String(i)}`,
+      text: `${d.disc ?? 'empty'} · head on track ${String(d.headTrack)}${d.disc === undefined ? '' : ' · ready'}`,
+    })),
+    transfer: `${input.bytesTransferred.toLocaleString('en-GB')} bytes by NMI · ${input.lateBytes.toLocaleString('en-GB')} late`,
     empty: input.entries.length === 0 ? 'No commands yet. With roms/dfs.rom fitted, the DFS sends four at power-on; type *CAT for more.' : '',
   };
 }

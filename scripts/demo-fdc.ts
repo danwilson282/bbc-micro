@@ -5,7 +5,7 @@
 // Part 1: our own handshake, byte by byte, with the status register after
 // each write (no ROMs needed).
 // Part 2: power-on with the DFS fitted: the four commands that set the chip up.
-// Part 3: *CAT. With no drive, RDY0 never comes up, and the DFS polls.
+// Part 3: *CAT. With no disc in drive 0, RDY0 never comes up, and the DFS polls.
 // Part 4: Escape. The DFS resets the 8271 through &FE82 and sets it up again.
 
 import { describeFdcEntry, type FdcLogEntry } from '../src/devices/fdc-log';
@@ -74,7 +74,7 @@ run(m, 100);
 printEntries(m.fdcLog.recent());
 printScreen(m);
 
-console.log('\nPart 3: *CAT, then 2 seconds. No drive, so RDY0 (bit 2 of Read Drive Status) never comes up:');
+console.log('\nPart 3: *CAT, then 2 seconds. No disc in drive 0, so RDY0 (bit 2 of Read Drive Status) never comes up:');
 const before = m.fdcLog.count;
 typeText(m, '*CAT\r');
 run(m, 100);

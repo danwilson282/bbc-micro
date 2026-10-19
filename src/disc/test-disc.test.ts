@@ -30,7 +30,8 @@ describe('the Stage 48 test disc', () => {
       'Directory :0.$      Library :0.$',
       '',
       '    !BOOT               EMPTY',
-      '    HELLO   L           README',
+      '    HELLO    L          README',
+      '',
       '  E.DATA',
     ]);
   });
