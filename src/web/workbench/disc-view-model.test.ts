@@ -1,6 +1,8 @@
+import { buildDemoDisc, demoDiscSide } from '../../disc/demo-disc';
 import { buildDfsImage } from '../../disc/dfs-disc';
+import { DiscImage } from '../../disc/disc-image';
 import { buildTestDisc } from '../../disc/test-disc';
-import { discView } from './disc-view-model';
+import { discImageView, discView, driveRowView } from './disc-view-model';
 
 describe('the Disc panel view of a dropped image', () => {
   test('the Stage 48 test disc: heading, *CAT text, and one row per file in catalogue order', () => {
@@ -49,5 +51,38 @@ describe('the Disc panel view of a dropped image', () => {
     bytes[0x105] = 0x0c;
     const view = discView(bytes, 'bad.ssd');
     expect(view.ok && view.sides[0]?.error).toMatch(/not a multiple of 8/);
+  });
+});
+
+describe('a disc in a drive (Stage 51)', () => {
+  const disc = (): DiscImage => DiscImage.fromBytes(buildDemoDisc(), 'ssd', 'demo.ssd');
+
+  test('discImageView shows the disc as it is now: a file written into the catalogue appears', () => {
+    const image = disc();
+    expect(discImageView(image).sides[0]?.files.map((f) => f.name)).toEqual(['$.HELLO', '$.GREET', '$.DEMO', '$.!BOOT']);
+    // Write a catalogue with one more file into sectors 0 and 1, as SAVE would.
+    const changed = buildDfsImage('ssd', [{ ...demoDiscSide(), files: [...demoDiscSide().files, { name: 'NEW', load: 0, exec: 0, data: Uint8Array.of(1) }] }]);
+    for (let i = 0; i < 512; i++) image.writeByte(i, changed[i] ?? 0);
+    expect(discImageView(image).sides[0]?.files.map((f) => f.name)).toContain('$.NEW');
+  });
+
+  test('in drive 1, the sides are DFS drives 1 and 3', () => {
+    const image = DiscImage.fromBytes(buildDfsImage('dsd', [{ tracks: 40, files: [] }, { tracks: 40, files: [] }]), 'dsd', 'two.dsd');
+    expect(discImageView(image, 1).sides.map((s) => s.drive)).toEqual([1, 3]);
+  });
+
+  test('a drive row: empty; then a disc as it came; then changed, with a download offered', () => {
+    const empty = driveRowView({ disc: undefined, writeProtected: false }, 1);
+    expect(empty).toEqual({ text: 'Drive 1: empty', changed: '', hasDisc: false, writeProtected: false, downloadable: false });
+    const image = disc();
+    expect(driveRowView({ disc: image, writeProtected: true }, 0)).toEqual({
+      text: 'Drive 0: demo.ssd',
+      changed: '',
+      hasDisc: true,
+      writeProtected: true,
+      downloadable: false,
+    });
+    for (let i = 0; i < 1280; i++) image.writeByte(0x1000 + i, 0);
+    expect(driveRowView({ disc: image, writeProtected: false }, 0)).toMatchObject({ changed: 'changed: 1,280 bytes written', downloadable: true });
   });
 });

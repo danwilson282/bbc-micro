@@ -13,7 +13,7 @@
 //   1       result              parameter
 //   2       -                   reset (bit 0)
 //   3       illegal             illegal
-//   4-7     data                data (write commands: not built)
+//   4-7     data                data
 //
 // The 8271 sees A0 and A1. The board wires A2 to its DACK pin, so 4-7 are
 // the data register. The memory map passes offset & 7 (the SHEILA table).
@@ -28,6 +28,11 @@
 // not taken before the next one arrives ends the command: &0A, late DMA.
 //
 //   idle → seeking → settling → searching → data ×n → (searching → data)... → crc → idle
+//
+// Stage 51: writing. Write Data is a read run backwards: the 8271 asks for
+// each byte (data request + INT) and the CPU writes it to &FE84. 128 cycles
+// later the byte goes on the disc and the next is asked for. A byte not
+// there in time is &0A again. A disc with its write protect tab on gets &12.
 //
 // Sources: the Intel 8271 data sheet (my reading of it: register, command
 // and result tables, timings), the Stardot "8271 de-cap" thread (special
@@ -236,8 +241,8 @@ const DFS_SIZE_CODE = 1;
  */
 export type FdcPhase = 'idle' | 'seeking' | 'settling' | 'searching' | 'data' | 'id' | 'crc';
 
-/** seek: Seek. read: Read Data. verify: read with no data requests. readId: Read ID. */
-type DriveOp = 'seek' | 'read' | 'verify' | 'readId';
+/** seek: Seek. read: Read Data. verify: read with no data requests. readId: Read ID. write: Write Data (Stage 51). */
+type DriveOp = 'seek' | 'read' | 'verify' | 'readId' | 'write';
 
 export class Fdc8271 implements IoDevice, Clocked {
   private statusByte = 0;
@@ -333,8 +338,13 @@ export class Fdc8271 implements IoDevice, Clocked {
       case FDC_RESET:
         this.writeReset(v);
         return;
+      case 3:
+        // Illegal.
+        return;
       default:
-        // 3 is illegal; writing the data register is for the write commands (not built: discs are read-only).
+        // The data register: a byte for Write Data. Giving it drops the data request and INT (Stage 51).
+        this.dataByte = v;
+        this.statusByte &= ~(FDC_STATUS_DATA_REQUEST | FDC_STATUS_INTERRUPT) & 0xff;
         return;
     }
   }
@@ -416,7 +426,7 @@ export class Fdc8271 implements IoDevice, Clocked {
     return this.dataByte;
   }
 
-  /** Data requests answered since power-on: one NMI each on the BBC. */
+  /** Data requests answered since power-on, reading or writing: one NMI each on the BBC. */
   get bytesTransferred(): number {
     return this.transferred;
   }
@@ -571,11 +581,18 @@ export class Fdc8271 implements IoDevice, Clocked {
         this.start('readId', p[0], 0, sizeAndCount, ID_BYTES);
         return;
       case FDC_CMD_WRITE_DATA:
-      case FDC_CMD_WRITE_DATA_128:
       case FDC_CMD_WRITE_DELETED_DATA:
+        // Deleted Data's mark can't be kept in an image file: it's written as data.
+        if (drive.writeProtected) this.finish(FDC_RESULT_WRITE_PROTECT);
+        else this.start('write', p[0], p[1], sizeAndCount & 0x1f, 128 << (sizeAndCount >> 5));
+        return;
+      case FDC_CMD_WRITE_DATA_128:
       case FDC_CMD_WRITE_DELETED_DATA_128:
+        if (drive.writeProtected) this.finish(FDC_RESULT_WRITE_PROTECT);
+        else this.start('write', p[0], p[1], 1, 128);
+        return;
       case FDC_CMD_FORMAT_TRACK:
-        // Every disc is write protected until Stage 51 decides about writing.
+        // Not built: DFS's ROM never formats (*FORMAT is a utility on disc).
         this.finish(drive.writeProtected ? FDC_RESULT_WRITE_PROTECT : FDC_RESULT_DRIVE_NOT_READY);
         return;
       default:
@@ -638,6 +655,8 @@ export class Fdc8271 implements IoDevice, Clocked {
         }
         this.byteIndex = 0;
         this.phase = this.op === 'readId' ? 'id' : 'data';
+        // A write asks for its first byte as the data field starts: it goes on the disc a byte time later.
+        if (this.op === 'write') this.offerByte();
         this.countdown += CYCLES_PER_BYTE;
         return;
       case 'data':
@@ -707,7 +726,7 @@ export class Fdc8271 implements IoDevice, Clocked {
     this.countdown += cyclesUntil(now, this.sector * CYCLES_PER_SECTOR) + DATA_FIELD_START;
   }
 
-  /** A byte of a data field has come off the disc. */
+  /** A byte of a data field has come off the disc, or (writing) is due to go on. */
   private dataEvent(): void {
     if (this.op === 'read') {
       if ((this.statusByte & FDC_STATUS_DATA_REQUEST) !== 0) {
@@ -717,9 +736,17 @@ export class Fdc8271 implements IoDevice, Clocked {
       // A sector longer than DFS's 256 bytes would run into the gap: we read &00 there.
       this.dataByte = this.byteIndex < SECTOR_SIZE ? (this.drive()?.byteAt(this.sectorAt + this.byteIndex) ?? 0) : 0;
       this.offerByte();
+    } else if (this.op === 'write') {
+      // The byte asked for a byte time ago must be here now.
+      if ((this.statusByte & FDC_STATUS_DATA_REQUEST) !== 0) {
+        this.lateByte();
+        return;
+      }
+      if (this.byteIndex < SECTOR_SIZE) this.drive()?.writeByte(this.sectorAt + this.byteIndex, this.dataByte);
     }
     this.byteIndex++;
     if (this.byteIndex < this.sectorLength) {
+      if (this.op === 'write') this.offerByte();
       this.countdown += CYCLES_PER_BYTE;
       return;
     }
@@ -770,13 +797,13 @@ export class Fdc8271 implements IoDevice, Clocked {
     this.countdown += CRC_BYTES * CYCLES_PER_BYTE;
   }
 
-  /** The byte is in the data register: data request and INT (the NMI's edge). */
+  /** Data request and INT (the NMI's edge): a byte is in the data register, or (writing) one is wanted there. */
   private offerByte(): void {
     this.statusByte |= FDC_STATUS_DATA_REQUEST | FDC_STATUS_INTERRUPT;
     this.transferred++;
   }
 
-  /** The CPU didn't take the last byte in time. */
+  /** The CPU didn't take (or give) the last byte in time. */
   private lateByte(): void {
     this.late++;
     this.transferred--;

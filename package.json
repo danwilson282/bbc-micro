@@ -50,7 +50,8 @@
     "demo:sound": "tsx scripts/demo-sound.ts",
     "demo:disc": "tsx scripts/demo-disc.ts",
     "demo:fdc": "tsx scripts/demo-fdc.ts",
-    "demo:dfs": "tsx scripts/demo-dfs.ts"
+    "demo:dfs": "tsx scripts/demo-dfs.ts",
+    "demo:software": "tsx scripts/demo-software.ts"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

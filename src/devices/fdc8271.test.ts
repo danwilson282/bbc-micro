@@ -138,10 +138,11 @@ describe('8271: with no drive connected (Stage 49)', () => {
     expect(chip.special(0x12)).toBe(0x00);
   });
 
-  it('the data register (&FE84) reads &00 and ignores writes until Stage 50', () => {
+  it('the data register (&FE84) reads &00 at first; a byte written there (for Write Data, Stage 51) is held, and the status doesn\'t change', () => {
     const { chip } = fdc();
-    chip.write(FDC_DATA, 0x55);
     expect(chip.read(FDC_DATA)).toBe(0x00);
+    chip.write(FDC_DATA, 0x55);
+    expect(chip.data).toBe(0x55);
     expect(chip.read(FDC_STATUS)).toBe(0x00);
   });
 });

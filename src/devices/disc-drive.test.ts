@@ -42,11 +42,37 @@ describe('DiscDrive: the disc and the READY line', () => {
     expect(d.disc).toBeUndefined();
   });
 
-  it('with a disc in it is ready, and write protected (our images are read-only)', () => {
+  it('with a disc in it is ready, and not write protected unless the disc has its tab on (Stage 51)', () => {
     const d = new DiscDrive();
     d.insert(ssd());
     expect(d.ready).toBe(true);
+    expect(d.writeProtected).toBe(false);
+    d.insert(ssd(), true);
     expect(d.writeProtected).toBe(true);
+  });
+
+  it('the tab can go on and off with the disc in, and it goes with the disc when it is ejected', () => {
+    const d = new DiscDrive();
+    d.insert(ssd());
+    d.setWriteProtected(true);
+    expect(d.writeProtected).toBe(true);
+    d.setWriteProtected(false);
+    expect(d.writeProtected).toBe(false);
+    d.setWriteProtected(true);
+    d.eject();
+    expect(d.writeProtected).toBe(false);
+  });
+
+  it('writeByte changes the disc in the drive, and does nothing with no disc', () => {
+    const d = new DiscDrive();
+    const disc = ssd();
+    d.insert(disc);
+    d.writeByte(0x300, 0xab);
+    expect(disc.byteAt(0x300)).toBe(0xab);
+    d.eject();
+    expect(() => {
+      d.writeByte(0x300, 0xcd);
+    }).not.toThrow();
   });
 
   it('eject takes the disc out: not ready again', () => {
