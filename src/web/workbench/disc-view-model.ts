@@ -4,7 +4,7 @@
 // The disc isn't in a drive: there's no 8271 until Stages 49-50. This only
 // reads the catalogue, as `npm run demo:disc -- cat` does.
 
-import { formatFromName, maxImageSize } from '../../disc/disc-image';
+import { formatFromName, maxImageSize, type DiscImage } from '../../disc/disc-image';
 import { catalogueProblems, fileSectors, fullName, MAX_FILES, FIRST_FILE_SECTOR } from '../../disc/dfs-catalogue';
 import { openDfsDisc, readCatalogue } from '../../disc/dfs-disc';
 import { catLines, dfsAddress } from '../../disc/dfs-text';
@@ -32,7 +32,13 @@ export interface DiscSideView {
 }
 
 export type DiscView =
-  | { readonly ok: true; readonly heading: string; readonly sides: readonly DiscSideView[] }
+  | {
+      readonly ok: true;
+      readonly heading: string;
+      readonly sides: readonly DiscSideView[];
+      /** The disc itself, for a drive (Stage 50). */
+      readonly image: DiscImage;
+    }
   | { readonly ok: false; readonly error: string };
 
 const hex = (n: number, digits: number): string => `&${n.toString(16).toUpperCase().padStart(digits, '0')}`;
@@ -78,5 +84,5 @@ export function discView(bytes: Uint8Array, fileName: string): DiscView {
       views.push({ drive, error: e instanceof Error ? e.message : String(e), catLines: [], files: [], summary: '', problems: [] });
     }
   }
-  return { ok: true, heading, sides: views };
+  return { ok: true, heading, sides: views, image };
 }

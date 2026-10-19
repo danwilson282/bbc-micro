@@ -1,5 +1,6 @@
 // The FDC panel (Stage 49): the 8271's status bits, the special registers
-// the DFS sets, and the log of every command it has run.
+// the DFS sets, and the log of every command it has run. Stage 50 adds the
+// drives (disc, head track) and the count of bytes that came by NMI.
 //
 // All decisions come from fdc-view-model.ts; this file only builds
 // elements. The fixed parts are built once and only their text changes on
@@ -7,6 +8,7 @@
 // while unused, so nothing flickers while the DFS polls.
 
 import type { FdcLog } from '../../devices/fdc-log';
+import type { DiscDrive } from '../../devices/disc-drive';
 import type { Fdc8271 } from '../../devices/fdc8271';
 import { FDC_ENTRIES_SHOWN, buildFdcView } from './fdc-view-model';
 import type { Panel } from './panel';
@@ -17,7 +19,7 @@ function cell(row: HTMLTableRowElement, className: string): HTMLTableCellElement
   return td;
 }
 
-export function createFdcPanel(fdc: Fdc8271, log: FdcLog): Panel {
+export function createFdcPanel(fdc: Fdc8271, log: FdcLog, drives: readonly DiscDrive[] = []): Panel {
   const element = document.createElement('div');
   element.className = 'fdc-panel';
 
@@ -45,6 +47,20 @@ export function createFdcPanel(fdc: Fdc8271, log: FdcLog): Panel {
     readonly meaning: HTMLTableCellElement;
   }
   const registerCells: RegisterCells[] = [];
+
+  const driveList = document.createElement('dl');
+  driveList.className = 'fdc-drives';
+  driveList.setAttribute('aria-label', 'Drives');
+  const driveTexts: HTMLElement[] = [];
+  for (let i = 0; i < drives.length; i++) {
+    const dt = document.createElement('dt');
+    dt.textContent = `Drive ${String(i)}`;
+    const dd = document.createElement('dd');
+    driveList.append(dt, dd);
+    driveTexts.push(dd);
+  }
+  const transfer = document.createElement('p');
+  transfer.className = 'fdc-transfer';
 
   const logHeading = document.createElement('p');
   logHeading.className = 'fdc-log-heading';
@@ -85,7 +101,7 @@ export function createFdcPanel(fdc: Fdc8271, log: FdcLog): Panel {
     });
   }
 
-  element.append(summary, bitsBox, registers, logHeading, empty, commands);
+  element.append(summary, bitsBox, registers, driveList, transfer, logHeading, empty, commands);
 
   function refresh(): void {
     const view = buildFdcView({
@@ -95,6 +111,10 @@ export function createFdcPanel(fdc: Fdc8271, log: FdcLog): Panel {
       driveLines: fdc.driveLines,
       special: (address) => fdc.special(address),
       entries: log.recent(FDC_ENTRIES_SHOWN),
+      phase: fdc.currentPhase,
+      drives: drives.map((d) => ({ disc: d.disc?.name, headTrack: d.headTrack })),
+      bytesTransferred: fdc.bytesTransferred,
+      lateBytes: fdc.lateBytes,
     });
     summary.textContent = view.summary;
     bitChips.forEach((chip, i) => {
@@ -118,6 +138,11 @@ export function createFdcPanel(fdc: Fdc8271, log: FdcLog): Panel {
       cells.value.textContent = r.value;
       cells.meaning.textContent = r.meaning;
     });
+    view.drives.forEach((d, i) => {
+      const dd = driveTexts.at(i);
+      if (dd !== undefined) dd.textContent = d.text;
+    });
+    transfer.textContent = view.transfer;
     empty.textContent = view.empty;
     empty.hidden = view.empty === '';
     entryCells.forEach((c, i) => {

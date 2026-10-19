@@ -73,10 +73,17 @@
 //
 // Stage 49 fits the 8271 disc controller in SHEILA's &FE80 slot: its command,
 // parameter, status, result and reset registers, and a log of every command
-// it runs. No drive is connected yet, and its INT pin isn't wired to /NMI:
-// both are Stage 50.
+// it runs.
 //
 //   6502 ──▶ &FE80-&FE87 ──▶ 8271 ──▶ fdcLog
+//
+// Stage 50 connects two drives and wires the 8271's INT pin to /NMI. The
+// 8271 is ticked with the other chips (the disc turns, the head steps), and
+// after every tick its INT is copied to the CPU's /NMI. The CPU's edge latch
+// (Stage 17) turns each rising INT, one per disc byte, into one NMI.
+//
+//   8271 INT ──▶ /NMI ──▶ 6502 ──▶ &0D00 (DFS's handler) ──▶ reads &FE84
+//   8271 SELECT, SIDE, STEP ──▶ drive 0 / drive 1 ◀── insertDisc()
 //
 // step() and runCycles() are the hot path: no objects, closures or arrays
 // are made in them, and the device lists are walked with indexed loops.
@@ -97,12 +104,14 @@ import { Keyboard } from '../devices/keyboard';
 import type { IrqSource } from '../devices/irq-source';
 import { AciaStub } from '../devices/stubs/acia-stub';
 import { Crtc6845 } from '../devices/crtc6845';
+import { DiscDrive } from '../devices/disc-drive';
 import { Fdc8271 } from '../devices/fdc8271';
 import { FdcLog } from '../devices/fdc-log';
 import { Sn76489 } from '../devices/sn76489';
 import { ULA_CONTROL_FAST_CLOCK, VideoUla } from '../devices/video-ula';
 import { Via6522, type PinListener, type ViaPort } from '../devices/via6522';
 import { BitmapRenderer } from '../video/bitmap-renderer';
+import type { DiscImage } from '../disc/disc-image';
 import { BbcMemoryMap } from '../memory/bbc-memory-map';
 import type { IoDevice } from '../memory/io-device';
 import type { DataBus } from '../memory/placeholder-device';
@@ -160,8 +169,10 @@ export class BbcModelB implements PinListener, DataBus, CycleClock {
   readonly bitmap: BitmapRenderer;
   /** The sound chip (Stage 44), written through port A when IC32 bit 0 falls; ticked from Stage 45. connectOutput() to hear it. */
   readonly sound: Sn76489;
-  /** The 8271 disc controller (Stage 49): commands, no drives yet. */
+  /** The 8271 disc controller (Stage 49); its drives and data transfer from Stage 50. */
   readonly fdc: Fdc8271;
+  /** Drive 0 and drive 1 on the 8271's cable (Stage 50). DFS drives 2 and 3 are their other sides. */
+  readonly drives: readonly [DiscDrive, DiscDrive] = [new DiscDrive(), new DiscDrive()];
   /** Every command the 8271 ran, with its parameters and result. */
   readonly fdcLog: FdcLog;
   readonly map: BbcMemoryMap;
@@ -196,7 +207,7 @@ export class BbcModelB implements PinListener, DataBus, CycleClock {
     this.sound = new Sn76489(this.hardwareLog);
     this.sound.powerOn();
     this.fdcLog = new FdcLog(this, FDC_LOG_CAPACITY);
-    this.fdc = new Fdc8271(this.fdcLog);
+    this.fdc = new Fdc8271(this.fdcLog, this.drives);
     this.keyboard = new Keyboard(undefined, () => {
       this.answerKeyboard();
     });
@@ -356,6 +367,18 @@ export class BbcModelB implements PinListener, DataBus, CycleClock {
     this.cpu.setNmi(false);
   }
 
+  // ── Discs ──────────────────────────────────────────────────────────────
+
+  /** Puts a disc in drive 0 or 1 (replacing any there). The head stays where it is. */
+  insertDisc(drive: 0 | 1, image: DiscImage): void {
+    this.drives[drive].insert(image);
+  }
+
+  /** Takes the disc out of drive 0 or 1. */
+  ejectDisc(drive: 0 | 1): void {
+    this.drives[drive].eject();
+  }
+
   // ── The System VIA's pins ──────────────────────────────────────────────
 
   /**
@@ -499,6 +522,10 @@ export class BbcModelB implements PinListener, DataBus, CycleClock {
   private tick(cycles: number): void {
     const devices = this.clocked;
     for (let i = 0; i < devices.length; i++) devices[i]?.tick(cycles);
+    // Ticked on its own, not from the list: a fifth class in that loop's call made it 20% slower (Stage 50, measured).
+    this.fdc.tick(cycles);
+    // The 8271's INT is the Model B's only /NMI source (Econet is out of scope). The CPU latches the edge.
+    this.cpu.setNmi(this.fdc.interruptRequest);
   }
 
   /** Copies the wire-OR to the CPU's /IRQ pin. */

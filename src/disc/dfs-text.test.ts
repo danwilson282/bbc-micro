@@ -42,13 +42,21 @@ describe('*CAT-style text', () => {
     expect(catLines(REPTONISH, 0).slice(0, 4)).toEqual(['REPLOAD (01)', 'Drive 0             Option 3 (EXEC)', 'Directory :0.$      Library :0.$', '']);
   });
 
-  test('files in two columns; other directories shown with their letter; L for locked', () => {
+  test('files in two columns; L for locked; other directories after a blank line, with their letter (as DFS 0.98 prints it)', () => {
     expect(catLines(REPTONISH, 0).slice(4)).toEqual([
       // 0         1         2         3
       // 0123456789012345678901234567890123
-      '    !BOOT   L           FONTS',
-      '    REPTON  L         E.EDITOR  L',
-      '  E.REPTON1 L',
+      '    !BOOT    L          FONTS',
+      '    REPTON   L',
+      '',
+      '  E.EDITOR   L        E.REPTON1  L',
+    ]);
+  });
+
+  test('no blank line when every file is in the current directory', () => {
+    expect(catLines({ ...REPTONISH, files: REPTONISH.files.filter((f) => f.directory === '$') }, 0).slice(4)).toEqual([
+      '    !BOOT    L          FONTS',
+      '    REPTON   L',
     ]);
   });
 

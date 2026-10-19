@@ -397,11 +397,19 @@ workbench.add(createByteExplorerPanel(machine.videoUla));
 workbench.add(createSoundPanel(machine.sound, machine.hardwareLog));
 // The Disc panel (Stage 48): a dropped .ssd or .dsd's DFS catalogue. A file
 // dropped anywhere on the page goes to it, since the browser's own response
-// to a dropped file is to leave the page and show it.
-const discPanel = createDiscPanel();
+// to a dropped file is to leave the page and show it. Since Stage 50 the disc
+// goes into drive 0 too, for the DFS to read.
+const discPanel = createDiscPanel({
+  insert: (image) => {
+    machine.insertDisc(0, image);
+  },
+  eject: () => {
+    machine.ejectDisc(0);
+  },
+});
 workbench.add(discPanel);
-// The 8271 (Stage 49): its status bits, special registers, and every command the DFS sends it.
-workbench.add(createFdcPanel(machine.fdc, machine.fdcLog));
+// The 8271 (Stage 49): its status bits, special registers, and every command the DFS sends it; its drives from Stage 50.
+workbench.add(createFdcPanel(machine.fdc, machine.fdcLog, machine.drives));
 document.addEventListener('dragover', (event) => {
   if (event.dataTransfer?.types.includes('Files') === true) event.preventDefault();
 });

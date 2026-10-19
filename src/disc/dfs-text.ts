@@ -1,10 +1,10 @@
 // A catalogue as text, the way DFS's *CAT and *INFO print it. Shared by the
 // CLI demo and the browser's Disc panel.
 //
-// The content follows the DFS User Guide. The exact spacing is our imitation
-// of DFS 1.20 in MODE 7 (two 20-column columns), not yet checked against the
-// real ROM: Stage 50 runs the real *CAT, and if the screens differ, the ROM
-// wins and this file changes.
+// The content follows the DFS User Guide. The spacing is copied from what
+// DFS 0.98 really prints in MODE 7 (Stage 50 ran it on four discs): two
+// 20-column columns, "L" two spaces after a 7-character name, and the other
+// directories as their own group after a blank line.
 
 import { BOOT_OPTION_NAMES, fullName, type DfsCatalogue, type DfsFile } from './dfs-catalogue';
 
@@ -43,10 +43,20 @@ export function sortedForCat(files: readonly DfsFile[]): DfsFile[] {
   return [...here, ...others];
 }
 
-/** "    !BOOT   L" or "  E.EDITOR  L": a file in its *CAT column. */
+/** "    !BOOT    L" or "  E.EDITOR   L": a file in its *CAT column (DFS 0.98's spacing, seen in Stage 50). */
 function catEntry(file: DfsFile): string {
   const prefix = file.directory === CURRENT_DIRECTORY ? '  ' : `${file.directory}.`;
-  return `  ${prefix}${file.name.padEnd(7)}${file.locked ? ' L' : ''}`;
+  return `  ${prefix}${file.name.padEnd(7)}${file.locked ? '  L' : ''}`;
+}
+
+/** Entries two to a row, the second at CAT_COLUMN. */
+function inRows(entries: readonly string[]): string[] {
+  const rows: string[] = [];
+  for (let i = 0; i < entries.length; i += 2) {
+    const left = entries[i];
+    rows.push((i + 1 < entries.length ? left.padEnd(CAT_COLUMN) + entries[i + 1] : left).trimEnd());
+  }
+  return rows;
 }
 
 /** The lines *CAT prints for this catalogue in drive `drive` (0, or 2 for side 1 of a dsd). */
@@ -58,11 +68,12 @@ export function catLines(catalogue: DfsCatalogue, drive: number): string[] {
     `${`Directory :${d}.${CURRENT_DIRECTORY}`.padEnd(CAT_COLUMN)}Library :${d}.${CURRENT_DIRECTORY}`,
     '',
   ];
-  const entries = sortedForCat(catalogue.files).map(catEntry);
-  for (let i = 0; i < entries.length; i += 2) {
-    const left = entries[i];
-    const right = i + 1 < entries.length ? entries[i + 1] : undefined;
-    lines.push((right === undefined ? left : left.padEnd(CAT_COLUMN) + right).trimEnd());
-  }
+  // The current directory's files, then the others, each group starting its own row with a blank line between (DFS 0.98).
+  const sorted = sortedForCat(catalogue.files);
+  const here = inRows(sorted.filter((f) => f.directory === CURRENT_DIRECTORY).map(catEntry));
+  const others = inRows(sorted.filter((f) => f.directory !== CURRENT_DIRECTORY).map(catEntry));
+  lines.push(...here);
+  if (here.length > 0 && others.length > 0) lines.push('');
+  lines.push(...others);
   return lines;
 }

@@ -26,7 +26,7 @@ describe('BbcModelB: the 8271 on the bus', () => {
     const m = new BbcModelB();
     m.map.write(0xfe80, 0x6c); // Read Drive Status
     expect(m.map.read(0xfe98)).toBe(FDC_STATUS_RESULT_FULL);
-    expect(m.map.read(0xfe89)).toBe(0x00); // the result, through a mirror
+    expect(m.map.read(0xfe89)).toBe(0x02); // the result, through a mirror: drive 0 is empty, its head on track 0 (TRK0)
     expect(m.fdc.status).toBe(0x00);
   });
 
@@ -43,7 +43,7 @@ describe('BbcModelB: the 8271 on the bus', () => {
     const m = new BbcModelB();
     m.cpu.cycles = 5000;
     m.map.write(0xfe80, 0x6c);
-    expect(m.fdcLog.recent()[0]).toMatchObject({ command: 0x6c, cycles: 5000, result: 0x00 });
+    expect(m.fdcLog.recent()[0]).toMatchObject({ command: 0x6c, cycles: 5000, result: 0x02 });
   });
 });
 

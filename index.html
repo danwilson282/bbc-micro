@@ -1320,7 +1320,35 @@
         font-size: 0.8rem;
         padding-left: 1.2em;
       }
+      .disc-drive-row {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        margin: 6px 0;
+      }
+      .disc-in-drive {
+        margin: 0;
+        font-size: 0.85rem;
+        font-weight: 600;
+      }
       /* FDC panel (Stage 49) */
+      .fdc-drives {
+        display: grid;
+        grid-template-columns: max-content 1fr;
+        gap: 2px 12px;
+        margin: 8px 0 4px;
+        font-size: 0.85rem;
+      }
+      .fdc-drives dt {
+        font-weight: 600;
+      }
+      .fdc-drives dd {
+        margin: 0;
+      }
+      .fdc-transfer {
+        margin: 4px 0;
+        font-size: 0.85rem;
+      }
       .fdc-summary {
         margin: 0 0 6px;
         font-weight: 600;

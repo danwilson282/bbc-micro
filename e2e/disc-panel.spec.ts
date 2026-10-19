@@ -13,7 +13,7 @@ test('choosing the Stage 48 test disc shows its catalogue as *CAT would, and eac
 
   await expect(panel.getByRole('status')).toHaveText('stage48.ssd: ssd, single-sided, 40 tracks');
   await expect(panel.locator('.disc-cat')).toHaveText(
-    ['STAGE 48 (00)', 'Drive 0             Option 3 (EXEC)', 'Directory :0.$      Library :0.$', '', '    !BOOT               EMPTY', '    HELLO   L           README', '  E.DATA'].join('\n'),
+    ['STAGE 48 (00)', 'Drive 0             Option 3 (EXEC)', 'Directory :0.$      Library :0.$', '', '    !BOOT               EMPTY', '    HELLO    L          README', '', '  E.DATA'].join('\n'),
   );
   const hello = panel.locator('.disc-files tbody tr', { hasText: '$.HELLO' });
   await expect(hello.locator('td')).toHaveText(['$.HELLO', 'L', 'FF1900', 'FF1900', '&0021', '&003', '1']);

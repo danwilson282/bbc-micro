@@ -74,6 +74,8 @@ export class DiscImage {
   private readonly store: Uint8Array;
 
   private constructor(
+    /** The file's name, for panels and messages (Stage 50). */
+    readonly name: string,
     readonly geometry: DiscGeometry,
     /** How many bytes the file really had. Short images are common. */
     readonly fileLength: number,
@@ -98,7 +100,7 @@ export class DiscImage {
       );
     }
     const count: TrackCount = tracks ?? (bytes.length <= maxImageSize(format, 40) ? 40 : 80);
-    return new DiscImage({ format, sides: sidesOf(format), tracks: count }, bytes.length, bytes);
+    return new DiscImage(name, { format, sides: sidesOf(format), tracks: count }, bytes.length, bytes);
   }
 
   /** Whether this disc has (side, track, sector). Never throws. */
@@ -117,6 +119,15 @@ export class DiscImage {
       );
     }
     return sectorOffset(this.geometry.format, side, track, sector);
+  }
+
+  /**
+   * The byte at an offset in the image file, or &00 outside it. Makes
+   * nothing: the 8271 reads a sector this way, a byte at a time, from inside
+   * the CPU's step (Stage 50).
+   */
+  byteAt(offset: number): number {
+    return this.store[offset] ?? 0x00;
   }
 
   /** A copy of the 256 bytes of (side, track, sector). Throws RangeError if the disc hasn't got it. */

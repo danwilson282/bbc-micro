@@ -2,7 +2,7 @@ import { test, expect, type APIRequestContext, type Page } from '@playwright/tes
 
 // Stage 49: the FDC panel logs every command the DFS sends the 8271. At
 // power-on: three Specifies and the mode register. *CAT: select drive 0,
-// then poll Read Drive Status (no drive, so never ready). Escape: the DFS
+// then poll Read Drive Status (no disc in drive 0, so never ready). Escape: the DFS
 // resets the 8271 and sets it up again. In the real-time project, because
 // typing needs the machine running.
 
@@ -51,7 +51,7 @@ test.describe('the FDC panel with DFS 0.98', () => {
     const panel = page.locator('[data-panel="FDC (8271)"]');
     const rows = panel.locator('.fdc-log tbody tr:not([hidden])');
     await expect(rows.nth(5)).toContainText('Write Special Register &23 (drive control output) = &48: SELECT 0, LOAD HEAD');
-    await expect(rows.nth(6)).toContainText('Read Drive Status → &00: not ready');
+    await expect(rows.nth(6)).toContainText('Read Drive Status → &02: TRK0'); // drive 0 is empty: no RDY0 (Stage 50)
     await expect(rows.nth(6).locator('.fdc-repeats')).toHaveText(/^×[\d,]+$/);
 
     await tap(page, 'Escape');
