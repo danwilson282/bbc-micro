@@ -30,7 +30,7 @@ function run(m: BbcModelB, frames: number): void {
 /** Powered on and run to the > prompt. */
 function booted(): BbcModelB {
   const m = new BbcModelB();
-  loadStandardRoms(m.map);
+  loadStandardRoms(m.map, ['mos', 'basic']);
   m.powerOn();
   run(m, 50);
   return m;
@@ -74,7 +74,7 @@ describe('the lock LEDs, as MOS 1.20 drives them', () => {
 
   withRoms(...BOTH_ROMS)('at power-on, after clearing RAM, the MOS lights both LEDs (keyLeds with &025A still &00), then puts SHIFT LOCK out once &025A is &20', () => {
     const m = new BbcModelB();
-    loadStandardRoms(m.map);
+    loadStandardRoms(m.map, ['mos', 'basic']);
     m.hardwareLog.clear();
     m.powerOn();
     run(m, 50);

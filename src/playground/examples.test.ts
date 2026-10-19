@@ -741,7 +741,7 @@ describe('the Stage 21 memory-map example', () => {
     expect(map.ioLog.recent().map((e) => `${e.write ? 'W' : 'R'} ${describeIoAddress(e.address).text}`)).toEqual([
       'W System VIA reg 14 (IER)',
       'W System VIA reg 14 (IER), mirror of &FE4E',
-      'R 8271 FDC reg 0 (status / command)',
+      'R ADC reg 0 (status / start conversion)',
       'R JIM (1 MHz bus: nothing connected)',
       'W ROMSEL (paged ROM select)',
       'W CRTC reg 0 (address register)',

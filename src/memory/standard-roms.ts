@@ -26,6 +26,19 @@ export const STANDARD_ROMS: readonly StandardRom[] = [
   { id: 'dfs', file: 'dfs.rom', name: 'Acorn DFS', slot: 14 },
 ];
 
+const STANDARD_ROM_IDS: readonly StandardRomId[] = ['mos', 'basic', 'dfs'];
+
+/**
+ * The browser's ?roms= option (Stage 49): "mos,basic" fits just those two,
+ * as a real machine with no DFS. Absent (null) means every ROM found: undefined.
+ * Unknown names are ignored, so "?roms=" alone fits nothing.
+ */
+export function parseRomsParam(value: string | null): readonly StandardRomId[] | undefined {
+  if (value === null) return undefined;
+  const names = value.split(',').map((n) => n.trim());
+  return STANDARD_ROM_IDS.filter((id) => names.includes(id));
+}
+
 /** Puts a fitted 16K image where `rom` belongs. */
 export function installRom(map: BbcMemoryMap, rom: StandardRom, image: Uint8Array): void {
   if (rom.slot === 'mos') map.loadMos(image);

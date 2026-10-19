@@ -47,7 +47,7 @@ test('MOS mode boots MOS 1.20 and BASIC II to the > prompt in MODE 7 screen memo
   test.skip(!(await isRom('/roms/os12.rom')) || !(await isRom('/roms/basic2.rom')), 'roms/os12.rom or roms/basic2.rom is missing (Acorn copyright, so you supply them)');
 
   // Paused (Stage 30), so this test drives the machine itself and doesn't compete for CPU while it loads.
-  await page.goto('/?machine=mos&paused');
+  await page.goto('/?machine=mos&roms=mos,basic&paused');
   await expect(page.locator('.rom-status')).toContainText('os12.rom');
   await expect(page.getByRole('region', { name: 'Assembler' })).toHaveCount(0);
   await expect(page.getByRole('region', { name: 'Interrupts' })).toContainText('&FFFC');

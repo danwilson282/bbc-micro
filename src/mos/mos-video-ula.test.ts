@@ -6,7 +6,7 @@ import { MOS_ULA_CONTROL, MOS_ULA_CONTROL_TABLE, mosModesFor } from './mos-video
 describe('MOS 1.20\'s Video ULA control table', () => {
   withRoms('roms/os12.rom')('is the 8 bytes at &C3F7: &9C &D8 &F4 &9C &88 &C4 &88 &4B', () => {
     const m = new BbcModelB();
-    loadStandardRoms(m.map);
+    loadStandardRoms(m.map, ['mos', 'basic']);
     const table = Array.from({ length: 8 }, (_, mode) => m.map.peek(MOS_ULA_CONTROL_TABLE + mode));
     expect(table).toEqual(MOS_ULA_CONTROL);
   });

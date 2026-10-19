@@ -33,7 +33,7 @@ function bin8(value: number): string {
 /** A machine with the ROMs from roms/, or undefined if they're missing. */
 function machine(): BbcModelB | undefined {
   const m = new BbcModelB();
-  const report = loadStandardRoms(m.map);
+  const report = loadStandardRoms(m.map, ['mos', 'basic']);
   const has = (id: string): boolean => report.loaded.some((r) => r.id === id);
   if (!has('mos') || !has('basic')) return undefined;
   return m;

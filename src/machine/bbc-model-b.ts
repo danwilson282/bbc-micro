@@ -71,6 +71,13 @@
 // Stage 45 ticks it with the other chips: its generators move on once per 8
 // CPU cycles (4 MHz ÷ 16 = 250 kHz), feeding m.sound's connected output.
 //
+// Stage 49 fits the 8271 disc controller in SHEILA's &FE80 slot: its command,
+// parameter, status, result and reset registers, and a log of every command
+// it runs. No drive is connected yet, and its INT pin isn't wired to /NMI:
+// both are Stage 50.
+//
+//   6502 ──▶ &FE80-&FE87 ──▶ 8271 ──▶ fdcLog
+//
 // step() and runCycles() are the hot path: no objects, closures or arrays
 // are made in them, and the device lists are walked with indexed loops.
 
@@ -90,6 +97,8 @@ import { Keyboard } from '../devices/keyboard';
 import type { IrqSource } from '../devices/irq-source';
 import { AciaStub } from '../devices/stubs/acia-stub';
 import { Crtc6845 } from '../devices/crtc6845';
+import { Fdc8271 } from '../devices/fdc8271';
+import { FdcLog } from '../devices/fdc-log';
 import { Sn76489 } from '../devices/sn76489';
 import { ULA_CONTROL_FAST_CLOCK, VideoUla } from '../devices/video-ula';
 import { Via6522, type PinListener, type ViaPort } from '../devices/via6522';
@@ -108,6 +117,9 @@ export const USER_VIA_NAME = 'User VIA';
 
 /** Enough for a boot's worth of CRTC, ULA and latch writes. */
 export const HARDWARE_LOG_CAPACITY = 4096;
+
+/** The 8271's commands. Polling folds into one entry, so a few hundred is plenty. */
+export const FDC_LOG_CAPACITY = 256;
 
 /** PA7: the keyboard's "that key is down" line (Advanced User Guide, System VIA port A). */
 const PA7 = 0x80;
@@ -148,6 +160,10 @@ export class BbcModelB implements PinListener, DataBus, CycleClock {
   readonly bitmap: BitmapRenderer;
   /** The sound chip (Stage 44), written through port A when IC32 bit 0 falls; ticked from Stage 45. connectOutput() to hear it. */
   readonly sound: Sn76489;
+  /** The 8271 disc controller (Stage 49): commands, no drives yet. */
+  readonly fdc: Fdc8271;
+  /** Every command the 8271 ran, with its parameters and result. */
+  readonly fdcLog: FdcLog;
   readonly map: BbcMemoryMap;
   readonly cpu: Cpu6502;
   /** The last 1,024 steps, each recorded just before it ran. */
@@ -179,6 +195,8 @@ export class BbcModelB implements PinListener, DataBus, CycleClock {
     this.videoUla = new VideoUla(this, this.hardwareLog);
     this.sound = new Sn76489(this.hardwareLog);
     this.sound.powerOn();
+    this.fdcLog = new FdcLog(this, FDC_LOG_CAPACITY);
+    this.fdc = new Fdc8271(this.fdcLog);
     this.keyboard = new Keyboard(undefined, () => {
       this.answerKeyboard();
     });
@@ -192,7 +210,7 @@ export class BbcModelB implements PinListener, DataBus, CycleClock {
       if (this.vsyncToCa1) this.systemVia.setControlLine('ca1', level);
     });
     this.map = new BbcMemoryMap({
-      devices: { acia: this.acia, systemVia: this.systemVia, userVia: this.userVia, crtc: this.crtc, videoUla: this.videoUla },
+      devices: { acia: this.acia, systemVia: this.systemVia, userVia: this.userVia, crtc: this.crtc, videoUla: this.videoUla, fdc: this.fdc },
     });
     // The screen is always RAM (A0-A14), and the ULA's reads have no side effects: peek is the bus it sees.
     // IC32's C0/C1 tell the board how big the screen is, for the MA12 wrap (Stage 43).
@@ -291,6 +309,8 @@ export class BbcModelB implements PinListener, DataBus, CycleClock {
     this.systemVia.reset();
     this.userVia.reset();
     this.keyboard.resetScan();
+    // Its RESET pin isn't on the 6502's /RES, so BREAK doesn't reach it: the DFS resets it through &FE82.
+    this.fdc.powerOn();
     this.latchFollowsPins();
     return this.reset();
   }

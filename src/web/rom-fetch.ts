@@ -10,7 +10,7 @@
 
 import type { BbcMemoryMap } from '../memory/bbc-memory-map';
 import { toRomImage } from '../memory/rom-image';
-import { STANDARD_ROMS, installRom, type RomLoadReport, type StandardRom } from '../memory/standard-roms';
+import { STANDARD_ROMS, installRom, type RomLoadReport, type StandardRom, type StandardRomId } from '../memory/standard-roms';
 
 /** The parts of fetch() we use, so tests can pass a fake. */
 export interface RomResponse {
@@ -44,9 +44,18 @@ export async function fetchRom(url: string, fetchFn: RomFetch = browserFetch): P
   }
 }
 
-/** Fetches every standard ROM from `base` (e.g. "/roms/") into `map`, and reports what was missing. */
-export async function fetchStandardRoms(map: BbcMemoryMap, base = '/roms/', fetchFn: RomFetch = browserFetch): Promise<RomLoadReport> {
-  const results = await Promise.all(STANDARD_ROMS.map(async (rom) => ({ rom, result: await fetchRom(base + rom.file, fetchFn) })));
+/**
+ * Fetches every standard ROM from `base` (e.g. "/roms/") into `map`, and
+ * reports what was missing. `only` limits it to some of them (the ?roms= option).
+ */
+export async function fetchStandardRoms(
+  map: BbcMemoryMap,
+  base = '/roms/',
+  fetchFn: RomFetch = browserFetch,
+  only?: readonly StandardRomId[],
+): Promise<RomLoadReport> {
+  const wanted = only === undefined ? STANDARD_ROMS : STANDARD_ROMS.filter((rom) => only.includes(rom.id));
+  const results = await Promise.all(wanted.map(async (rom) => ({ rom, result: await fetchRom(base + rom.file, fetchFn) })));
   const loaded: StandardRom[] = [];
   const missing: StandardRom[] = [];
   for (const { rom, result } of results) {

@@ -64,4 +64,18 @@ describe('fetchStandardRoms', () => {
     expect(map.sidewaysRom(15)?.[0]).toBe(0xbb);
     expect(map.sidewaysRom(14)).toBeUndefined();
   });
+
+  it('only: fetches just the ROMs named, so a missing DFS is not even asked for (?roms=mos,basic)', async () => {
+    const map = new BbcMemoryMap();
+    const asked: string[] = [];
+    const files = { '/roms/os12.rom': reply(new Uint8Array(0x4000)), '/roms/basic2.rom': reply(new Uint8Array(0x4000)), '/roms/dfs.rom': reply(new Uint8Array(0x2000)) };
+    const fetchFn: RomFetch = (url) => {
+      asked.push(url);
+      return server(files)(url);
+    };
+    const report = await fetchStandardRoms(map, '/roms/', fetchFn, ['mos', 'basic']);
+    expect(asked.sort()).toEqual(['/roms/basic2.rom', '/roms/os12.rom']);
+    expect(report.missing).toEqual([]);
+    expect(map.sidewaysRom(14)).toBeUndefined();
+  });
 });

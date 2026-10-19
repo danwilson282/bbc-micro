@@ -24,14 +24,14 @@ test('Run logs each I/O access with its device and register, and counts them per
   await expect(panel.locator('.map-log tbody td.text')).toHaveText([
     'System VIA reg 14 (IER)',
     'System VIA reg 14 (IER), mirror of &FE4E',
-    '8271 FDC reg 0 (status / command)',
+    'ADC reg 0 (status / start conversion)',
     'JIM (1 MHz bus: nothing connected)',
     'ROMSEL (paged ROM select)',
     'CRTC reg 0 (address register)',
     'CRTC reg 1 (register data)',
   ]);
   await expect(panel.locator('tr[data-slot="systemVia"] td.count')).toHaveText(['0', '2']);
-  await expect(panel.locator('tr[data-slot="fdc"] td.count')).toHaveText(['1', '0']);
+  await expect(panel.locator('tr[data-slot="adc"] td.count')).toHaveText(['1', '0']);
   // The results: RAM kept &48, ROM lost it, and the floating reads at &82-&84.
   const memory = page.getByRole('region', { name: 'Memory', exact: true });
   await memory.getByRole('textbox', { name: 'Go to address' }).fill('&0080');

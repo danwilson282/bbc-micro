@@ -25,7 +25,7 @@ function run(m: BbcModelB, frames: number): void {
 
 function booted(): BbcModelB {
   const m = new BbcModelB();
-  const report = loadStandardRoms(m.map);
+  const report = loadStandardRoms(m.map, ['mos', 'basic']);
   const has = (id: string): boolean => report.loaded.some((r) => r.id === id);
   if (!has('mos') || !has('basic')) {
     console.log('  skipped: roms/os12.rom and roms/basic2.rom are needed (Acorn copyright, so you supply them).');

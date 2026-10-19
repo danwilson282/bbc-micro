@@ -8,7 +8,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import type { BbcMemoryMap } from './bbc-memory-map';
 import { toRomImage } from './rom-image';
-import { STANDARD_ROMS, installRom, type RomLoadReport, type StandardRom } from './standard-roms';
+import { STANDARD_ROMS, installRom, type RomLoadReport, type StandardRom, type StandardRomId } from './standard-roms';
 
 export const ROMS_DIR = 'roms';
 
@@ -26,11 +26,16 @@ export function loadRomFile(path: string): Uint8Array {
   return toRomImage(new Uint8Array(readFileSync(path)), path);
 }
 
-/** Loads every standard ROM whose file exists into `map`, and reports what was missing. */
-export function loadStandardRoms(map: BbcMemoryMap): RomLoadReport {
+/**
+ * Loads every standard ROM whose file exists into `map`, and reports what
+ * was missing. `only` limits it to some of them: a test about MOS 1.20 and
+ * BASIC II passes ['mos', 'basic'], so a fitted DFS doesn't change its screen.
+ */
+export function loadStandardRoms(map: BbcMemoryMap, only?: readonly StandardRomId[]): RomLoadReport {
   const loaded: StandardRom[] = [];
   const missing: StandardRom[] = [];
   for (const rom of STANDARD_ROMS) {
+    if (only !== undefined && !only.includes(rom.id)) continue;
     const path = romPath(rom);
     if (!romFileExists(path)) {
       missing.push(rom);

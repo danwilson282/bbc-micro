@@ -17,6 +17,7 @@ import { BbcModelB } from './machine/bbc-model-b';
 import { MOS_LABELS } from './mos/mos-labels';
 import { Doorbell } from './playground/doorbell';
 import { fetchStandardRoms } from './web/rom-fetch';
+import { parseRomsParam } from './memory/standard-roms';
 import { createFrameLoop } from './web/frame-loop';
 import { PcKeyTracker } from './web/key-map';
 import { attachKeyboardInput } from './web/keyboard-input';
@@ -61,6 +62,7 @@ import { createVideoUlaPanel } from './web/workbench/video-ula-panel';
 import { createSoundPanel } from './web/workbench/sound-panel';
 import { createByteExplorerPanel } from './web/workbench/byte-explorer-panel';
 import { createDiscPanel } from './web/workbench/disc-panel';
+import { createFdcPanel } from './web/workbench/fdc-panel';
 
 const screenFrame = document.querySelector<HTMLElement>('.screen-frame');
 // instanceof narrows querySelector's Element to the canvas, so no cast is needed.
@@ -398,6 +400,8 @@ workbench.add(createSoundPanel(machine.sound, machine.hardwareLog));
 // to a dropped file is to leave the page and show it.
 const discPanel = createDiscPanel();
 workbench.add(discPanel);
+// The 8271 (Stage 49): its status bits, special registers, and every command the DFS sends it.
+workbench.add(createFdcPanel(machine.fdc, machine.fdcLog));
 document.addEventListener('dragover', (event) => {
   if (event.dataTransfer?.types.includes('Files') === true) event.preventDefault();
 });
@@ -412,7 +416,9 @@ workbench.add(createConverterPanel());
 
 if (mosMode) {
   romStatus.textContent = 'loading ROMs…';
-  void fetchStandardRoms(bus).then((report) => {
+  // ?roms=mos,basic fits just those (the e2e tests written before the DFS use it); by default, every ROM in roms/.
+  const only = parseRomsParam(new URLSearchParams(location.search).get('roms'));
+  void fetchStandardRoms(bus, '/roms/', undefined, only).then((report) => {
     const missing = report.missing.map((rom) => rom.file);
     romStatus.textContent = `ROMs: ${report.loaded.map((rom) => rom.file).join(', ') || 'none'}${missing.length > 0 ? ` (missing: ${missing.join(', ')})` : ''}`;
     if (!report.loaded.some((rom) => rom.id === 'mos')) {

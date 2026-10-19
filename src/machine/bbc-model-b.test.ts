@@ -515,7 +515,7 @@ describe('BbcModelB: with MOS 1.20', () => {
   /** A powered-on machine with the ROMs from roms/, run for some frames. */
   function booted(frames: number, setUp: (m: BbcModelB) => void = () => undefined): BbcModelB {
     const m = new BbcModelB();
-    loadStandardRoms(m.map);
+    loadStandardRoms(m.map, ['mos', 'basic']);
     setUp(m);
     m.powerOn();
     for (let i = 0; i < frames; i++) m.runFrame();
@@ -553,7 +553,7 @@ describe('BbcModelB: with MOS 1.20', () => {
 
   withRoms('roms/os12.rom')('names it all in the hardware log, starting with the latch bit 7 that PB3-PB0 floating high set at power-on', () => {
     const m = new BbcModelB();
-    loadStandardRoms(m.map);
+    loadStandardRoms(m.map, ['mos', 'basic']);
     m.hardwareLog.clear();
     m.powerOn();
     for (let i = 0; i < 40; i++) m.runFrame();

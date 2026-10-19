@@ -47,7 +47,7 @@ async function pause(page: Page): Promise<void> {
 
 test('the boot text appears live in the browser, with nobody pressing Run', async ({ page, request }) => {
   test.skip(!(await hasRoms(request)), 'roms/os12.rom or roms/basic2.rom is missing (Acorn copyright, so you supply them)');
-  await page.goto('/?machine=mos');
+  await page.goto('/?machine=mos&roms=mos,basic');
   const screen = page.getByLabel('Screen (MODE 7 as text)');
   await expect(screen).toContainText('BBC Computer 32K');
   await expect(screen).toContainText('BASIC');
@@ -63,7 +63,7 @@ test('the boot text appears live in the browser, with nobody pressing Run', asyn
 
 test('it never runs faster than real time, whatever the display rate, and Pause, Step frame and Run work', async ({ page, request }) => {
   test.skip(!(await hasRoms(request)), 'roms/os12.rom or roms/basic2.rom is missing (Acorn copyright, so you supply them)');
-  await page.goto('/?machine=mos');
+  await page.goto('/?machine=mos&roms=mos,basic');
   const controls = page.getByRole('group', { name: 'Machine' });
   const status = controls.getByRole('status');
   // The speed is measured over a whole second. On a 60 Hz display, one frame
@@ -93,7 +93,7 @@ test('it never runs faster than real time, whatever the display rate, and Pause,
 
 test('Step in the Registers panel pauses the frame loop first: one driver at a time', async ({ page, request }) => {
   test.skip(!(await hasRoms(request)), 'roms/os12.rom or roms/basic2.rom is missing (Acorn copyright, so you supply them)');
-  await page.goto('/?machine=mos');
+  await page.goto('/?machine=mos&roms=mos,basic');
   const status = page.getByRole('group', { name: 'Machine' }).getByRole('status');
   await expect(status).toContainText('Running');
   await page.getByRole('button', { name: 'Step one instruction' }).click();
@@ -102,7 +102,7 @@ test('Step in the Registers panel pauses the frame loop first: one driver at a t
 
 test('?paused powers on and waits at the reset vector, to step through the MOS from its first instruction', async ({ page, request }) => {
   test.skip(!(await hasRoms(request)), 'roms/os12.rom or roms/basic2.rom is missing (Acorn copyright, so you supply them)');
-  await page.goto('/?machine=mos&paused');
+  await page.goto('/?machine=mos&roms=mos,basic&paused');
   await expect(page.getByRole('group', { name: 'Machine' }).getByRole('status')).toHaveText('Paused at frame 0');
   // The MOS's reset vector at &FFFC/&FFFD points at &D9CD.
   await expect(page.locator('[data-register="PC"] .value')).toHaveText('&D9CD');

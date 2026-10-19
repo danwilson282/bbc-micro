@@ -28,7 +28,7 @@ function run(m: BbcModelB, frames: number): void {
 
 function booted(): BbcModelB {
   const m = new BbcModelB();
-  loadStandardRoms(m.map);
+  loadStandardRoms(m.map, ['mos', 'basic']);
   m.powerOn();
   run(m, 50);
   return m;

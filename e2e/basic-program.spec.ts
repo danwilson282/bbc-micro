@@ -47,7 +47,7 @@ async function type(page: Page, text: string): Promise<void> {
 test.describe('BASIC from the PC keyboard', () => {
   test.beforeEach(async ({ page, request }) => {
     test.skip(!(await hasRoms(request)), 'roms/os12.rom or roms/basic2.rom is missing (Acorn copyright, so you supply them)');
-    await page.goto('/?machine=mos');
+    await page.goto('/?machine=mos&roms=mos,basic');
     await expect(page.locator('.text-row').nth(5)).toHaveText(/^>/);
     await page.locator('.screen-frame').click();
   });

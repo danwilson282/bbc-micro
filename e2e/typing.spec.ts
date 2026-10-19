@@ -25,7 +25,7 @@ async function tap(page: Page, key: string, shift = false, holdMs = 60): Promise
 
 test('typing PRINT 2+2 and RETURN on the PC keyboard makes BASIC print 4', async ({ page, request }) => {
   test.skip(!(await hasRoms(request)), 'roms/os12.rom or roms/basic2.rom is missing (Acorn copyright, so you supply them)');
-  await page.goto('/?machine=mos');
+  await page.goto('/?machine=mos&roms=mos,basic');
   const rows = page.locator('.text-row');
   await expect(rows.nth(5)).toHaveText(/^>/);
   await page.locator('.screen-frame').click();
@@ -40,7 +40,7 @@ test('typing PRINT 2+2 and RETURN on the PC keyboard makes BASIC print 4', async
 
 test('the Keyboard panel shows the scan: CA2 interrupt on while idle, and CA2 rises counted after a key', async ({ page, request }) => {
   test.skip(!(await hasRoms(request)), 'roms/os12.rom or roms/basic2.rom is missing (Acorn copyright, so you supply them)');
-  await page.goto('/?machine=mos');
+  await page.goto('/?machine=mos&roms=mos,basic');
   await expect(page.locator('.text-row').nth(5)).toHaveText(/^>/);
   const scan = page.locator('.keyboard-scan');
   await expect(scan).toContainText('Autoscan on · CA2 interrupt on: waiting for a key · CA2 rises: 0');

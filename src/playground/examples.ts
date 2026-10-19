@@ -506,14 +506,15 @@ const TRACE_EXAMPLE: Example = { id: 'trace', title: 'Stage 18: disassembler & t
  * Stage 21: the BBC memory map. Each part of the map answers differently:
  * RAM keeps a write, ROM loses it, SHEILA's chips see register numbers, and
  * empty addresses return the floating bus. (Since Stage 24 the VIAs are real,
- * so the floating read goes to the 8271 FDC's slot instead of T1C-L.)
+ * so the floating read went to the 8271 FDC's slot instead of T1C-L; since
+ * Stage 49 the 8271 is real too, so it goes to the ADC's, never to be built.)
  */
 export const MEMORY_MAP_SOURCE = `; Stage 21: the BBC memory map. Press Run (it stops at the BRK), then
 ; read the Memory map panel's I/O log, and the results at &80-&84:
 ;   &80  &48  RAM kept what was written
 ;   &81  &00  the MOS ROM didn't: a ROM has no write line
-;   &82  &FE  the 8271 FDC is a placeholder, so the bus floats:
-;             the last byte on it was &FE, from fetching "LDA &FE80"
+;   &82  &FE  the ADC (joysticks) isn't fitted, so the bus floats:
+;             the last byte on it was &FE, from fetching "LDA &FEC0"
 ;   &83  &FD  JIM: nothing connected, so &FD, the same way
 ;   &84  &80  sideways ROM slot 0 (ROMSEL starts at 0) is empty: it floats too
 
@@ -532,7 +533,7 @@ start:  LDA #&48
         LDA #&7F
         STA &FE4E         ; System VIA reg 14 (IER)
         STA &FE5E         ; the same register again, through its mirror
-        LDA &FE80         ; 8271 FDC reg 0 (status): a placeholder until Part 11
+        LDA &FEC0         ; ADC reg 0 (status): a placeholder, never built
         STA result+2
         LDA &FD00         ; JIM
         STA result+3

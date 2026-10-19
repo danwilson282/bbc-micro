@@ -40,7 +40,7 @@ const SKIP = 'roms/os12.rom or roms/basic2.rom is missing (Acorn copyright, so y
 
 test('after boot the Video ULA panel shows MODE 7\'s control byte: teletext, palette unused', async ({ page, request }) => {
   test.skip(!(await hasRoms(request)), SKIP);
-  await page.goto('/?machine=mos');
+  await page.goto('/?machine=mos&roms=mos,basic');
   await expect(page.locator('.text-row').nth(5)).toHaveText(/^>/);
   const panel = page.locator('[data-panel="Video ULA"]');
   // Bit 0 flips every 25 fields, so &4A or &4B.
@@ -50,7 +50,7 @@ test('after boot the Video ULA panel shows MODE 7\'s control byte: teletext, pal
 
 test('typing MODE 1 changes the swatches to black, red, yellow, white in four entries each, and the screen becomes a bitmap', async ({ page, request }) => {
   test.skip(!(await hasRoms(request)), SKIP);
-  await page.goto('/?machine=mos');
+  await page.goto('/?machine=mos&roms=mos,basic');
   await expect(page.locator('.text-row').nth(5)).toHaveText(/^>/);
   await typeMode(page, 1);
   const panel = page.locator('[data-panel="Video ULA"]');
@@ -63,7 +63,7 @@ test('typing MODE 1 changes the swatches to black, red, yellow, white in four en
 
 test('MODE 2 shows 16 colours with 8-F flashing; back in MODE 7 the teletext screen returns', async ({ page, request }) => {
   test.skip(!(await hasRoms(request)), SKIP);
-  await page.goto('/?machine=mos');
+  await page.goto('/?machine=mos&roms=mos,basic');
   await expect(page.locator('.text-row').nth(5)).toHaveText(/^>/);
   await typeMode(page, 2);
   const panel = page.locator('[data-panel="Video ULA"]');
