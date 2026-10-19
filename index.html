@@ -1268,6 +1268,58 @@
         outline: 2px dashed var(--accent);
         outline-offset: -3px;
       }
+      /* Disc panel (Stage 48) */
+      .disc-drop {
+        display: block;
+        padding: 10px;
+        border: 2px dashed var(--border);
+        border-radius: 4px;
+        font-size: 0.85rem;
+      }
+      .disc-drop.dragging {
+        border-color: var(--written);
+      }
+      .disc-note,
+      .disc-summary {
+        margin: 6px 0;
+        font-size: 0.8rem;
+        color: var(--muted);
+      }
+      .disc-status {
+        margin: 6px 0;
+        font-weight: 600;
+      }
+      .disc-status.error,
+      .disc-error,
+      .disc-problems {
+        color: var(--error);
+      }
+      .disc-drive {
+        margin: 10px 0 4px;
+        font-size: 0.9rem;
+      }
+      .disc-cat {
+        margin: 0;
+        padding: 8px;
+        background: #000;
+        color: #fff;
+        font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+        font-size: 0.8rem;
+        line-height: 1.3;
+        overflow-x: auto;
+      }
+      .disc-files caption {
+        text-align: left;
+        font-size: 0.8rem;
+        color: var(--muted);
+      }
+      .disc-files td {
+        font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+      }
+      .disc-problems {
+        font-size: 0.8rem;
+        padding-left: 1.2em;
+      }
     </style>
   </head>
   <body>

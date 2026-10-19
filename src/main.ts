@@ -60,6 +60,7 @@ import { SYSTEM_VIA_BASE, USER_VIA_BASE } from './web/workbench/via-view-model';
 import { createVideoUlaPanel } from './web/workbench/video-ula-panel';
 import { createSoundPanel } from './web/workbench/sound-panel';
 import { createByteExplorerPanel } from './web/workbench/byte-explorer-panel';
+import { createDiscPanel } from './web/workbench/disc-panel';
 
 const screenFrame = document.querySelector<HTMLElement>('.screen-frame');
 // instanceof narrows querySelector's Element to the canvas, so no cast is needed.
@@ -392,6 +393,20 @@ workbench.add(createVideoUlaPanel(machine.videoUla));
 workbench.add(createByteExplorerPanel(machine.videoUla));
 // The SN76489 (Stage 44): its registers, written through port A when IC32 bit 0 falls.
 workbench.add(createSoundPanel(machine.sound, machine.hardwareLog));
+// The Disc panel (Stage 48): a dropped .ssd or .dsd's DFS catalogue. A file
+// dropped anywhere on the page goes to it, since the browser's own response
+// to a dropped file is to leave the page and show it.
+const discPanel = createDiscPanel();
+workbench.add(discPanel);
+document.addEventListener('dragover', (event) => {
+  if (event.dataTransfer?.types.includes('Files') === true) event.preventDefault();
+});
+document.addEventListener('drop', (event) => {
+  const file = event.dataTransfer?.files[0];
+  if (file === undefined) return;
+  event.preventDefault();
+  void discPanel.load(file);
+});
 workbench.add(createAddressingPanel(target));
 workbench.add(createConverterPanel());
 

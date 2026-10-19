@@ -139,6 +139,16 @@ describe('DiscImage.fromBytes: size validation and geometry', () => {
     expect(() => DiscImage.fromBytes(new Uint8Array(size), format, 'big')).toThrow(RangeError);
     expect(() => DiscImage.fromBytes(new Uint8Array(size), format, 'big')).toThrow(/big/);
   });
+
+  it('takes a track count when told one: a short ssd can be an 80-track disc (Stage 48)', () => {
+    const image = DiscImage.fromBytes(new Uint8Array(20 * SECTOR_SIZE), 'ssd', 'short.ssd', 80);
+    expect(image.geometry.tracks).toBe(80);
+    expect(image.hasSector(0, 79, 9)).toBe(true);
+  });
+
+  it('rejects a file too big for the track count it was told', () => {
+    expect(() => DiscImage.fromBytes(new Uint8Array(102_401), 'ssd', 'x.ssd', 40)).toThrow(/1 to 102400 bytes \(40 tracks\)/);
+  });
 });
 
 describe('DiscImage.readSector', () => {
