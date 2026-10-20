@@ -40,7 +40,7 @@ describe('SN76489 clocking', () => {
   });
 
   it('cycles left over from one step count towards the next: 5 + 3 cycles make one tick', () => {
-    const sn = chip(0x81, 0x00); // channel 0, N = 1: flips every tick
+    const sn = chip(0x82, 0x00); // channel 0, N = 2: its first tick flips it
     const before = sn.channelOutput(0);
     sn.tick(5);
     expect(sn.channelOutput(0)).toBe(before);
@@ -50,6 +50,38 @@ describe('SN76489 clocking', () => {
 });
 
 describe('SN76489 tone generators: count N ticks, flip', () => {
+  it('N = 1 doesn\'t oscillate: the output holds at 1 (SMS Power; what sample playback such as Superior\'s Speech! relies on)', () => {
+    const sn = chip(0x81, 0x00);
+    expect(flipTicks(sn, 0, 1)).toEqual([1]); // from power-on's 0 up to 1...
+    expect(flipTicks(sn, 0, 1000)).toEqual([]); // ...and there it stays
+    expect(sn.channelOutput(0)).toBe(1);
+  });
+
+  it('so with N = 1 the attenuation is a 4-bit DAC: the level is +gain, steady, and follows each write', () => {
+    const sn = chip(0x81, 0x00, 0x90);
+    const levels = new Set<number>();
+    for (let i = 0; i < 100; i++) {
+      sn.tick(SN_CPU_CYCLES_PER_TICK);
+      levels.add(sn.level);
+    }
+    expect([...levels]).toEqual([0.25]);
+    sn.write(0x95); // −10 dB
+    sn.tick(SN_CPU_CYCLES_PER_TICK);
+    expect(sn.level).toBeCloseTo(ATTENUATION_GAIN[5] / 4, 6);
+  });
+
+  it('N = 2 is the fastest tone that does oscillate: a flip every 2 ticks (62.5 kHz)', () => {
+    const sn = chip(0x82, 0x00);
+    expect(gaps(flipTicks(sn, 0, 20))).toEqual([2, 2, 2, 2, 2, 2, 2, 2, 2]);
+  });
+
+  it('from N = 1 to N = 3, the tone starts flipping again', () => {
+    const sn = chip(0x81, 0x00);
+    flipTicks(sn, 0, 10);
+    sn.write(0x83);
+    expect(gaps(flipTicks(sn, 0, 30)).every((g) => g === 3)).toBe(true);
+  });
+
   it('N = 3: the output flips every 3 ticks, so a cycle is 6 ticks (4 MHz ÷ (32 × 3))', () => {
     const sn = chip(0x83, 0x00);
     expect(gaps(flipTicks(sn, 0, 30))).toEqual([3, 3, 3, 3, 3, 3, 3, 3, 3]);
@@ -197,8 +229,8 @@ describe('SN76489 attenuators and mixer', () => {
   });
 
   it('all four channels at attenuation 0 and all high reach exactly +1', () => {
-    // N = 1 on every tone; noise periodic so bit 0 is known.
-    const sn = chip(0x90, 0xb0, 0xd0, 0xf0, 0x81, 0x00, 0xa1, 0x00, 0xc1, 0x00, 0xe0);
+    // N = 2 on every tone (N = 1 would hold them high); noise periodic so bit 0 is known.
+    const sn = chip(0x90, 0xb0, 0xd0, 0xf0, 0x82, 0x00, 0xa2, 0x00, 0xc2, 0x00, 0xe0);
     const levels: number[] = [];
     for (let i = 0; i < 32 * 15; i++) {
       sn.tick(SN_CPU_CYCLES_PER_TICK);

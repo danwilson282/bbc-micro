@@ -176,7 +176,7 @@ chip ticks: +1 +1 +1 -1 -1 -1 | -1 -1 +1 +1 +1 | ...
 sample:       average = 0.0    |  average = 0.2  | ...
 ```
 
-An N = 1 tone (125 kHz, alternating every tick) averages to almost nothing, which is right: it's silent to the ear on a real machine too.
+~~An N = 1 tone (125 kHz, alternating every tick) averages to almost nothing, which is right: it's silent to the ear on a real machine too.~~ **Corrected after Stage 51:** that was wrong. On the real chip an N = 1 tone doesn't alternate at all: its output **holds at 1** (SMS Power's notes). Software plays samples that way, writing the attenuation thousands of times a second as a 4-bit DAC. Superior Software's *Speech!* does it, and with our 125 kHz square wave it came out almost silent (RMS 0.002 instead of 0.077). The box filter still averages any real 125 kHz flip-flop to nearly nothing; it's just that N = 1 isn't one.
 
 To decide which ticks belong to which sample without fractions, we use a **phase accumulator**: each chip tick adds 44,100 to a counter, and every time the counter passes 250,000 we take 250,000 off and finish a sample. Over one second that's exactly 44,100 samples, with no rounding drift. (It's the same trick as Bresenham's line algorithm.)
 
@@ -332,6 +332,7 @@ Part 1 makes a bare `Sn76489`, writes bytes with `play(label, bytes, seconds)` a
 ## Gotchas & hardware quirks
 
 - **The datasheet doesn't settle everything.** It gives no tap positions or register width for the noise generator, and nothing for N = 0. We use 15 bits, taps 0 and 1, and N = 0 as 1024, all from SMS Power's notes on the SN76489AN. The BBC version may differ in ways I haven't checked. Comparing against a recording from a real Model B would settle it (parked).
+- **N = 1 holds high (fixed after Stage 51).** I modelled N = 1 as a 125 kHz square wave. The real chip holds the output at 1, and sample-playing software depends on it. See the correction in the resampler section, `sn76489.ts`, and `src/machine/speech.test.ts`.
 - **Off-by-one in the shift tests (mine).** I first wrote that the single 1 in periodic noise comes out "after 14 shifts, at index 14". It comes out at the 14th shift, which is index 13 when counting from 0. The test caught it.
 - **Float32 isn't exact.** The recorder stores `Float32Array` samples, so 0.2 comes back as 0.2000000003. Tests compare with a margin.
 - **Counting zero crossings over a fixed window can be one short.** A 1,000 Hz wave over exactly one second can show 999 rising edges, depending on where the first edge falls. Frequency tests allow ±5 Hz.

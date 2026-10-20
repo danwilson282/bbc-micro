@@ -41,7 +41,7 @@ describe('BoxResampler: 250 kHz chip ticks → 44.1 kHz samples', () => {
     expect(Array.from(rec.samples).every((s) => s === 0.25)).toBe(true);
   });
 
-  it('a level flipping every tick (N = 1, 125 kHz) averages to almost nothing, as the ear hears it', () => {
+  it('a level flipping every tick (a 125 kHz square wave) averages to almost nothing, as the ear hears it', () => {
     const { rec, rs } = recorderAt(44_100, 1_000);
     for (let i = 0; i < 5_000; i++) rs.input(i % 2 === 0 ? 1 : -1);
     expect(Math.max(...Array.from(rec.samples).map(Math.abs))).toBeLessThan(0.21); // at most 1 of 5 ticks left over: 0.2 (as a Float32)

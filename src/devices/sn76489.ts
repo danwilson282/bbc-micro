@@ -35,6 +35,12 @@
 // Then the four outputs, each ±gain(attenuation), are summed and ÷ 4. Where
 // the datasheet is silent (N = 0, the noise taps and width) this follows
 // SMS Power's measurements of the SN76489AN; see the Stage 45 doc.
+//
+// N = 1 is special (SMS Power): the output doesn't oscillate, it holds at 1.
+// Software uses that to play samples: tones at N = 1, and the attenuation
+// written thousands of times a second as a 4-bit DAC. Superior Software's
+// Speech! (1985) does exactly that. Found after Stage 51: we had a 125 kHz
+// square wave there, which averages to silence.
 
 import type { Clocked } from './clocked';
 import type { HardwareLog } from './hardware-log';
@@ -53,6 +59,8 @@ export const SN_TICK_RATE_HZ = SN76489_CLOCK_HZ / SN_CLOCK_DIVIDER;
 export const SN_CPU_CYCLES_PER_TICK = 8;
 /** N = 0 counts like 1024 on TI parts: the 10-bit counter wraps (SMS Power; not in the datasheet). */
 const TONE_ZERO_PERIOD = 0x400;
+/** N = 1 holds the output at 1 instead of flipping every tick (SMS Power: the sample-playback trick). */
+const TONE_HELD_HIGH = 1;
 
 /** Bit 7: 1 = latch byte, 0 = data byte. */
 const LATCH_BYTE = 0x80;
@@ -204,10 +212,12 @@ export class Sn76489 implements Clocked {
       const left = (counters[c] ?? 0) - 1;
       if (left > 0) {
         counters[c] = left;
-      } else {
-        counters[c] = tonePeriod(this.regs[c << 1] ?? 0);
-        flips[c] = (flips[c] ?? 0) ^ 1;
+        continue;
       }
+      const period = tonePeriod(this.regs[c << 1] ?? 0);
+      counters[c] = period;
+      // N = 1: held high, not a 125 kHz square wave.
+      flips[c] = period === TONE_HELD_HIGH ? 1 : (flips[c] ?? 0) ^ 1;
     }
     const left = counters[NOISE_COUNTER] - 1;
     if (left > 0) {
